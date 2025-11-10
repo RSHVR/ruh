@@ -38,12 +38,22 @@ gcloud run deploy ${SERVICE_NAME} \
   --region ${REGION} \
   --allow-unauthenticated \
   --port 8080 \
-  --memory 512Mi \
+  --memory 1Gi \
   --cpu 1 \
   --min-instances 0 \
   --max-instances 10 \
-  --timeout 60 \
+  --timeout 300 \
+  --set-env-vars "ANTHROPIC_API_KEY=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" \
+  --set-env-vars "DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/eject" \
+  --set-env-vars "SUPABASE_URL=https://vslnwiugfuvquiaafxgh.supabase.co" \
+  --set-env-vars "SUPABASE_KEY=" \
+  --set-env-vars "REDIS_URL=redis://localhost:6379/0" \
+  --set-env-vars "CELERY_BROKER_URL=redis://localhost:6379/0" \
+  --set-env-vars "CELERY_RESULT_BACKEND=redis://localhost:6379/0" \
+  --set-env-vars "API_HOST=0.0.0.0" \
+  --set-env-vars "API_PORT=8080" \
   --set-env-vars "DEBUG=false" \
+  --set-env-vars "ALLOWED_ORIGINS=*" \
   --set-env-vars "LOG_LEVEL=INFO"
 
 # Get the service URL
