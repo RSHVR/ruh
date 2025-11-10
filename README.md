@@ -1,8 +1,37 @@
-# Eject - A Chrome Extension to Detect Allergens and PFAS in Day-to-Day Products
+# Eject
 
-> Flag hidden dangers in everyday products, avoid harmful allergens and forever chemicals with a single click.
+> AI-powered product safety intelligence for conscious consumers
 
-Eject is an innovative Chrome extension designed to protect consumers by automatically detecting potentially harmful substances in products during online shopping. This powerful tool scans product descriptions and ingredient lists in real-time, identifying both common allergens and dangerous per- and polyfluoroalkyl substances (PFAS) that might otherwise go unnoticed. With a user-friendly interface that seamlessly integrates into your browsing experience, Eject provides immediate alerts when problematic ingredients are detected, offering alternative product suggestions when available. By bringing transparency to the often complex world of product ingredients, Eject enables users to make informed decisions about the products they bring into their homes and lives, promoting both personal health and environmental safety through conscious consumption.
+**Eject** is a Chrome extension that analyzes products for harmful substances (allergens, PFAS, and other chemicals) and recommends safer alternatives - all powered by a Claude AI agent.
 
+## What It Does
 
-Author(s): Arshveer Gahir, Kaustubh KC
+1. **Detects Products**: Automatically recognizes when you're viewing a product online
+2. **Analyzes Safety**: Claude agent examines ingredients for allergens, PFAS, and other harmful substances
+3. **Scores Harm Level**: Clear visual indicator (0-100) showing how safe/risky the product is
+4. **Recommends Alternatives**: AI finds safer products with lower risk scores
+5. **Monetizes Ethically**: Free for users, earns through affiliate links on recommended alternatives
+
+## Architecture
+
+- **Chrome Extension**: React + TypeScript frontend with content scripts and popup UI
+- **Backend Agent**: Node.js server using Claude Agent SDK with WebFetch and WebSearch tools
+- **AI Analysis**: Claude 3.5 Sonnet performs ingredient analysis and alternative discovery
+- **Monetization**: Affiliate links on safer alternative products (transparent disclosure)
+
+## Current Status
+
+🚧 **Phase 1 - MVP Development** (See [PLAN.md](./PLAN.md) for full roadmap)
+
+## Documentation
+
+- **[PLAN.md](./PLAN.md)**: Complete technical architecture, implementation roadmap, and guiding principles
+- More docs coming as we build
+
+## Authors
+
+Arshveer Gahir, Kaustubh KC
+
+## License
+
+MIT (to be added)
