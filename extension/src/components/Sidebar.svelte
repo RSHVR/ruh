@@ -19,10 +19,10 @@
 
   // Get color based on risk level (ruh brand guidelines)
   function getScoreColor(score: number): string {
-    if (score <= 30) return '#B8D4C6'; // Safe Green
-    if (score <= 60) return '#FFB8A0'; // Caution Peach
-    if (score <= 80) return '#E89B8C'; // Alert Coral (moderate)
-    return '#E89B8C'; // Alert Coral (high)
+    if (score <= 30) return '#9BB88F'; // Safe Green
+    if (score <= 60) return '#D4A574'; // Caution Amber
+    if (score <= 80) return '#C18A72'; // Alert Rust (moderate)
+    return '#C18A72'; // Alert Rust (high)
   }
 
   $: scoreColor = getScoreColor(harmScore);
@@ -32,10 +32,7 @@
   <!-- Header -->
   <div class="header">
     <div class="flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <span class="text-2xl">🛡️</span>
-        <h1 class="brand-title">ruh</h1>
-      </div>
+      <h1 class="brand-title">ruh</h1>
       <button onclick={onClose} class="close-btn" aria-label="Close sidebar">
         ✕
       </button>
@@ -218,43 +215,42 @@
 
   /* CSS Custom Properties - ruh Brand Variables */
   :root {
-    --color-primary: #FFD7C4;        /* Apricot Cream */
-    --color-secondary: #E8B4A0;      /* Soft Terracotta */
-    --color-accent: #C8D5B9;         /* Warm Sage */
-    --color-bg-primary: #FFF8F0;     /* Cream */
-    --color-bg-secondary: #FFDFD3;   /* Powder Peach */
-    --color-safe: #B8D4C6;           /* Safe Green */
-    --color-caution: #FFB8A0;        /* Caution Peach */
-    --color-alert: #E89B8C;          /* Alert Coral */
-    --color-text: #2D2D2D;           /* Deep gray */
-    --color-text-light: #9D9D9C;     /* Warm Gray */
+    --color-primary: #E8DCC8;        /* Soft Sand */
+    --color-secondary: #A8B89F;      /* Sage Green */
+    --color-accent: #C9B5A0;         /* Warm Taupe */
+    --color-bg-primary: #FFFBF5;     /* Cream */
+    --color-bg-secondary: #F5F0E8;   /* Pale Linen */
+    --color-safe: #9BB88F;           /* Safe Green */
+    --color-caution: #D4A574;        /* Caution Amber */
+    --color-alert: #C18A72;          /* Alert Rust */
+    --color-text: #3A3633;           /* Deep Charcoal */
+    --color-text-secondary: #6B6560; /* Medium Gray */
   }
 
   .sidebar {
     @apply fixed top-0 right-0 h-full w-[400px] shadow-2xl z-[999999] flex flex-col;
     background: var(--color-bg-primary); /* Cream */
-    border-radius: 0 0 0 24px;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
 
   .header {
-    @apply p-5 shadow-sm;
-    background: linear-gradient(135deg, var(--color-bg-primary) 0%, var(--color-bg-secondary) 100%);
-    border-radius: 0 0 0 24px;
+    padding: 24px 20px;
+    background: var(--color-bg-primary); /* Same as body - blends in */
+    border-bottom: 1px solid var(--color-bg-secondary); /* Subtle separator */
   }
 
   .brand-title {
     font-family: 'Cormorant', serif;
     font-weight: 600;
-    font-size: 32px;
-    color: var(--color-secondary); /* Soft Terracotta */
+    font-size: 44px;
+    color: var(--color-accent); /* Warm Taupe */
     letter-spacing: 0.075em; /* +75 tracking */
     text-transform: lowercase;
   }
 
   .close-btn {
     @apply hover:bg-gray-200/60 rounded-full w-9 h-9 flex items-center justify-center transition-all text-xl font-bold;
-    color: var(--color-text-light);
+    color: var(--color-text-secondary);
   }
 
   .content {
@@ -328,16 +324,16 @@
   .score-label {
     font-family: 'Inter', sans-serif;
     font-size: 12px;
-    color: var(--color-text-light);
+    color: var(--color-text-secondary);
     margin-top: 4px;
   }
 
   .item-card {
     padding: 16px;
     border-radius: 12px;
-    background: var(--color-bg-secondary); /* Powder Peach */
+    background: var(--color-bg-secondary); /* Pale Linen */
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
-    border: 1px solid #F0EBE6;
+    border: 1px solid rgba(168, 184, 159, 0.15); /* Light Sage tint */
     margin-bottom: 8px;
   }
 
@@ -353,22 +349,22 @@
 
   .severity-low {
     background: var(--color-safe);
-    color: #065F46;
+    color: #2D4A2A;
   }
 
   .severity-moderate {
     background: var(--color-caution);
-    color: #92400E;
+    color: #6B4E2A;
   }
 
   .severity-high {
     background: var(--color-alert);
-    color: #7C2D12;
+    color: #5C3A2D;
   }
 
   .severity-severe {
     background: var(--color-alert);
-    color: #7C2D12;
+    color: #5C3A2D;
   }
 
   .loading,
@@ -384,7 +380,7 @@
     border: 4px solid;
     border-radius: 50%;
     border-color: var(--color-bg-secondary);
-    border-top-color: var(--color-text-light);
+    border-top-color: var(--color-text-secondary);
     animation: spin 1s linear infinite;
   }
 
@@ -399,7 +395,7 @@
     font-family: 'Inter', sans-serif;
     font-weight: 500;
     font-size: 15px;
-    background: var(--color-primary); /* Apricot Cream */
+    background: var(--color-primary); /* Soft Sand */
     color: var(--color-text);
     transition: all 150ms ease-in-out;
     border: none;
@@ -407,7 +403,7 @@
   }
 
   .retry-btn:hover {
-    background: var(--color-secondary); /* Soft Terracotta */
+    background: var(--color-accent); /* Warm Taupe */
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   }
