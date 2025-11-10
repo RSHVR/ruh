@@ -2,6 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Ensure body and html have proper background */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: white;
+  overflow: hidden;
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+}
+
 /* Custom scrollbar for sidebar */
 ::-webkit-scrollbar {
   width: 8px;
