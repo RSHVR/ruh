@@ -29,9 +29,9 @@ EXPOSE 8080
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8080/api/health', timeout=2.0)" || exit 1
+# Health check - using httpx.Client for synchronous request
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python -c "import httpx; client = httpx.Client(); response = client.get('http://localhost:${PORT:-8080}/api/health', timeout=5.0); exit(0 if response.status_code == 200 else 1)" || exit 1
 
 # Run uvicorn
 CMD uvicorn src.api.main:app --host 0.0.0.0 --port ${PORT}

@@ -10,17 +10,17 @@ class Settings(BaseSettings):
     # Anthropic API
     anthropic_api_key: str
 
-    # Database
-    database_url: str
+    # Database (optional for basic API functionality)
+    database_url: str = ""
     supabase_url: str = ""
     supabase_key: str = ""
 
-    # Redis
-    redis_url: str = "redis://localhost:6379/0"
+    # Redis (optional for basic API functionality)
+    redis_url: str = ""
 
-    # Celery
-    celery_broker_url: str = "redis://localhost:6379/0"
-    celery_result_backend: str = "redis://localhost:6379/0"
+    # Celery (optional for basic API functionality)
+    celery_broker_url: str = ""
+    celery_result_backend: str = ""
 
     # API Configuration
     api_host: str = "0.0.0.0"
