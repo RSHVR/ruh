@@ -26,6 +26,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    sourcemap: false,
     rollupOptions: {
       input: {
         sidebar: resolve(__dirname, 'src/sidebar.html'),
@@ -34,15 +35,8 @@ export default defineConfig({
       },
       output: {
         entryFileNames: '[name].js',
-        chunkFileNames: 'chunks/[name].js',
-        assetFileNames: (assetInfo) => {
-          // Keep sidebar assets in assets folder
-          if (assetInfo.name?.includes('sidebar')) {
-            return 'assets/[name].[ext]';
-          }
-          // Other assets go to root
-          return '[name].[ext]';
-        }
+        chunkFileNames: '[name].js',
+        assetFileNames: 'assets/[name].[ext]'
       }
     }
   },
