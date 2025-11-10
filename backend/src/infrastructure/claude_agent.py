@@ -147,15 +147,16 @@ class ProductSafetyAgent:
             response = await self.http_client.get(url, headers=headers)
             response.raise_for_status()
 
-            # Return HTML content (truncated to avoid token limits)
-            content = response.text[:50000]  # Limit to ~50KB
+            # Extract only relevant product information to reduce token usage
+            html = response.text
+            extracted = self._extract_product_info(html)
 
             return {
                 "success": True,
                 "url": url,
                 "status_code": response.status_code,
-                "content": content,
-                "content_length": len(content),
+                "content": extracted,
+                "content_length": len(extracted),
             }
         except Exception as e:
             return {
@@ -163,6 +164,69 @@ class ProductSafetyAgent:
                 "url": url,
                 "error": str(e),
             }
+
+    def _extract_product_info(self, html: str) -> str:
+        """Extract only relevant product information from HTML.
+
+        Args:
+            html: Full HTML content
+
+        Returns:
+            Extracted product information as text
+        """
+        import re
+
+        # Remove script and style tags
+        html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+        html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL | re.IGNORECASE)
+
+        # Extract key sections
+        sections = []
+
+        # Product title
+        title_match = re.search(r'<span[^>]*id="productTitle"[^>]*>(.*?)</span>', html, re.DOTALL)
+        if title_match:
+            sections.append(f"PRODUCT TITLE: {title_match.group(1).strip()}")
+
+        # Brand
+        brand_match = re.search(r'<a[^>]*id="bylineInfo"[^>]*>(.*?)</a>', html, re.DOTALL)
+        if brand_match:
+            sections.append(f"BRAND: {brand_match.group(1).strip()}")
+
+        # Feature bullets
+        feature_match = re.search(r'<div[^>]*id="feature-bullets"[^>]*>(.*?)</div>', html, re.DOTALL)
+        if feature_match:
+            bullets = re.findall(r'<span[^>]*class="[^"]*a-list-item[^"]*"[^>]*>(.*?)</span>', feature_match.group(1), re.DOTALL)
+            if bullets:
+                sections.append("FEATURES:\n" + "\n".join(f"- {b.strip()}" for b in bullets[:10]))
+
+        # Product description
+        desc_match = re.search(r'<div[^>]*id="productDescription"[^>]*>(.*?)</div>', html, re.DOTALL)
+        if desc_match:
+            desc_text = re.sub(r'<[^>]+>', ' ', desc_match.group(1))
+            desc_text = ' '.join(desc_text.split())[:1000]  # Limit to 1000 chars
+            sections.append(f"DESCRIPTION: {desc_text}")
+
+        # Product details/specifications
+        details_match = re.search(r'<div[^>]*id="detailBullets"[^>]*>(.*?)</div>', html, re.DOTALL)
+        if not details_match:
+            details_match = re.search(r'<table[^>]*id="productDetails"[^>]*>(.*?)</table>', html, re.DOTALL)
+
+        if details_match:
+            details_text = re.sub(r'<[^>]+>', ' ', details_match.group(1))
+            details_text = ' '.join(details_text.split())[:1000]
+            sections.append(f"DETAILS: {details_text}")
+
+        # Combine all sections
+        extracted = "\n\n".join(sections)
+
+        # If nothing extracted, return cleaned HTML (limited)
+        if not extracted:
+            cleaned = re.sub(r'<[^>]+>', ' ', html)
+            cleaned = ' '.join(cleaned.split())
+            extracted = cleaned[:5000]  # Fallback: first 5000 chars of cleaned HTML
+
+        return extracted[:8000]  # Hard limit to ~2000 tokens
 
     def _build_system_prompt(
         self,
