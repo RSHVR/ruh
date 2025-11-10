@@ -100,7 +100,7 @@ function openSidebar() {
   // Create iframe for sidebar
   sidebarIframe = document.createElement('iframe');
   sidebarIframe.id = 'eject-sidebar-iframe';
-  sidebarIframe.src = chrome.runtime.getURL(`sidebar.html?url=${encodeURIComponent(currentProductUrl)}`);
+  sidebarIframe.src = chrome.runtime.getURL(`src/sidebar.html?url=${encodeURIComponent(currentProductUrl)}`);
   sidebarIframe.style.cssText = `
     position: fixed;
     top: 0;

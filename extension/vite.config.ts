@@ -36,7 +36,13 @@ export default defineConfig({
       output: {
         entryFileNames: '[name].js',
         chunkFileNames: '[name].js',
-        assetFileNames: 'assets/[name].[ext]'
+        assetFileNames: (assetInfo) => {
+          // Keep HTML files at root for web_accessible_resources
+          if (assetInfo.name?.endsWith('.html')) {
+            return '[name].[ext]';
+          }
+          return 'assets/[name].[ext]';
+        }
       }
     }
   },
