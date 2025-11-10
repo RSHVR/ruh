@@ -71,6 +71,1136 @@ Eject is a Chrome extension that empowers consumers to make safer purchasing dec
 - **Prompt Engineering**: Structured prompts for safety analysis
 - **Knowledge Base**: Curated lists of allergens, PFAS compounds, safe alternatives
 
+## Infrastructure & Hosting Strategy
+
+### Backend API Hosting
+
+**Recommended: Google Cloud Platform (GCP)**
+
+**Rationale**:
+- **Chrome Extension Integration**: Better ecosystem alignment (Google Cloud + Chrome)
+- **Free Tier**: $300 credit for 90 days, then generous always-free tier
+  - Cloud Run: 2 million requests/month free
+  - Cloud Functions: 2 million invocations/month free
+  - Firestore: 1GB storage, 50K reads/day, 20K writes/day free
+- **Auto-scaling**: Cloud Run scales to zero (pay only for usage)
+- **Serverless**: No infrastructure management required
+- **Global CDN**: Low latency worldwide
+- **Cost Efficiency**: ~$20-50/month at 10K users (vs Vercel ~$40-80/month)
+
+**Alternative: Vercel (Serverless Functions)**
+- **Pros**:
+  - Excellent DX (developer experience)
+  - Easy deployment (git push → deploy)
+  - Free tier: 100GB bandwidth, 100K serverless function executions
+- **Cons**:
+  - Function timeout: 10s on free tier (may be tight for AI analysis)
+  - More expensive at scale ($20/user/month for Pro)
+  - Not ideal for long-running Claude agent tasks
+- **Verdict**: Good for landing page, but GCP better for backend API
+
+**Deployment Architecture (GCP)**:
+```
+┌──────────────────────────────────────────────────────┐
+│               Chrome Extension                        │
+└────────────────────┬─────────────────────────────────┘
+                     │ HTTPS
+                     ▼
+┌──────────────────────────────────────────────────────┐
+│           Cloud Load Balancer (HTTPS)                │
+│                 (Global, Auto-SSL)                    │
+└────────────────────┬─────────────────────────────────┘
+                     ▼
+┌──────────────────────────────────────────────────────┐
+│         Cloud Run (Containerized API)                │
+│  • Node.js + Express + TypeScript                    │
+│  • Claude Agent SDK                                  │
+│  • Auto-scales 0-1000 instances                      │
+│  • Max concurrency: 80 requests/instance             │
+│  • Timeout: 60s (configurable up to 60min)           │
+└────────┬────────────────────────┬────────────────────┘
+         │                        │
+         ▼                        ▼
+┌──────────────────┐    ┌──────────────────────┐
+│  Cloud Firestore │    │   Cloud Memorystore  │
+│   (Database)     │    │      (Redis)         │
+└──────────────────┘    └──────────────────────┘
+```
+
+**Cost Estimates (GCP)**:
+- **0-1K users**: $0/month (free tier)
+- **1K-10K users**: $20-50/month (Cloud Run + Firestore)
+- **10K-100K users**: $200-500/month (need Memorystore Redis ~$50/month)
+- **Anthropic API costs**: Variable (~$0.01-0.05 per analysis)
+
+### Database Architecture
+
+**Recommended: Supabase (PostgreSQL + Realtime)**
+
+**Rationale**:
+- **No Auth Required**: Can use anonymous sessions with UUID tracking
+- **PostgreSQL**: Full-featured relational database
+- **Free Tier**: 500MB database, 1GB file storage, 2GB bandwidth
+- **Real-time**: WebSocket subscriptions (for future features)
+- **Edge Functions**: Deno-based serverless functions
+- **Cost**: $0/month (free tier) → $25/month (Pro with 8GB database)
+- **Backup**: Automated daily backups on paid tier
+- **REST API**: Auto-generated from schema (optional, we'll use direct connection)
+
+**Alternative: GCP Firestore (NoSQL)**
+- **Pros**:
+  - Same ecosystem as Cloud Run (easier integration)
+  - Generous free tier (1GB storage, 50K reads/day, 20K writes/day)
+  - Real-time listeners built-in
+  - No server management
+  - Scales automatically
+- **Cons**:
+  - NoSQL (less flexible for complex queries)
+  - More expensive at scale ($0.06/100K reads)
+- **Verdict**: Great for MVP, but PostgreSQL better for complex analytics later
+
+**Alternative: Prisma + PostgreSQL (Self-hosted or Railway)**
+- **Prisma**: ORM for type-safe database access (can use with Supabase)
+- **Railway**: $5/month PostgreSQL, easy deployment
+- **Verdict**: Prisma is great as ORM layer on top of Supabase
+
+**Decision: Supabase (PostgreSQL) + Prisma ORM**
+
+### Database Schema
+
+**User Tracking (Anonymous, No Auth)**:
+
+```typescript
+// Users table - anonymous tracking via UUID
+table users {
+  id: uuid PRIMARY KEY DEFAULT gen_random_uuid()
+  created_at: timestamp DEFAULT now()
+  last_active: timestamp
+  extension_version: string
+
+  // Optional preferences (stored locally, synced if user opts-in)
+  allergen_profile: jsonb // ["peanuts", "dairy", ...]
+  sensitivity_level: enum("strict", "moderate", "relaxed")
+
+  // Privacy: no PII, no email, no accounts
+}
+
+// Product Analyses - cache of AI analysis results
+table product_analyses {
+  id: uuid PRIMARY KEY DEFAULT gen_random_uuid()
+  product_url: text NOT NULL
+  product_url_hash: text UNIQUE NOT NULL // hash for fast lookup
+
+  // Product data
+  product_name: text
+  brand: text
+  retailer: text
+  ingredients: text[]
+
+  // Analysis results
+  overall_score: integer // 0-100
+  allergens_detected: jsonb // [{name, severity, source}]
+  pfas_detected: jsonb
+  other_concerns: jsonb
+  confidence: integer // 0-100
+
+  // Metadata
+  analyzed_at: timestamp DEFAULT now()
+  analysis_version: string // track prompt versions
+  claude_model: string // "claude-3-5-sonnet-20241022"
+
+  // Cache TTL
+  expires_at: timestamp // 7 days from analysis
+
+  // Index for fast lookup
+  INDEX idx_url_hash (product_url_hash)
+  INDEX idx_expires (expires_at)
+}
+
+// User Searches - track what users searched (privacy-respecting)
+table user_searches {
+  id: uuid PRIMARY KEY DEFAULT gen_random_uuid()
+  user_id: uuid REFERENCES users(id) ON DELETE CASCADE
+
+  product_url: text NOT NULL
+  product_url_hash: text NOT NULL
+  analysis_id: uuid REFERENCES product_analyses(id)
+
+  // Timestamps
+  searched_at: timestamp DEFAULT now()
+
+  // Index
+  INDEX idx_user_searches (user_id, searched_at DESC)
+  INDEX idx_url_hash (product_url_hash)
+}
+
+// Alternative Recommendations - track what AI recommended
+table alternative_recommendations {
+  id: uuid PRIMARY KEY DEFAULT gen_random_uuid()
+
+  original_analysis_id: uuid REFERENCES product_analyses(id)
+  alternative_product_url: text NOT NULL
+  alternative_product_name: text
+
+  // Scores
+  safety_score: integer // 0-100
+  safety_improvement: integer // delta from original
+  price: decimal(10,2)
+  price_difference: decimal(10,2) // delta from original
+
+  // Ranking
+  rank: integer // 1-5 (display order)
+
+  // Affiliate
+  affiliate_link: text
+  affiliate_network: text // "amazon-associates", "shareasale", etc.
+
+  // Metadata
+  recommended_at: timestamp DEFAULT now()
+
+  INDEX idx_original_analysis (original_analysis_id)
+}
+
+// User Interactions - track clicks and purchases (for optimization)
+table user_interactions {
+  id: uuid PRIMARY KEY DEFAULT gen_random_uuid()
+  user_id: uuid REFERENCES users(id) ON DELETE CASCADE
+
+  search_id: uuid REFERENCES user_searches(id)
+  alternative_id: uuid REFERENCES alternative_recommendations(id)
+
+  // Interaction type
+  action: enum("viewed_alternatives", "clicked_alternative", "purchased")
+
+  // Metadata
+  occurred_at: timestamp DEFAULT now()
+
+  // Revenue tracking (optional, privacy-respecting)
+  purchase_amount: decimal(10,2) // if action=purchased
+  commission_earned: decimal(10,2) // if action=purchased
+
+  INDEX idx_user_interactions (user_id, occurred_at DESC)
+  INDEX idx_alternative_interactions (alternative_id, action)
+}
+
+// Feedback - user ratings on analysis quality
+table analysis_feedback {
+  id: uuid PRIMARY KEY DEFAULT gen_random_uuid()
+
+  analysis_id: uuid REFERENCES product_analyses(id)
+  user_id: uuid REFERENCES users(id)
+
+  helpful: boolean NOT NULL // thumbs up/down
+  comment: text // optional feedback
+
+  submitted_at: timestamp DEFAULT now()
+
+  UNIQUE(analysis_id, user_id) // one feedback per user per analysis
+  INDEX idx_analysis_feedback (analysis_id)
+}
+
+// Knowledge Base - allergens and PFAS compounds
+table allergens {
+  id: uuid PRIMARY KEY
+  name: text NOT NULL UNIQUE
+  synonyms: text[] // ["milk", "dairy", "lactose"]
+  severity_default: integer // 1-10
+  common_sources: text[]
+  updated_at: timestamp
+}
+
+table pfas_compounds {
+  id: uuid PRIMARY KEY
+  name: text NOT NULL UNIQUE
+  cas_number: text UNIQUE // Chemical Abstracts Service number
+  synonyms: text[]
+  health_impacts: text[]
+  sources: text[] // research paper URLs
+  updated_at: timestamp
+}
+```
+
+**Privacy-First Design**:
+- **No PII**: No emails, names, or identifying information
+- **Anonymous UUIDs**: Extension generates UUID on install, stored locally
+- **Opt-in sync**: Users can choose to sync allergen profiles (default: local only)
+- **Aggregate analytics only**: Individual user data never exposed
+- **GDPR compliant**: Right to deletion via UUID (users can reset extension)
+- **Data retention**: Auto-delete searches older than 90 days
+
+**Database Hosting Costs**:
+- **Supabase Free Tier**: 500MB database (sufficient for 10K+ analyses)
+- **Supabase Pro**: $25/month (8GB database, daily backups, 50GB bandwidth)
+- **Estimated Scale**: 500MB ≈ 50K product analyses + 100K user searches
+
+## Agent Parallelization & Scaling
+
+### Concurrency Model
+
+**Challenge**: Multiple users requesting analyses simultaneously requires parallel Claude agent instances.
+
+**Solution: Stateless Agent Workers + Job Queue**
+
+```typescript
+┌─────────────────────────────────────────────────────┐
+│              Incoming API Requests                   │
+│          (from Chrome extension users)               │
+└────────────────────┬────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────┐
+│            API Gateway (Express.js)                  │
+│  • Rate limiting (10 req/min per user)               │
+│  • Request validation                                │
+│  • Check analysis cache (Redis)                      │
+└────────────────────┬────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────┐
+│              Job Queue (BullMQ + Redis)              │
+│  • Queue: "product-analysis"                         │
+│  • Priority: premium users > free users              │
+│  • Retry: 3 attempts with exponential backoff        │
+│  • Timeout: 60s per job                              │
+└────────────────────┬────────────────────────────────┘
+                     │
+                     ▼
+        ┌────────────┴────────────┐
+        │                         │
+┌───────▼────────┐     ┌──────────▼─────────┐
+│  Agent Worker  │ ... │   Agent Worker N   │
+│    Instance 1  │     │                    │
+│                │     │                    │
+│ Claude SDK     │     │    Claude SDK      │
+│ • WebFetch     │     │    • WebFetch      │
+│ • WebSearch    │     │    • WebSearch     │
+│ • Harm Analyze │     │    • Harm Analyze  │
+└────────┬───────┘     └──────────┬─────────┘
+         │                        │
+         └────────────┬───────────┘
+                      ▼
+         ┌──────────────────────────┐
+         │    Store in Database     │
+         │   (Supabase PostgreSQL)  │
+         └──────────────────────────┘
+```
+
+### Implementation Details
+
+**BullMQ Job Queue (Redis-backed)**:
+
+```typescript
+// queue/analysis-queue.ts
+import { Queue, Worker } from 'bullmq';
+import IORedis from 'ioredis';
+
+const connection = new IORedis({
+  host: process.env.REDIS_HOST,
+  port: 6379,
+  maxRetriesPerRequest: null
+});
+
+// Analysis job queue
+export const analysisQueue = new Queue('product-analysis', {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: 'exponential',
+      delay: 2000
+    },
+    timeout: 60000 // 60s
+  }
+});
+
+// Worker pool - multiple instances processing in parallel
+export function createWorker(concurrency: number = 10) {
+  return new Worker(
+    'product-analysis',
+    async (job) => {
+      const { productData, userId } = job.data;
+
+      // Each job gets its own Claude agent instance
+      const agent = new ProductSafetyAgent();
+      const result = await agent.analyze(productData);
+
+      // Store in database
+      await storeAnalysis(result, userId);
+
+      return result;
+    },
+    {
+      connection,
+      concurrency, // Process 10 jobs in parallel
+      limiter: {
+        max: 100, // Max 100 jobs
+        duration: 60000 // per 60 seconds
+      }
+    }
+  );
+}
+```
+
+**Agent Instance Pooling**:
+
+```typescript
+// agent/agent-pool.ts
+import { ProductSafetyAgent } from './product-safety-agent';
+
+class AgentPool {
+  private agents: ProductSafetyAgent[] = [];
+  private maxSize: number = 20;
+
+  async acquire(): Promise<ProductSafetyAgent> {
+    // Reuse existing idle agent or create new one
+    const agent = this.agents.pop() || new ProductSafetyAgent();
+    return agent;
+  }
+
+  release(agent: ProductSafetyAgent): void {
+    if (this.agents.length < this.maxSize) {
+      this.agents.push(agent);
+    }
+    // Otherwise let it be garbage collected
+  }
+}
+
+export const agentPool = new AgentPool();
+```
+
+**Scaling Characteristics**:
+- **Horizontal scaling**: Cloud Run auto-scales instances (0-1000)
+- **Per-instance concurrency**: 10 parallel agent executions
+- **Queue throughput**: ~600 analyses/minute (10 workers × 60s)
+- **Anthropic API rate limits**: 50 requests/minute (need to request increase)
+- **Cost per 1000 analyses**: ~$10-50 (Claude API) + $1-2 (infrastructure)
+
+### Caching Strategy
+
+**Multi-layer caching to reduce API costs**:
+
+```typescript
+// Level 1: In-memory cache (Redis) - 1 hour TTL
+// Level 2: Database cache - 7 days TTL
+// Level 3: Extension local storage - 30 days TTL
+
+async function getAnalysis(productUrl: string): Promise<Analysis | null> {
+  const urlHash = hashUrl(productUrl);
+
+  // Check Redis (fast, in-memory)
+  const cached = await redis.get(`analysis:${urlHash}`);
+  if (cached) return JSON.parse(cached);
+
+  // Check database (slower, but cheaper than AI)
+  const dbResult = await db.productAnalyses.findUnique({
+    where: { product_url_hash: urlHash }
+  });
+
+  if (dbResult && !isExpired(dbResult.expires_at)) {
+    // Promote to Redis
+    await redis.setex(`analysis:${urlHash}`, 3600, JSON.stringify(dbResult));
+    return dbResult;
+  }
+
+  // Not cached, needs new analysis
+  return null;
+}
+```
+
+**Cache Hit Rate Target**: 60%+ (reduces costs significantly)
+
+## Separation of Concerns
+
+### Clean Architecture Layers
+
+```
+┌─────────────────────────────────────────────────────┐
+│              Presentation Layer                      │
+│  • Express.js routes (REST API endpoints)            │
+│  • Request validation (Zod schemas)                  │
+│  • Response formatting                               │
+│  • Error handling middleware                         │
+└────────────────────┬────────────────────────────────┘
+                     ▼
+┌─────────────────────────────────────────────────────┐
+│              Application Layer                       │
+│  • Use cases / business logic                        │
+│    - AnalyzeProductUseCase                           │
+│    - FindAlternativesUseCase                         │
+│    - TrackInteractionUseCase                         │
+│  • Orchestration (queue jobs, combine results)       │
+└────────────────────┬────────────────────────────────┘
+                     ▼
+┌─────────────────────────────────────────────────────┐
+│              Domain Layer                            │
+│  • Entities (Product, Analysis, Alternative)         │
+│  • Value Objects (HarmScore, AllergenRisk)           │
+│  • Domain services (HarmCalculator, RankingEngine)   │
+│  • Interfaces (ports for external services)          │
+└────────────────────┬────────────────────────────────┘
+                     ▼
+┌─────────────────────────────────────────────────────┐
+│              Infrastructure Layer                    │
+│  • Database (Prisma repositories)                    │
+│  • External APIs (Claude SDK, affiliate APIs)        │
+│  • Cache (Redis client)                              │
+│  • Queue (BullMQ workers)                            │
+│  • Logging (Winston/Pino)                            │
+└─────────────────────────────────────────────────────┘
+```
+
+### Directory Structure
+
+```
+backend/
+├── src/
+│   ├── api/                    # Presentation Layer
+│   │   ├── routes/
+│   │   │   ├── analyze.route.ts
+│   │   │   ├── alternatives.route.ts
+│   │   │   └── health.route.ts
+│   │   ├── middleware/
+│   │   │   ├── rate-limit.ts
+│   │   │   ├── validate.ts
+│   │   │   └── error-handler.ts
+│   │   └── schemas/
+│   │       └── product.schema.ts   # Zod validation schemas
+│   │
+│   ├── application/            # Application Layer
+│   │   ├── use-cases/
+│   │   │   ├── analyze-product.usecase.ts
+│   │   │   ├── find-alternatives.usecase.ts
+│   │   │   └── track-interaction.usecase.ts
+│   │   └── interfaces/         # Port definitions
+│   │       ├── repository.interface.ts
+│   │       └── ai-agent.interface.ts
+│   │
+│   ├── domain/                 # Domain Layer
+│   │   ├── entities/
+│   │   │   ├── product.entity.ts
+│   │   │   ├── analysis.entity.ts
+│   │   │   └── alternative.entity.ts
+│   │   ├── value-objects/
+│   │   │   ├── harm-score.vo.ts
+│   │   │   └── allergen-risk.vo.ts
+│   │   └── services/
+│   │       ├── harm-calculator.service.ts
+│   │       └── ranking-engine.service.ts
+│   │
+│   ├── infrastructure/         # Infrastructure Layer
+│   │   ├── database/
+│   │   │   ├── prisma/
+│   │   │   │   └── schema.prisma
+│   │   │   └── repositories/
+│   │   │       ├── product.repository.ts
+│   │   │       └── analysis.repository.ts
+│   │   ├── ai/
+│   │   │   ├── claude-agent.ts
+│   │   │   ├── prompts/
+│   │   │   │   ├── analyze.prompt.ts
+│   │   │   │   └── alternatives.prompt.ts
+│   │   │   └── tools/
+│   │   │       ├── web-fetch.tool.ts
+│   │   │       └── web-search.tool.ts
+│   │   ├── cache/
+│   │   │   └── redis.client.ts
+│   │   ├── queue/
+│   │   │   └── analysis.queue.ts
+│   │   └── logging/
+│   │       └── logger.ts
+│   │
+│   ├── shared/                 # Shared utilities
+│   │   ├── types/
+│   │   ├── utils/
+│   │   └── constants/
+│   │
+│   └── index.ts               # Application entry point
+│
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   └── e2e/
+│
+├── prisma/
+│   └── migrations/
+│
+├── docker/
+│   ├── Dockerfile
+│   └── docker-compose.yml
+│
+└── package.json
+```
+
+### Key Principles
+
+1. **Dependency Inversion**: Domain layer doesn't depend on infrastructure
+2. **Single Responsibility**: Each module has one clear purpose
+3. **Interface Segregation**: Small, focused interfaces
+4. **Testability**: Easy to mock dependencies via interfaces
+5. **Modularity**: Can swap implementations (e.g., different AI models, different databases)
+
+## Logging & Monitoring
+
+### Logging Strategy
+
+**Structured Logging with Pino (High Performance)**
+
+```typescript
+// infrastructure/logging/logger.ts
+import pino from 'pino';
+
+export const logger = pino({
+  level: process.env.LOG_LEVEL || 'info',
+  formatters: {
+    level: (label) => {
+      return { level: label };
+    }
+  },
+  timestamp: pino.stdTimeFunctions.isoTime,
+  // GCP Cloud Logging compatible format
+  messageKey: 'message',
+  errorKey: 'error',
+});
+
+// Usage example
+logger.info({ userId, productUrl, duration: 234 }, 'Product analysis completed');
+logger.error({ userId, error, productUrl }, 'Analysis failed');
+```
+
+**Log Levels**:
+- **ERROR**: Failures that need immediate attention (AI API errors, database failures)
+- **WARN**: Degraded performance, rate limits, fallbacks used
+- **INFO**: Key business events (analysis started, alternatives found, user clicked)
+- **DEBUG**: Detailed execution flow (cache hit/miss, AI prompts, tool calls)
+
+**What to Log**:
+
+```typescript
+// Analysis lifecycle
+logger.info({
+  event: 'analysis.started',
+  userId,
+  productUrl: hashUrl(url), // hash for privacy
+  retailer,
+  cached: false
+});
+
+logger.info({
+  event: 'analysis.completed',
+  userId,
+  analysisId,
+  duration: 2340, // ms
+  cacheUsed: false,
+  claudeTokens: 1234,
+  harmScore: 67,
+  alternativesFound: 4
+});
+
+// Errors
+logger.error({
+  event: 'analysis.failed',
+  userId,
+  error: err.message,
+  stack: err.stack,
+  productUrl: hashUrl(url),
+  retryCount: 2
+});
+
+// User interactions
+logger.info({
+  event: 'alternative.clicked',
+  userId,
+  analysisId,
+  alternativeId,
+  alternativeRank: 1,
+  affiliateNetwork: 'amazon-associates'
+});
+
+// Performance
+logger.warn({
+  event: 'slow.analysis',
+  userId,
+  duration: 8500, // ms (over threshold)
+  productUrl: hashUrl(url)
+});
+```
+
+### Monitoring Stack
+
+**Recommended: Google Cloud Operations (formerly Stackdriver)**
+
+**Why**:
+- Native integration with Cloud Run
+- Automatic log aggregation
+- Built-in metrics and traces
+- Free tier: 50GB logs/month
+- Cost: ~$5-20/month at scale
+
+**Components**:
+
+1. **Cloud Logging**: Centralized log storage and search
+2. **Cloud Monitoring**: Metrics dashboards and alerting
+3. **Cloud Trace**: Distributed tracing (request flow)
+4. **Cloud Profiler**: CPU/memory profiling
+
+**Alternative: Sentry (Error Tracking)**
+- Excellent for error monitoring and alerting
+- Free tier: 5K errors/month
+- Great user-friendly error grouping
+- Source map support for stack traces
+- Cost: $26/month (10K errors)
+
+**Recommended Setup: GCP Logging + Sentry**
+
+### Key Metrics to Monitor
+
+```typescript
+// Application metrics
+metrics: {
+  // Throughput
+  'analyses.total': Counter,              // Total analyses requested
+  'analyses.cached': Counter,             // Cache hits
+  'analyses.successful': Counter,         // Successful completions
+  'analyses.failed': Counter,             // Failures
+
+  // Performance
+  'analysis.duration': Histogram,         // p50, p95, p99 latency
+  'claude.api.duration': Histogram,       // AI API call time
+  'db.query.duration': Histogram,         // Database query time
+  'cache.lookup.duration': Histogram,     // Cache lookup time
+
+  // Business metrics
+  'alternatives.found': Histogram,        // # of alternatives per analysis
+  'alternatives.clicked': Counter,        // Click-through rate
+  'purchases.tracked': Counter,           // Conversion events
+  'revenue.commission': Gauge,            // Total commission earned
+
+  // System health
+  'queue.jobs.active': Gauge,             // Jobs in progress
+  'queue.jobs.waiting': Gauge,            // Jobs in queue
+  'queue.jobs.failed': Counter,           // Failed jobs
+  'api.rate_limit.hit': Counter,          // Rate limit violations
+
+  // Claude API
+  'claude.tokens.used': Counter,          // Track API costs
+  'claude.rate_limit.hit': Counter,       // API rate limits
+}
+```
+
+### Alerting Rules
+
+**Critical Alerts** (PagerDuty / Email / SMS):
+- Error rate > 5% for 5 minutes
+- API response time p95 > 10s
+- Database connection failures
+- Claude API failures > 10% of requests
+- Queue backlog > 1000 jobs
+
+**Warning Alerts** (Slack / Email):
+- Error rate > 2% for 10 minutes
+- Cache hit rate < 40%
+- Analysis duration p95 > 5s
+- Memory usage > 80%
+- Disk usage > 90%
+
+### Dashboards
+
+**Main Operational Dashboard**:
+- Requests per minute (RPM)
+- Error rate (%)
+- Average response time
+- Cache hit rate
+- Active users (last 5 min)
+- Queue depth
+- Cloud Run instance count
+
+**Business Dashboard**:
+- Analyses per day
+- Alternative click-through rate
+- Tracked purchases
+- Commission earned (daily/weekly/monthly)
+- User retention (D1, D7, D30)
+
+**Cost Dashboard**:
+- Claude API costs (tokens used)
+- Infrastructure costs (Cloud Run, Firestore, Redis)
+- Cost per analysis
+- Revenue per user
+
+## Test-Driven Development (TDD)
+
+### Testing Philosophy
+
+**Write tests BEFORE implementation** following Red-Green-Refactor cycle:
+
+1. **Red**: Write failing test that defines desired behavior
+2. **Green**: Write minimal code to make test pass
+3. **Refactor**: Improve code while keeping tests passing
+
+### Testing Pyramid
+
+```
+          ┌────────────┐
+          │    E2E     │  ~5-10 tests (critical user flows)
+          └────────────┘
+        ┌────────────────┐
+        │  Integration   │  ~50-100 tests (API endpoints, DB, external APIs)
+        └────────────────┘
+     ┌─────────────────────┐
+     │   Unit Tests        │  ~200-500 tests (business logic, utilities)
+     └─────────────────────┘
+```
+
+### Testing Stack
+
+```typescript
+// package.json
+{
+  "devDependencies": {
+    "vitest": "^1.0.0",           // Fast unit test runner (Vite-based)
+    "supertest": "^6.3.0",         // HTTP assertions (integration tests)
+    "@testcontainers/postgresql": "^10.0.0", // Real DB for integration tests
+    "@testcontainers/redis": "^10.0.0",
+    "playwright": "^1.40.0",       // E2E testing (Chrome extension)
+    "msw": "^2.0.0",               // Mock Service Worker (API mocking)
+    "@faker-js/faker": "^8.0.0",   // Generate test data
+    "chai": "^4.3.0",              // Assertions
+    "sinon": "^17.0.0"             // Spies, stubs, mocks
+  }
+}
+```
+
+### Unit Tests (Domain & Application Logic)
+
+**Example: Harm Calculator Service**
+
+```typescript
+// tests/unit/domain/services/harm-calculator.test.ts
+import { describe, it, expect, beforeEach } from 'vitest';
+import { HarmCalculator } from '@/domain/services/harm-calculator.service';
+import { AllergenRisk } from '@/domain/value-objects/allergen-risk.vo';
+import { PFASRisk } from '@/domain/value-objects/pfas-risk.vo';
+
+describe('HarmCalculator', () => {
+  let calculator: HarmCalculator;
+
+  beforeEach(() => {
+    calculator = new HarmCalculator();
+  });
+
+  describe('calculateOverallScore', () => {
+    it('should return 100 for product with no harmful substances', () => {
+      const score = calculator.calculateOverallScore({
+        allergens: [],
+        pfas: [],
+        otherConcerns: []
+      });
+
+      expect(score).toBe(100);
+    });
+
+    it('should penalize products with high-severity allergens', () => {
+      const allergens = [
+        new AllergenRisk({ name: 'peanuts', severity: 10 })
+      ];
+
+      const score = calculator.calculateOverallScore({
+        allergens,
+        pfas: [],
+        otherConcerns: []
+      });
+
+      expect(score).toBeLessThan(50); // Severe penalty
+    });
+
+    it('should heavily penalize PFAS compounds', () => {
+      const pfas = [
+        new PFASRisk({ compound: 'PFOA', healthImpact: 'high' })
+      ];
+
+      const score = calculator.calculateOverallScore({
+        allergens: [],
+        pfas,
+        otherConcerns: []
+      });
+
+      expect(score).toBeLessThan(30); // Very severe penalty
+    });
+
+    it('should combine penalties from multiple sources', () => {
+      const allergens = [
+        new AllergenRisk({ name: 'soy', severity: 3 })
+      ];
+      const pfas = [
+        new PFASRisk({ compound: 'PFOS', healthImpact: 'moderate' })
+      ];
+
+      const score = calculator.calculateOverallScore({
+        allergens,
+        pfas,
+        otherConcerns: []
+      });
+
+      expect(score).toBeGreaterThan(0);
+      expect(score).toBeLessThan(70);
+    });
+  });
+});
+```
+
+**Run unit tests**: `npm run test:unit` (should run in < 1s)
+
+### Integration Tests (API + Database + External Services)
+
+**Example: Analyze Product API Endpoint**
+
+```typescript
+// tests/integration/api/analyze.test.ts
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import supertest from 'supertest';
+import { app } from '@/index';
+import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { RedisContainer } from '@testcontainers/redis';
+import { PrismaClient } from '@prisma/client';
+
+describe('POST /api/analyze', () => {
+  let request: supertest.SuperTest<supertest.Test>;
+  let db: PrismaClient;
+  let postgresContainer;
+  let redisContainer;
+
+  beforeAll(async () => {
+    // Start real PostgreSQL and Redis in Docker
+    postgresContainer = await new PostgreSqlContainer().start();
+    redisContainer = await new RedisContainer().start();
+
+    // Configure app to use test containers
+    process.env.DATABASE_URL = postgresContainer.getConnectionUri();
+    process.env.REDIS_URL = redisContainer.getConnectionUri();
+
+    db = new PrismaClient();
+    await db.$connect();
+
+    request = supertest(app);
+  }, 30000); // 30s timeout for container startup
+
+  afterAll(async () => {
+    await db.$disconnect();
+    await postgresContainer.stop();
+    await redisContainer.stop();
+  });
+
+  beforeEach(async () => {
+    // Clear database between tests
+    await db.productAnalyses.deleteMany();
+    await db.userSearches.deleteMany();
+  });
+
+  it('should analyze a product and return harm score', async () => {
+    const productData = {
+      url: 'https://amazon.com/product/B08XYZ',
+      name: 'Test Protein Powder',
+      ingredients: ['whey protein', 'peanuts', 'soy lecithin'],
+      retailer: 'amazon'
+    };
+
+    const response = await request
+      .post('/api/analyze')
+      .send({ product: productData })
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      score: expect.objectContaining({
+        overall: expect.any(Number),
+        allergens: expect.arrayContaining([
+          expect.objectContaining({
+            name: 'peanuts',
+            severity: expect.any(Number)
+          })
+        ])
+      }),
+      alternatives: expect.any(Array),
+      analysisId: expect.any(String)
+    });
+
+    // Verify stored in database
+    const stored = await db.productAnalyses.findFirst({
+      where: { product_name: 'Test Protein Powder' }
+    });
+    expect(stored).toBeTruthy();
+  });
+
+  it('should return cached result on second request', async () => {
+    const productData = {
+      url: 'https://amazon.com/product/B08XYZ',
+      name: 'Test Product',
+      ingredients: ['water'],
+      retailer: 'amazon'
+    };
+
+    // First request (not cached)
+    const first = await request
+      .post('/api/analyze')
+      .send({ product: productData });
+
+    // Second request (should be cached)
+    const second = await request
+      .post('/api/analyze')
+      .send({ product: productData });
+
+    expect(first.body.analysisId).toBe(second.body.analysisId);
+    // Second should be much faster (< 100ms vs > 1000ms)
+  });
+
+  it('should handle Claude API failures gracefully', async () => {
+    // Mock Claude API to fail
+    // (Implementation depends on how we mock external services)
+
+    const response = await request
+      .post('/api/analyze')
+      .send({ product: { url: 'test', ingredients: ['unknown'] } })
+      .expect(503); // Service unavailable
+
+    expect(response.body).toMatchObject({
+      error: 'Analysis service temporarily unavailable'
+    });
+  });
+});
+```
+
+**Run integration tests**: `npm run test:integration` (should run in < 30s)
+
+### E2E Tests (Full User Flow)
+
+**Example: Chrome Extension → API → Results**
+
+```typescript
+// tests/e2e/extension-flow.test.ts
+import { test, expect } from '@playwright/test';
+
+test.describe('Product Analysis Flow', () => {
+  test('should detect product, analyze, and show alternatives', async ({ page, context }) => {
+    // Load Chrome extension
+    const extensionPath = './dist/extension';
+    const extensionContext = await context.newPage();
+
+    // Navigate to Amazon product page
+    await page.goto('https://www.amazon.com/dp/B08XYZ123');
+
+    // Wait for content script to inject "Analyze Safety" button
+    const analyzeButton = page.locator('[data-eject-analyze]');
+    await expect(analyzeButton).toBeVisible({ timeout: 5000 });
+
+    // Click analyze button
+    await analyzeButton.click();
+
+    // Wait for popup to show results
+    const popup = page.locator('[data-eject-popup]');
+    await expect(popup).toBeVisible({ timeout: 10000 });
+
+    // Verify harm score displayed
+    const harmScore = popup.locator('[data-harm-score]');
+    await expect(harmScore).toContainText(/\d+/); // Contains a number
+
+    // Verify alternatives shown
+    const alternatives = popup.locator('[data-alternative]');
+    await expect(alternatives).toHaveCount.greaterThanOrEqual(1);
+
+    // Click first alternative (affiliate link)
+    const firstAlternative = alternatives.first();
+    await firstAlternative.click();
+
+    // Verify tracking event sent to API
+    // (Check network requests or database)
+  });
+});
+```
+
+**Run E2E tests**: `npm run test:e2e` (should run in < 2 minutes)
+
+### Test Coverage Requirements
+
+- **Unit tests**: 80%+ code coverage
+- **Integration tests**: All API endpoints covered
+- **E2E tests**: Critical user journeys covered
+
+### CI/CD Pipeline (GitHub Actions)
+
+```yaml
+# .github/workflows/test.yml
+name: Test
+
+on: [push, pull_request]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm run test:unit
+      - run: npm run test:coverage
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - run: npm ci
+      - run: npm run test:integration
+
+  e2e-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - run: npm ci
+      - run: npx playwright install
+      - run: npm run test:e2e
+```
+
+### TDD Workflow Example
+
+**Feature: Find safer alternatives**
+
+1. **Write test first** (Red):
+```typescript
+it('should return alternatives safer than original product', async () => {
+  const original = { harmScore: 45 };
+  const alternatives = await findAlternatives(original);
+
+  expect(alternatives.every(alt => alt.harmScore > 45)).toBe(true);
+});
+```
+
+2. **Run test** → Fails (no implementation yet)
+
+3. **Write minimal code** (Green):
+```typescript
+async function findAlternatives(original) {
+  // Stub implementation
+  return [{ harmScore: 80 }];
+}
+```
+
+4. **Run test** → Passes
+
+5. **Refactor** (implement real logic):
+```typescript
+async function findAlternatives(original) {
+  const results = await webSearch(original.name + ' safe alternative');
+  const analyzed = await Promise.all(results.map(analyzeProduct));
+  return analyzed.filter(alt => alt.harmScore > original.harmScore);
+}
+```
+
+6. **Run test** → Still passes
+
+7. **Commit** → CI runs all tests → Deploy
+
 ## Component Breakdown
 
 ### 1. Chrome Extension Components
