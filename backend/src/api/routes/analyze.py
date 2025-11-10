@@ -1,23 +1,28 @@
 """Product analysis endpoints."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime
 import logging
 
 from ...domain.models import AnalysisRequest, AnalysisResponse, ProductAnalysis
 from ...domain.harm_calculator import HarmScoreCalculator
 from ...infrastructure.claude_agent import ProductSafetyAgent
+from ..auth import verify_api_key
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 @router.post("/analyze", response_model=AnalysisResponse)
-async def analyze_product(request: AnalysisRequest):
+async def analyze_product(
+    request: AnalysisRequest,
+    api_key: str = Depends(verify_api_key)
+):
     """Analyze a product for harmful substances.
 
     Args:
         request: Analysis request with product URL
+        api_key: Verified API key from Authorization header
 
     Returns:
         Analysis response with harm score and details

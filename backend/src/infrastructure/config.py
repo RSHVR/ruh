@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     # Anthropic API
     anthropic_api_key: str
 
+    # API Authentication
+    api_key: str
+
     # Database (optional for basic API functionality)
     database_url: str = ""
     supabase_url: str = ""
