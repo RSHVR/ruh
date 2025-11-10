@@ -71,6 +71,180 @@ Eject is a Chrome extension that empowers consumers to make safer purchasing dec
 - **Prompt Engineering**: Structured prompts for safety analysis
 - **Knowledge Base**: Curated lists of allergens, PFAS compounds, safe alternatives
 
+## Agent Model & Request Flow
+
+### Key Architecture Decisions
+
+**Q: Does each user get their own agent?**
+**A: No. Agents are ephemeral and request-scoped, not user-scoped.**
+
+Agents work like serverless functions:
+- **Created on-demand** for each analysis request
+- **Stateless** - no persistent connection to users
+- **Single-purpose** - handle one analysis, then complete
+- **Pooled/reused** - to avoid cold starts, but not tied to specific users
+
+### Agent Capacity Model
+
+**One agent instance handles one analysis request at a time** (~3-10 seconds per analysis)
+
+**Capacity breakdown**:
+```
+1 agent instance    = 1 concurrent analysis
+1 Cloud Run pod     = 10 concurrent agent instances (configurable)
+1 pod               ≈ 6-20 analyses/minute (depending on complexity)
+
+With auto-scaling:
+- Start: 0 pods (scale to zero when idle)
+- Moderate load (10 users): 1-2 pods
+- High load (100 concurrent): 10 pods
+- Max scale: 1000 pods (Cloud Run limit)
+```
+
+**Critical optimization: Caching prevents most requests from needing agents**
+
+### Request Routing & Flow
+
+**End-to-End User Flow**:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ 1. USER BROWSES PRODUCT                                 │
+│    User lands on Amazon product page                    │
+│    Extension content script detects product             │
+│    "Analyze Safety" button appears                      │
+└────────────────────┬────────────────────────────────────┘
+                     │ User clicks "Analyze"
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│ 2. EXTENSION CHECKS LOCAL CACHE                         │
+│    Check IndexedDB for cached analysis (30-day TTL)     │
+│    ├─ Cache HIT: Display results immediately (< 50ms)   │
+│    └─ Cache MISS: Send request to backend →             │
+└────────────────────┬────────────────────────────────────┘
+                     │ POST /api/analyze
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│ 3. BACKEND API GATEWAY                                  │
+│    Express.js endpoint receives request                 │
+│    - Validate product data (Zod schema)                 │
+│    - Rate limit check (10 req/min per user)             │
+│    - Extract product URL hash                           │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│ 4. CHECK REDIS CACHE (1-hour TTL)                       │
+│    ├─ Cache HIT: Return cached analysis (< 100ms) →    │
+│    └─ Cache MISS: Check database ↓                      │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│ 5. CHECK DATABASE CACHE (7-day TTL)                     │
+│    Query product_analyses by URL hash                   │
+│    ├─ Cache HIT: Promote to Redis, return (< 500ms) →  │
+│    └─ Cache MISS: Need fresh analysis ↓                 │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│ 6. ENQUEUE ANALYSIS JOB (BullMQ)                        │
+│    Add job to "product-analysis" queue                  │
+│    - Priority: premium > free users (future)            │
+│    - Return job ID to client immediately                │
+│    - Client polls for results or uses WebSocket         │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│ 7. WORKER PICKS UP JOB                                  │
+│    BullMQ worker (10 concurrent per pod) grabs job      │
+│    Creates new Claude Agent instance                    │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│ 8. AGENT ANALYZES PRODUCT                               │
+│    Agent execution (~3-10 seconds):                     │
+│    ├─ WebFetch: Scrape full product page (if needed)   │
+│    ├─ Extract ingredients & product details             │
+│    ├─ Search knowledge base for allergens/PFAS          │
+│    ├─ Calculate harm score (0-100)                      │
+│    ├─ WebSearch: Find safer alternatives                │
+│    ├─ Analyze alternatives (parallel)                   │
+│    ├─ Rank by safety improvement + price                │
+│    └─ Inject affiliate links                            │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│ 9. STORE RESULTS                                        │
+│    - Save to PostgreSQL (product_analyses table)        │
+│    - Cache in Redis (1 hour)                            │
+│    - Mark job as complete                               │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│ 10. RETURN TO EXTENSION                                 │
+│     - Extension receives analysis via polling/WebSocket │
+│     - Store in local IndexedDB (30 days)                │
+│     - Display in popup UI                               │
+│     - Track user interaction (DB: user_searches)        │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Request latency breakdown**:
+- Cache hit (local): ~50ms
+- Cache hit (Redis): ~100ms
+- Cache hit (DB): ~500ms
+- Cache miss (new analysis): ~3-10 seconds
+
+**Target cache hit rate: 60%+**
+- Most popular products will be cached
+- Reduces costs by 60% (avoid Claude API calls)
+- Dramatically improves UX (instant results)
+
+### Database Choice: PostgreSQL (No Vector Search Needed for MVP)
+
+**Q: Do we need vector search?**
+**A: Not for Phase 1. PostgreSQL is sufficient.**
+
+**Why PostgreSQL is fine**:
+- **Ingredient matching**: Exact string matching with arrays (`ingredients: text[]`)
+- **Allergen detection**: Keyword search with synonyms (e.g., "milk" OR "dairy" OR "lactose")
+- **PFAS matching**: Exact compound names or CAS numbers
+- **Alternative search**: Claude's WebSearch tool handles semantic similarity
+- **Fast enough**: Index on `product_url_hash` makes lookups < 50ms
+
+**When we'd need vector search** (Phase 3+):
+- Semantic ingredient similarity ("whey protein isolate" ≈ "whey protein concentrate")
+- Finding similar products without relying on Claude API
+- Clustering products by ingredient profiles
+- Recommendation engine based on user preferences
+
+**If we add vector search later**:
+- **pgvector** extension for PostgreSQL (Supabase supports this)
+- Embed ingredients with Claude embeddings or OpenAI embeddings
+- Still use same Postgres database, just add vector columns
+
+**Decision: Start with PostgreSQL, add pgvector only if needed in Phase 3+**
+
+### Why This Architecture Works
+
+**Advantages**:
+1. **Cost-efficient**: Caching reduces Claude API costs by 60%+
+2. **Scalable**: Cloud Run auto-scales from 0 to 1000s of instances
+3. **Fast UX**: Cached responses in < 500ms, fresh analysis < 10s
+4. **Resilient**: Job queue handles failures with retries
+5. **No websockets needed initially**: Simple polling is fine for MVP
+
+**Potential bottlenecks** (and mitigations):
+- **Anthropic API rate limits**: 50 req/min (request increase to 500 req/min)
+- **Redis memory**: 1GB free tier (50K cached analyses) → upgrade to $50/mo for 5GB
+- **Cold starts**: Agent pooling reduces this to ~100-200ms
+
 ## Infrastructure & Hosting Strategy
 
 ### Backend API Hosting
@@ -839,17 +1013,41 @@ metrics: {
 
 ### Testing Pyramid
 
+**For MVP (Phase 1)** - Start with essentials:
 ```
           ┌────────────┐
-          │    E2E     │  ~5-10 tests (critical user flows)
+          │    E2E     │  ~3-5 tests (happy path + 1-2 error cases)
           └────────────┘
         ┌────────────────┐
-        │  Integration   │  ~50-100 tests (API endpoints, DB, external APIs)
+        │  Integration   │  ~10-15 tests (main API endpoints)
         └────────────────┘
      ┌─────────────────────┐
-     │   Unit Tests        │  ~200-500 tests (business logic, utilities)
+     │   Unit Tests        │  ~30-50 tests (core business logic)
      └─────────────────────┘
+
+     Total: ~50-70 tests for MVP
 ```
+
+**For Production (Phase 2-3)** - Expand coverage:
+```
+          ┌────────────┐
+          │    E2E     │  ~10-15 tests (all user flows + edge cases)
+          └────────────┘
+        ┌────────────────┐
+        │  Integration   │  ~30-50 tests (all endpoints + error handling)
+        └────────────────┘
+     ┌─────────────────────┐
+     │   Unit Tests        │  ~100-150 tests (all business logic + utils)
+     └─────────────────────┘
+
+     Total: ~150-200 tests at maturity
+```
+
+**Rationale for starting small**:
+- MVP has limited scope (Amazon only, allergens only, basic UI)
+- Write tests for code that exists, not code that might exist
+- Grow test suite as features grow
+- 500 tests is excessive for a product with < 5K LOC
 
 ### Testing Stack
 
@@ -1120,9 +1318,17 @@ test.describe('Product Analysis Flow', () => {
 
 ### Test Coverage Requirements
 
+**MVP (Phase 1)**:
+- **Unit tests**: 70%+ code coverage (focus on business logic, not boilerplate)
+- **Integration tests**: Main API endpoints covered (analyze, alternatives, health check)
+- **E2E tests**: Happy path covered (product detection → analysis → display results)
+
+**Production (Phase 2+)**:
 - **Unit tests**: 80%+ code coverage
-- **Integration tests**: All API endpoints covered
-- **E2E tests**: Critical user journeys covered
+- **Integration tests**: All API endpoints + error scenarios
+- **E2E tests**: All critical user journeys + edge cases
+
+**Philosophy**: Quality over quantity. One well-written test that catches real bugs is worth more than 10 tests that just boost coverage metrics.
 
 ### CI/CD Pipeline (GitHub Actions)
 
