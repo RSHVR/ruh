@@ -12,7 +12,7 @@ class ProductSafetyAgent:
     def __init__(self) -> None:
         """Initialize the Claude Agent."""
         self.client = Anthropic(api_key=settings.anthropic_api_key)
-        self.model = "claude-3-5-sonnet-20241022"
+        self.model = "claude-sonnet-4-5-20250929"
 
     async def analyze_product(
         self,

@@ -66,7 +66,7 @@ class ProductAnalysis(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     analyzed_at: Optional[datetime] = None
     analysis_version: str = "1.0.0"
-    claude_model: str = "claude-3-5-sonnet-20241022"
+    claude_model: str = "claude-sonnet-4-5-20250929"
 
     @property
     def harm_score(self) -> int:
