@@ -36,8 +36,7 @@ export default defineConfig({
       output: {
         entryFileNames: '[name].js',
         chunkFileNames: '[name].js',
-        assetFileNames: 'assets/[name].[ext]',
-        format: 'iife' // Use IIFE format to bundle everything inline
+        assetFileNames: 'assets/[name].[ext]'
       }
     }
   },
