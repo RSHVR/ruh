@@ -2196,6 +2196,9 @@ claude mcp add playwright npx @playwright/mcp@latest
 
 # GitHub MCP
 claude mcp add --transport http github https://api.githubcopilot.com/mcp -H "Authorization: Bearer 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"
+
+# Context7 MCP (latest documentation on anything)
+claude mcp add --transport http context7 https://mcp.context7.com/mcp --header "CONTEXT7_API_KEY: ctx7sk-1a8da077-4c33-40cd-aacf-6d0576a039c8"
 ```
 
 ### Success Criteria
