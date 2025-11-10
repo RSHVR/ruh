@@ -4,6 +4,7 @@ import { viteStaticCopy } from 'vite-plugin-static-copy';
 import { resolve } from 'path';
 
 export default defineConfig({
+  base: './',
   plugins: [
     svelte(),
     viteStaticCopy({
@@ -28,6 +29,8 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: false,
     rollupOptions: {
+      // Use relative paths for assets in subdirectories
+      makeAbsoluteExternalsRelative: true,
       input: {
         sidebar: resolve(__dirname, 'src/sidebar.html'),
         content: resolve(__dirname, 'src/content/content.ts'),
