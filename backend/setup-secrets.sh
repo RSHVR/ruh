@@ -8,6 +8,7 @@ set -e
 PROJECT_ID="ruh-backend"
 ANTHROPIC_SECRET_NAME="anthropic-api-key"
 API_KEY_SECRET_NAME="ruh-api-key"
+SUPABASE_SECRET_NAME="supabase-api-key"
 
 echo "🔐 Setting up Google Secret Manager..."
 
@@ -83,9 +84,28 @@ else
   echo ""
 fi
 
-# Grant Cloud Run service account access to both secrets
+# Check if Supabase secret exists
+echo ""
+echo "📝 Step 3: Supabase API Key"
+if gcloud secrets describe ${SUPABASE_SECRET_NAME} --project=${PROJECT_ID} &>/dev/null; then
+  echo "✅ Secret '${SUPABASE_SECRET_NAME}' already exists, skipping..."
+else
+  echo "Please paste your Supabase API Key (anon/public key):"
+  echo "(Find it at: https://vslnwiugfuvquiaafxgh.supabase.co/project/vslnwiugfuvquiaafxgh/settings/api)"
+  read -s SUPABASE_KEY
+
+  echo ""
+  echo "Creating secret '${SUPABASE_SECRET_NAME}'..."
+  echo -n "${SUPABASE_KEY}" | gcloud secrets create ${SUPABASE_SECRET_NAME} \
+    --data-file=- \
+    --project=${PROJECT_ID}
+
+  echo "✅ Supabase API key stored!"
+fi
+
+# Grant Cloud Run service account access to all secrets
 echo "🔑 Granting access to Cloud Run..."
-for SECRET in ${ANTHROPIC_SECRET_NAME} ${API_KEY_SECRET_NAME}; do
+for SECRET in ${ANTHROPIC_SECRET_NAME} ${API_KEY_SECRET_NAME} ${SUPABASE_SECRET_NAME}; do
   # Grant Cloud Run service account access (ignore if already exists)
   gcloud secrets add-iam-policy-binding ${SECRET} \
     --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
@@ -102,9 +122,10 @@ done
 echo ""
 echo "✅ Secret Manager setup complete!"
 echo ""
-echo "Secrets created:"
+echo "Secrets configured:"
 echo "  - ${ANTHROPIC_SECRET_NAME} (Anthropic API key)"
 echo "  - ${API_KEY_SECRET_NAME} (Custom API key for your extension)"
+echo "  - ${SUPABASE_SECRET_NAME} (Supabase API key)"
 echo "Project: ${PROJECT_ID}"
 echo ""
 echo "You can now deploy using ./deploy.sh"
