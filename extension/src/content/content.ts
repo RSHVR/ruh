@@ -1,4 +1,15 @@
-import { isAmazonProductPage, extractASIN } from '../lib/utils';
+// Inline utility function to avoid imports
+function isAmazonProductPage(url: string): boolean {
+  try {
+    const urlObj = new URL(url);
+    const isAmazon =
+      urlObj.hostname.includes('amazon.com') || urlObj.hostname.includes('amazon.ca');
+    const hasDP = urlObj.pathname.includes('/dp/') || urlObj.pathname.includes('/gp/product/');
+    return isAmazon && hasDP;
+  } catch {
+    return false;
+  }
+}
 
 console.log('[Eject] Content script loaded');
 
