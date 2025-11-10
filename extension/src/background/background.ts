@@ -17,9 +17,6 @@ chrome.runtime.onInstalled.addListener((details) => {
       sensitivityLevel: 'moderate',
       notificationsEnabled: true
     });
-
-    // Open welcome page (optional)
-    // chrome.tabs.create({ url: 'https://eject.rshvr.com/welcome' });
   } else if (details.reason === 'update') {
     console.log('[Eject] Extension updated to version', chrome.runtime.getManifest().version);
   }
@@ -40,35 +37,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Track that a product was analyzed (for metrics)
     console.log('[Eject] Product analyzed:', message.productUrl);
     // Could send to analytics service here
+    sendResponse({ success: true });
   }
 
   if (message.type === 'TRACK_CLICK') {
     // Track alternative product clicks
     console.log('[Eject] Alternative clicked:', message.alternativeUrl);
     // Could send to analytics service here
+    sendResponse({ success: true });
   }
 });
 
 // Handle browser action click (extension icon)
 chrome.action.onClicked.addListener((tab) => {
   if (tab.id) {
-    // Send message to content script to open sidebar
-    chrome.tabs.sendMessage(tab.id, { type: 'OPEN_SIDEBAR' });
-  }
-});
-
-// Clean up expired cache periodically (every 24 hours)
-setInterval(() => {
-  console.log('[Eject] Running cache cleanup...');
-  chrome.tabs.query({}, (tabs) => {
-    tabs.forEach((tab) => {
-      if (tab.id) {
-        chrome.tabs.sendMessage(tab.id, { type: 'CLEANUP_CACHE' }).catch(() => {
-          // Tab might not have content script, ignore error
-        });
+    // Send message to content script to open sidebar (with error handling)
+    chrome.tabs.sendMessage(tab.id, { type: 'OPEN_SIDEBAR' }, (response) => {
+      if (chrome.runtime.lastError) {
+        // Content script not loaded on this tab, ignore
+        console.log('[Eject] Could not send message to tab:', chrome.runtime.lastError.message);
       }
     });
-  });
-}, 24 * 60 * 60 * 1000); // 24 hours
+  }
+});
 
 export {};
