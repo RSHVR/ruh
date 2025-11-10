@@ -17,11 +17,12 @@
   const circumference = 2 * Math.PI * radius;
   $: strokeDashoffset = circumference - (harmScore / 100) * circumference;
 
-  // Get color based on risk level
+  // Get color based on risk level (ruh brand guidelines)
   function getScoreColor(score: number): string {
-    if (score <= 20) return '#10B981'; // Green
-    if (score <= 50) return '#F59E0B'; // Orange
-    return '#EF4444'; // Red
+    if (score <= 30) return '#B8D4C6'; // Safe Green
+    if (score <= 60) return '#FFB8A0'; // Caution Peach
+    if (score <= 80) return '#E89B8C'; // Alert Coral (moderate)
+    return '#E89B8C'; // Alert Coral (high)
   }
 
   $: scoreColor = getScoreColor(harmScore);
@@ -33,7 +34,7 @@
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2">
         <span class="text-2xl">🛡️</span>
-        <h1 class="brand-title">Eject</h1>
+        <h1 class="brand-title">ruh</h1>
       </div>
       <button onclick={onClose} class="close-btn" aria-label="Close sidebar">
         ✕
@@ -82,7 +83,7 @@
                 cy="60"
                 r={radius}
                 fill="none"
-                stroke="#E5E7EB"
+                stroke="rgba(157, 157, 156, 0.2)"
                 stroke-width="8"
               />
               <!-- Animated progress circle -->
@@ -213,56 +214,79 @@
 </div>
 
 <style lang="postcss">
-  @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@700;800;900&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant:wght@500;600&family=Inter:wght@400;500;600&display=swap');
+
+  /* CSS Custom Properties - ruh Brand Variables */
+  :root {
+    --color-primary: #FFD7C4;        /* Apricot Cream */
+    --color-secondary: #E8B4A0;      /* Soft Terracotta */
+    --color-accent: #C8D5B9;         /* Warm Sage */
+    --color-bg-primary: #FFF8F0;     /* Cream */
+    --color-bg-secondary: #FFDFD3;   /* Powder Peach */
+    --color-safe: #B8D4C6;           /* Safe Green */
+    --color-caution: #FFB8A0;        /* Caution Peach */
+    --color-alert: #E89B8C;          /* Alert Coral */
+    --color-text: #2D2D2D;           /* Deep gray */
+    --color-text-light: #9D9D9C;     /* Warm Gray */
+  }
 
   .sidebar {
     @apply fixed top-0 right-0 h-full w-[400px] shadow-2xl z-[999999] flex flex-col;
-    background: #F5F1ED; /* Warm neutral beige */
+    background: var(--color-bg-primary); /* Cream */
     border-radius: 0 0 0 24px;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
 
   .header {
     @apply p-5 shadow-sm;
-    background: linear-gradient(135deg, #FAF8F6 0%, #F5F1ED 100%);
+    background: linear-gradient(135deg, var(--color-bg-primary) 0%, var(--color-bg-secondary) 100%);
     border-radius: 0 0 0 24px;
   }
 
   .brand-title {
-    font-family: 'Outfit', sans-serif;
-    font-weight: 900;
-    font-size: 26px;
-    background: linear-gradient(135deg, #2D3748 0%, #4A5568 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    letter-spacing: -0.5px;
+    font-family: 'Cormorant', serif;
+    font-weight: 600;
+    font-size: 32px;
+    color: var(--color-secondary); /* Soft Terracotta */
+    letter-spacing: 0.075em; /* +75 tracking */
+    text-transform: lowercase;
   }
 
   .close-btn {
     @apply hover:bg-gray-200/60 rounded-full w-9 h-9 flex items-center justify-center transition-all text-xl font-bold;
-    color: #4A5568;
+    color: var(--color-text-light);
   }
 
   .content {
-    @apply flex-1 overflow-y-auto p-5;
+    @apply flex-1 overflow-y-auto;
+    padding: 20px;
   }
 
   .section {
-    @apply mb-5;
+    margin-bottom: 20px;
   }
 
   .section-title {
-    @apply text-lg font-bold text-gray-800;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 18px;
+    color: var(--color-text);
   }
 
   .section-subtitle {
-    @apply text-base font-semibold text-gray-800 mb-3;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--color-text);
+    margin-bottom: 12px;
   }
 
   .harm-score {
-    @apply flex items-center p-5 rounded-2xl;
-    background: #FAF8F6; /* Lighter warm neutral for cards */
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    @apply flex items-center;
+    padding: 20px;
+    border-radius: 12px;
+    background: var(--color-bg-secondary); /* Powder Peach */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   }
 
   /* Donut Chart */
@@ -294,68 +318,101 @@
   }
 
   .score-number {
-    @apply text-3xl font-bold;
-    color: #2D3748;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 32px;
+    color: var(--color-text);
     line-height: 1;
   }
 
   .score-label {
-    @apply text-xs mt-1;
-    color: #718096;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    color: var(--color-text-light);
+    margin-top: 4px;
   }
 
   .item-card {
-    @apply p-4 rounded-xl;
-    background: #FAF8F6; /* Lighter warm neutral */
+    padding: 16px;
+    border-radius: 12px;
+    background: var(--color-bg-secondary); /* Powder Peach */
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
     border: 1px solid #F0EBE6;
+    margin-bottom: 8px;
   }
 
   .severity-badge {
-    @apply px-3 py-1 rounded-full text-xs font-medium uppercase shrink-0;
+    padding: 4px 12px;
+    border-radius: 9999px;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    flex-shrink: 0;
   }
 
   .severity-low {
-    background: #D1FAE5; /* Soft pastel green */
-    color: #059669;
+    background: var(--color-safe);
+    color: #065F46;
   }
 
   .severity-moderate {
-    background: #FEF3C7; /* Soft pastel yellow */
-    color: #D97706;
+    background: var(--color-caution);
+    color: #92400E;
   }
 
   .severity-high {
-    background: #FECACA; /* Soft pastel red/pink */
-    color: #DC2626;
+    background: var(--color-alert);
+    color: #7C2D12;
   }
 
   .severity-severe {
-    background: #FECACA;
-    color: #991B1B;
+    background: var(--color-alert);
+    color: #7C2D12;
   }
 
   .loading,
   .error,
   .empty {
-    @apply flex flex-col items-center justify-center text-center py-12;
+    @apply flex flex-col items-center justify-center text-center;
+    padding: 48px 20px;
   }
 
   .spinner {
-    @apply w-12 h-12 border-4 rounded-full animate-spin;
-    border-color: #E5E7EB;
-    border-top-color: #6B7280;
+    width: 48px;
+    height: 48px;
+    border: 4px solid;
+    border-radius: 50%;
+    border-color: var(--color-bg-secondary);
+    border-top-color: var(--color-text-light);
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 
   .retry-btn {
-    @apply mt-4 px-5 py-2.5 rounded-xl transition-all font-medium;
-    background: #4A5568;
-    color: white;
+    margin-top: 16px;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 15px;
+    background: var(--color-primary); /* Apricot Cream */
+    color: var(--color-text);
+    transition: all 150ms ease-in-out;
+    border: none;
+    cursor: pointer;
   }
 
   .retry-btn:hover {
-    background: #2D3748;
+    background: var(--color-secondary); /* Soft Terracotta */
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .retry-btn:active {
+    transform: scale(0.98);
   }
 </style>
