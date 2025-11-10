@@ -7,126 +7,128 @@ class HarmScoreCalculator:
     """Calculate harm score (0-100) based on detected substances.
 
     Score breakdown:
-    - 0-20: Safe
-    - 21-40: Low risk
-    - 41-60: Moderate risk
+    - 0-30: Safe
+    - 31-60: Moderate risk
     - 61-80: High risk
     - 81-100: Dangerous
+
+    New formula philosophy:
+    - Be aggressive with scoring dangerous products
+    - Each severe toxin should significantly impact score
+    - Product categories (pesticides, cleaners) get multipliers
+    - No artificial dampening/normalization
     """
 
-    # Severity weights for allergens
-    SEVERITY_WEIGHTS = {
-        "low": 1,
-        "moderate": 3,
-        "high": 6,
-        "severe": 10,
+    # Base points per concern
+    SEVERITY_POINTS = {
+        "low": 8,
+        "moderate": 18,
+        "high": 35,
+        "severe": 50,
+    }
+
+    # Product category multipliers
+    CATEGORY_MULTIPLIERS = {
+        "pesticide": 1.4,
+        "insecticide": 1.4,
+        "herbicide": 1.4,
+        "household_cleaner": 1.2,
+        "disinfectant": 1.2,
+        "chemical_product": 1.15,
     }
 
     @staticmethod
     def calculate(analysis_data: Dict[str, Any]) -> int:
         """Calculate harm score from analysis data.
 
-        Formula:
-        - Allergen score: 40% weight
-        - PFAS score: 40% weight
-        - Other toxins: 20% weight
-        - Confidence penalty: Lower confidence = higher reported risk
+        New formula:
+        1. Start with base score of 0
+        2. Add points for each detected concern (allergen, PFAS, toxin)
+        3. Apply category multiplier if product is in high-risk category
+        4. Apply confidence adjustment
+        5. Cap at 100
 
         Args:
-            analysis_data: Dict with 'allergens', 'pfas_detected', 'other_concerns', 'confidence'
+            analysis_data: Dict with 'allergens', 'pfas_detected', 'other_concerns',
+                          'confidence', 'product_name', 'category'
 
         Returns:
             Harm score (0-100)
         """
-        allergen_score = HarmScoreCalculator._calculate_allergen_score(
-            analysis_data.get("allergens_detected", [])
-        )
-        pfas_score = HarmScoreCalculator._calculate_pfas_score(
-            analysis_data.get("pfas_detected", [])
-        )
-        toxin_score = HarmScoreCalculator._calculate_toxin_score(
-            analysis_data.get("other_concerns", [])
-        )
+        base_score = 0.0
 
-        # Weighted combination (allergens 40%, PFAS 40%, toxins 20%)
-        raw_score = (allergen_score * 0.4) + (pfas_score * 0.4) + (toxin_score * 0.2)
+        # Add points for allergens
+        allergens = analysis_data.get("allergens_detected", [])
+        for allergen in allergens:
+            severity = allergen.get("severity", "low")
+            points = HarmScoreCalculator.SEVERITY_POINTS.get(severity, 8)
+            confidence = allergen.get("confidence", 1.0)
+            base_score += points * confidence
 
-        # Apply confidence penalty (low confidence = report higher risk to be safe)
+        # Add points for PFAS (each PFAS is inherently high risk)
+        pfas_compounds = analysis_data.get("pfas_detected", [])
+        for pfas in pfas_compounds:
+            confidence = pfas.get("confidence", 1.0)
+            # PFAS are forever chemicals - high base score
+            base_score += 40 * confidence
+
+        # Add points for other toxins/concerns
+        toxins = analysis_data.get("other_concerns", [])
+        for toxin in toxins:
+            severity = toxin.get("severity", "low")
+            points = HarmScoreCalculator.SEVERITY_POINTS.get(severity, 8)
+            confidence = toxin.get("confidence", 1.0)
+            base_score += points * confidence
+
+        # Apply category multiplier for high-risk product types
+        category_multiplier = HarmScoreCalculator._get_category_multiplier(
+            analysis_data.get("product_name", ""),
+            analysis_data.get("category", "")
+        )
+        base_score *= category_multiplier
+
+        # Apply confidence adjustment (low confidence = add caution points)
         confidence = analysis_data.get("confidence", 1.0)
-        confidence_penalty = (1.0 - confidence) * 10  # Up to 10 points penalty
+        if confidence < 0.7:
+            # Low confidence means uncertain - add precautionary points
+            caution_bonus = (0.7 - confidence) * 20
+            base_score += caution_bonus
 
-        final_score = min(100, int(raw_score + confidence_penalty))
+        # Ensure minimum score if any concerns detected
+        if (allergens or pfas_compounds or toxins) and base_score < 25:
+            base_score = 25
+
+        final_score = min(100, int(base_score))
         return final_score
 
     @staticmethod
-    def _calculate_allergen_score(allergens: list) -> float:
-        """Calculate allergen component of harm score.
+    def _get_category_multiplier(product_name: str, category: str) -> float:
+        """Determine if product is in a high-risk category.
 
         Args:
-            allergens: List of allergen detections with 'severity' field
+            product_name: Product name
+            category: Product category
 
         Returns:
-            Allergen score (0-100)
+            Multiplier (1.0 = no boost, >1.0 = higher risk)
         """
-        if not allergens:
-            return 0.0
+        product_lower = product_name.lower()
+        category_lower = category.lower()
 
-        total_severity = 0.0
-        for allergen in allergens:
-            severity = allergen.get("severity", "low")
-            weight = HarmScoreCalculator.SEVERITY_WEIGHTS.get(severity, 1)
-            confidence = allergen.get("confidence", 1.0)
-            total_severity += weight * confidence
+        for keyword, multiplier in HarmScoreCalculator.CATEGORY_MULTIPLIERS.items():
+            if keyword in product_lower or keyword in category_lower:
+                return multiplier
 
-        # Normalize to 0-100 scale (assume max 10 severe allergens = 100)
-        max_severity = 10 * HarmScoreCalculator.SEVERITY_WEIGHTS["severe"]
-        score = min(100, (total_severity / max_severity) * 100)
-        return score
+        # Check for specific keywords
+        high_risk_keywords = [
+            "killer", "spray", "poison", "toxic", "bleach",
+            "acid", "lye", "caustic", "corrosive"
+        ]
+        for keyword in high_risk_keywords:
+            if keyword in product_lower:
+                return 1.3
 
-    @staticmethod
-    def _calculate_pfas_score(pfas_compounds: list) -> float:
-        """Calculate PFAS component of harm score.
-
-        Args:
-            pfas_compounds: List of PFAS detections
-
-        Returns:
-            PFAS score (0-100)
-        """
-        if not pfas_compounds:
-            return 0.0
-
-        # Each PFAS compound adds 15 points (weighted by confidence)
-        total_score = 0.0
-        for compound in pfas_compounds:
-            confidence = compound.get("confidence", 1.0)
-            total_score += 15 * confidence
-
-        return min(100, total_score)
-
-    @staticmethod
-    def _calculate_toxin_score(toxins: list) -> float:
-        """Calculate other toxins component of harm score.
-
-        Args:
-            toxins: List of other toxin concerns with 'severity' field
-
-        Returns:
-            Toxin score (0-100)
-        """
-        if not toxins:
-            return 0.0
-
-        total_severity = 0.0
-        for toxin in toxins:
-            severity = toxin.get("severity", "low")
-            weight = HarmScoreCalculator.SEVERITY_WEIGHTS.get(severity, 1)
-            confidence = toxin.get("confidence", 1.0)
-            total_severity += weight * confidence
-
-        # Each toxin adds ~5 points (normalized)
-        score = min(100, (total_severity / 20) * 100)
-        return score
+        return 1.0
 
     @staticmethod
     def get_risk_level(harm_score: int) -> str:
@@ -138,10 +140,8 @@ class HarmScoreCalculator:
         Returns:
             Risk level string
         """
-        if harm_score <= 20:
+        if harm_score <= 30:
             return "Safe"
-        elif harm_score <= 40:
-            return "Low Risk"
         elif harm_score <= 60:
             return "Moderate Risk"
         elif harm_score <= 80:
