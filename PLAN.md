@@ -262,16 +262,22 @@ With auto-scaling:
 - **Global CDN**: Low latency worldwide
 - **Cost Efficiency**: ~$20-50/month at 10K users (vs Vercel ~$40-80/month)
 
-**Alternative: Vercel (Serverless Functions)**
-- **Pros**:
-  - Excellent DX (developer experience)
-  - Easy deployment (git push → deploy)
-  - Free tier: 100GB bandwidth, 100K serverless function executions
-- **Cons**:
-  - Function timeout: 10s on free tier (may be tight for AI analysis)
-  - More expensive at scale ($20/user/month for Pro)
-  - Not ideal for long-running Claude agent tasks
-- **Verdict**: Good for landing page, but GCP better for backend API
+**Landing Page Hosting: Cloudflare Pages**
+- **Decision**: Landing page hosted at `eject.rshvr.com` via Cloudflare Pages
+- **Rationale**:
+  - Already using Cloudflare for www.rshvr.com (easy subdomain setup)
+  - Free tier: Unlimited bandwidth, unlimited requests
+  - Global CDN (300+ locations)
+  - Automatic HTTPS
+  - Git integration (deploy on push)
+  - Perfect for static sites (Svelte/Next.js/React)
+- **Cost**: $0/month (free tier sufficient)
+- **Build time**: < 1 minute per deploy
+
+**Alternative Considered: Vercel**
+- **Pros**: Excellent DX, easy deployment, good for Next.js
+- **Cons**: Function timeout (10s free tier), more expensive at scale
+- **Verdict**: Cloudflare Pages better for landing page (free + already using Cloudflare). GCP Cloud Run better for backend API (long-running agent tasks).
 
 **Deployment Architecture (GCP)**:
 ```
