@@ -16,32 +16,39 @@ Eject is a Chrome extension that empowers consumers to make safer purchasing dec
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│              Chrome Extension (Frontend)             │
+│         Chrome Extension (Svelte 5 + TS)             │
 │  ┌─────────────┐  ┌──────────────┐  ┌────────────┐ │
-│  │  Content    │  │    Popup     │  │ Background │ │
-│  │   Script    │  │      UI      │  │  Service   │ │
+│  │  Content    │  │   Sidebar    │  │ Background │ │
+│  │   Script    │  │  UI (only)   │  │  Service   │ │
 │  │  (Detector) │  │  (Results)   │  │  Worker    │ │
 │  └─────────────┘  └──────────────┘  └────────────┘ │
+│  • Allowed domains: Amazon only                     │
+│  • IndexedDB: Per-user cache (30d)                  │
 └─────────────────────────────────────────────────────┘
                           │
                           ▼ (API calls)
 ┌─────────────────────────────────────────────────────┐
-│          Claude Agent Backend (Node.js)              │
+│       Claude Agent Backend (Python/FastAPI)          │
 │  ┌──────────────────────────────────────────────┐  │
 │  │         Agent SDK Core                       │  │
 │  │  • WebFetch (scrape product pages)           │  │
 │  │  • WebSearch (find alternatives)             │  │
-│  │  • Harm Analysis (allergens + PFAS)          │  │
+│  │  • Database Query (PFAS/allergen lookup)     │  │
+│  │  • Harm Analysis (0-100 score)               │  │
 │  │  • Alternative Ranking                       │  │
 │  │  • Affiliate Link Injection                  │  │
 │  └──────────────────────────────────────────────┘  │
+│  • Celery workers for parallel processing           │
+│  • Redis for caching + job queue                    │
 └─────────────────────────────────────────────────────┘
                           │
                           ▼ (Stores results)
 ┌─────────────────────────────────────────────────────┐
-│              Database (SQLite/PostgreSQL)            │
-│  • Product analysis cache                           │
-│  • User preferences (allergen profiles)             │
+│            Database (Supabase PostgreSQL)            │
+│  • Product analyses (permanent, de-anonymized)      │
+│  • User searches (90-day TTL, anonymous UUID)       │
+│  • PFAS compounds with body_effects                 │
+│  • Allergen database                                │
 │  • Affiliate tracking                               │
 └─────────────────────────────────────────────────────┘
 ```
@@ -50,19 +57,20 @@ Eject is a Chrome extension that empowers consumers to make safer purchasing dec
 
 ### Chrome Extension (Frontend)
 - **Manifest Version**: V3 (latest Chrome standard)
-- **UI Framework**: React with TypeScript (for popup and options page)
+- **UI Framework**: Svelte 5 with TypeScript (reactive, minimal bundle size)
 - **Styling**: Tailwind CSS (utility-first, fast development)
 - **Build Tool**: Vite (fast builds, HMR for development)
-- **State Management**: Zustand (lightweight, simple)
-- **Icons**: Lucide React (consistent, modern icons)
+- **UI Pattern**: Sidebar-only (no popup) - expands when user clicks "See Alternatives"
+- **Allowed Domains**: Amazon only initially (prevents triggering on Netflix, etc.)
+- **Local Storage**: IndexedDB per-user (30-day cache, only that user's data)
 
-### Backend Agent (Node.js)
-- **Runtime**: Node.js 20+ with TypeScript
-- **Agent Framework**: Claude Agent SDK (@anthropic-ai/sdk)
-- **Web Scraping**: Playwright (for dynamic content) + Cheerio (for parsing)
-- **API Framework**: Express.js (REST API for extension)
-- **Database**: PostgreSQL (production) / SQLite (development)
-- **Caching**: Redis (for product analysis cache)
+### Backend Agent (Python)
+- **Runtime**: Python 3.13+ (with free-threading/GIL-optional for native parallelization)
+- **API Framework**: FastAPI (async, high-performance REST API)
+- **Agent Framework**: Claude Agent SDK with WebFetch + WebSearch tools
+- **Database**: Supabase PostgreSQL (production) with direct connection pooling
+- **Caching**: Redis (1-hour TTL for hot analyses)
+- **Job Queue**: Celery + Redis (for parallel agent processing)
 - **Environment**: Docker for containerization
 
 ### AI/ML Components
@@ -1858,6 +1866,387 @@ GET /api/health
 5. **Social features**: Should users be able to share analyses or contribute to knowledge base?
 6. **Brand partnerships**: Could "safe" brands sponsor their placement in alternatives?
 7. **Insurance integration**: Could health insurers subsidize premium subscriptions?
+
+---
+
+# MVP BUILD PLAN
+
+## Overview
+
+This section defines the step-by-step implementation plan for building the Eject MVP, broken down into 5 phases over approximately 5 weeks.
+
+## Phase 1: Python Backend API + Claude Agent (Week 1)
+
+**Stack**: Python 3.13+ | FastAPI | Claude SDK | Supabase PostgreSQL
+
+### Objectives
+Build a working backend API that can analyze products using Claude Agent with real WebFetch/WebSearch tools.
+
+### Deliverables
+
+1. **FastAPI Backend Scaffold**
+   - Clean architecture structure (domain/application/infrastructure layers)
+   - `POST /api/analyze` endpoint
+   - `GET /api/health` health check endpoint
+   - Error handling middleware
+   - CORS configuration for extension
+
+2. **Supabase Database Integration**
+   - SQL migrations for all 9 tables from database schema
+   - Connection pooling setup
+   - Environment variable configuration
+   - Seed data for common allergens and PFAS compounds
+
+3. **Claude Agent Implementation**
+   - Initialize Anthropic SDK with WebFetch + WebSearch tools
+   - Product analysis workflow:
+     - WebFetch product page for ingredients
+     - Query database for PFAS/allergen matches
+     - Calculate harm score (0-100)
+     - WebSearch for safer alternatives
+   - Return structured analysis response
+
+4. **Harm Score Formula**
+   ```python
+   def calculate_harm_score(analysis: dict) -> int:
+       """
+       Returns 0-100 where:
+       - 0-20: Safe
+       - 21-40: Low risk
+       - 41-60: Moderate risk
+       - 61-80: High risk
+       - 81-100: Dangerous
+       """
+       allergen_score = sum(a['severity'] for a in analysis['allergens']) * 10
+       pfas_score = len(analysis['pfas_detected']) * 15
+       other_toxins = len(analysis['other_concerns']) * 5
+
+       raw_score = min(100, allergen_score + pfas_score + other_toxins)
+
+       # Adjust by confidence (low confidence = higher reported risk)
+       confidence_penalty = (100 - analysis['confidence']) / 10
+
+       return min(100, int(raw_score + confidence_penalty))
+   ```
+
+5. **E2E Testing**
+   - Pytest framework setup
+   - Test with real Amazon product URLs:
+     - La Roche-Posay Sunscreen: https://www.amazon.ca/Roche-Posay-Anthelios-Mineral-50mL/dp/B00OZNRV00/
+     - Non-stick frying pan: https://www.amazon.ca/Signature-Cookware-Indicator-Utensil-Oven-Safe/dp/B07YX7DJTC/
+   - Validate full flow: URL → agent analysis → harm score → database storage
+   - Mock database queries initially, then test with real data
+
+### Technical Requirements
+- Python 3.13+ (for free-threading/GIL-optional parallelization)
+- Anthropic API key: `***REMOVED***`
+- Supabase project credentials (via MCP or environment variables)
+
+### Success Criteria
+- ✅ `POST /api/analyze` accepts product URL and returns harm score
+- ✅ Claude agent successfully uses WebFetch and WebSearch
+- ✅ Agent queries database for PFAS/allergen information
+- ✅ E2E tests pass with real Amazon products
+- ✅ Response time < 10 seconds for product analysis
+
+---
+
+## Phase 2: Svelte 5 Chrome Extension (Week 2)
+
+**Stack**: Svelte 5 | TypeScript | Vite | Tailwind CSS
+
+### Objectives
+Build Chrome extension that detects Amazon products and displays analysis in a sidebar.
+
+### Deliverables
+
+1. **Extension Scaffold**
+   - Manifest V3 configuration
+   - Svelte 5 + TypeScript + Vite build setup
+   - Tailwind CSS integration
+   - Content script for Amazon product detection
+   - Background service worker
+   - Sidebar UI component (no popup)
+
+2. **Product Detection Logic**
+   - Content script runs only on allowed domains (Amazon initially)
+   - Parse Amazon product pages:
+     - Extract product name
+     - Extract brand
+     - Extract ASIN/product URL
+     - Extract ingredients from description
+   - Show sidebar trigger button on product pages
+
+3. **Sidebar UI**
+   - Slides in from right side when user clicks "See Alternatives"
+   - Display sections:
+     - Harm score (0-100) with color coding
+     - Detected allergens
+     - Detected PFAS compounds with body_effects
+     - Safer alternatives list
+   - Loading states and error handling
+   - Responsive design with Tailwind
+
+4. **API Integration**
+   - Call backend `POST /api/analyze` with product URL
+   - Handle async responses
+   - Display results in sidebar
+
+5. **IndexedDB Caching**
+   - Per-user cache (30-day TTL)
+   - Store only that user's analyzed products
+   - Cache hit = instant sidebar display
+   - Cache miss = call API
+
+6. **E2E Testing with Playwright MCP**
+   - Use Playwright MCP server for automated testing
+   - Test flow: Navigate to Amazon → detect product → click sidebar → verify analysis
+   - Test caching behavior
+   - Test error handling
+
+### Technical Requirements
+- Playwright MCP: `npx @playwright/mcp@latest`
+- Extension manifest configured for Amazon domains only
+- API endpoint URL (localhost for dev, Cloud Run for prod)
+
+### Success Criteria
+- ✅ Extension detects Amazon products correctly
+- ✅ Sidebar displays harm score and analysis
+- ✅ Caching reduces API calls for repeat views
+- ✅ Only works on Amazon (doesn't trigger on Netflix, etc.)
+- ✅ Playwright E2E tests pass
+
+---
+
+## Phase 3: Redis Caching + Celery Queue (Week 3)
+
+**Stack**: Redis | Celery | Docker
+
+### Objectives
+Add multi-layer caching and job queue for parallel processing.
+
+### Deliverables
+
+1. **Redis Caching**
+   - Redis server setup (Docker for local dev)
+   - 1-hour TTL for hot product analyses
+   - Cache promotion pattern:
+     - Extension IndexedDB (30d) → API checks Redis (1h) → API checks Supabase (permanent)
+   - Cache hit rate tracking
+
+2. **Celery + Redis Job Queue**
+   - Celery worker pool setup
+   - Task queue for product analysis jobs
+   - Parallel Claude agent processing
+   - Retry logic with exponential backoff
+   - Task status tracking
+
+3. **API Updates**
+   - `/api/analyze` endpoint enqueues analysis job
+   - Returns job ID immediately
+   - WebSocket or polling endpoint for job status
+   - Update caching strategy in API layer
+
+4. **Multi-layer Cache Pattern**
+   ```
+   User request → IndexedDB (30d)
+                    ↓ miss
+                  Redis (1h)
+                    ↓ miss
+                  Supabase (permanent)
+                    ↓ miss
+                  Celery job → Claude analysis
+   ```
+
+### Technical Requirements
+- Redis 7+ (via Docker or Upstash free tier)
+- Celery 5+ with Redis backend
+- Docker Compose for local orchestration
+
+### Success Criteria
+- ✅ Redis cache reduces database queries
+- ✅ Celery workers process multiple analyses in parallel
+- ✅ Cache hit rate > 60%
+- ✅ Average response time < 3 seconds (with cache)
+- ✅ Failed jobs retry automatically
+
+---
+
+## Phase 4: Enhanced Analysis + Alternatives (Week 4)
+
+**Note**: WebFetch/WebSearch already integrated in Phase 1
+
+### Objectives
+Enhance analysis quality and add alternative product recommendations.
+
+### Deliverables
+
+1. **Allergen Detection Refinement**
+   - Seed Supabase with comprehensive allergen database
+   - Improve ingredient matching algorithms
+   - Add severity scoring logic
+   - Include common allergen sources
+
+2. **PFAS Detection Enhancement**
+   - Seed PFAS compounds table with:
+     - Name
+     - CAS number
+     - Synonyms
+     - Health impacts
+     - `body_effects` (detailed explanation)
+   - Match ingredients against PFAS database
+   - Display body effects in sidebar
+
+3. **Alternative Recommendations**
+   - Claude agent searches for 3-5 safer alternatives
+   - Rank alternatives by:
+     - Safety improvement score
+     - Price similarity
+     - Availability
+   - Inject Amazon Associates affiliate links
+   - Store recommendations in database
+
+4. **Enhanced Sidebar UI**
+   - Display allergen breakdown with severity
+   - Show PFAS compounds with body effects
+   - List alternatives with comparison table
+   - Click tracking for affiliate links
+
+### Technical Requirements
+- Amazon Associates account for affiliate links
+- Comprehensive allergen/PFAS data sources
+
+### Success Criteria
+- ✅ Accurate allergen detection (> 90% accuracy on sample)
+- ✅ PFAS detection with body effects displayed
+- ✅ 3-5 relevant alternatives per product
+- ✅ Affiliate links properly formatted
+- ✅ Click-through tracking works
+
+---
+
+## Phase 5: Production Deployment + CI/CD (Week 5)
+
+**Stack**: GCP Cloud Run | Cloudflare Pages | GitHub Actions
+
+### Objectives
+Deploy fully functional MVP to production with automated CI/CD.
+
+### Deliverables
+
+1. **Landing Page + Privacy Policy (Cloudflare Pages)**
+   - Create landing page at `eject.rshvr.com`
+   - Privacy policy page (required for Chrome Web Store)
+   - Terms of service
+   - Deploy to Cloudflare Pages
+   - Configure DNS subdomain
+
+2. **Backend Deployment (GCP Cloud Run)**
+   - Dockerize Python FastAPI application
+   - Create Cloud Run service
+   - Configure environment variables:
+     - Anthropic API key
+     - Supabase credentials
+     - Redis connection
+   - Set up auto-scaling (0-100 instances)
+   - Configure Cloud Memorystore (Redis)
+
+3. **GitHub Actions CI/CD**
+   - Automated testing pipeline:
+     - Run pytest on every PR
+     - Run Playwright E2E tests
+     - Lint Python code (black, ruff)
+     - Lint Svelte code (eslint, prettier)
+   - Automated deployment:
+     - Deploy to Cloud Run on merge to main
+     - Build and package extension
+     - Upload extension artifact
+
+4. **Chrome Web Store Submission**
+   - Package extension with production API URL
+   - Create Chrome Web Store listing:
+     - Screenshots
+     - Description
+     - Privacy policy link
+     - Promotional images
+   - Submit for review
+   - Address any review feedback
+
+5. **Supabase Production Setup**
+   - Run migrations on production database
+   - Seed allergen and PFAS data
+   - Configure backups and monitoring
+
+### Technical Requirements
+- GCP account with Cloud Run access
+- Cloudflare account for eject.rshvr.com
+- GitHub repository with Actions enabled
+- Chrome Web Store developer account ($5 one-time fee)
+
+### MCP Server Setup
+
+To enable MCP tools for development, run these commands in your terminal:
+
+```bash
+# Supabase MCP
+claude mcp add --scope project --transport http supabase "https://mcp.supabase.com/mcp?project_ref=vslnwiugfuvquiaafxgh&features=database%2Cdocs%2Cbranching%2Cstorage%2Cdevelopment%2Cdebugging%2Cfunctions"
+
+# Playwright MCP
+claude mcp add playwright npx @playwright/mcp@latest
+
+# GitHub MCP
+claude mcp add --transport http github https://api.githubcopilot.com/mcp -H "Authorization: Bearer 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"
+```
+
+### Success Criteria
+- ✅ Landing page live at eject.rshvr.com
+- ✅ Backend deployed to Cloud Run with auto-scaling
+- ✅ GitHub Actions CI/CD pipeline passing
+- ✅ Extension approved and published to Chrome Web Store
+- ✅ Production database seeded and monitored
+- ✅ End-to-end production flow working
+
+---
+
+## Testing Strategy
+
+### Unit Tests (Pytest)
+- Domain logic (harm score calculation)
+- Database queries
+- Caching logic
+- API endpoints
+
+### Integration Tests
+- Claude agent with real API calls
+- Database integration
+- Redis caching
+- Celery job processing
+
+### E2E Tests (Playwright)
+- Extension detection on Amazon
+- Sidebar interaction
+- API integration
+- Caching behavior
+
+### Test Product URLs
+- La Roche-Posay Sunscreen: https://www.amazon.ca/Roche-Posay-Anthelios-Mineral-50mL/dp/B00OZNRV00/
+- Non-stick frying pan: https://www.amazon.ca/Signature-Cookware-Indicator-Utensil-Oven-Safe/dp/B07YX7DJTC/
+
+---
+
+## Timeline Summary
+
+| Phase | Duration | Deliverables |
+|-------|----------|--------------|
+| Phase 1 | Week 1 | Python backend + Claude agent + E2E tests |
+| Phase 2 | Week 2 | Svelte extension + sidebar UI + Playwright tests |
+| Phase 3 | Week 3 | Redis caching + Celery queue |
+| Phase 4 | Week 4 | Enhanced analysis + alternatives |
+| Phase 5 | Week 5 | Production deployment + CI/CD + Chrome Web Store |
+
+**Total**: 5 weeks to MVP launch
+
+---
 
 ## Contributing
 
