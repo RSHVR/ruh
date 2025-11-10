@@ -3,11 +3,6 @@
   "name": "Eject",
   "version": "0.1.0",
   "description": "AI-powered product safety analysis - detect harmful substances and find safer alternatives",
-  "icons": {
-    "16": "icon-16.png",
-    "48": "icon-48.png",
-    "128": "icon-128.png"
-  },
   "permissions": [
     "storage",
     "activeTab"

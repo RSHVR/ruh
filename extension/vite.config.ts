@@ -15,12 +15,17 @@ export default defineConfig({
         {
           src: 'public/*.png',
           dest: '.'
+        },
+        {
+          src: 'src/content/content.css',
+          dest: '.'
         }
       ]
     })
   ],
   build: {
     outDir: 'dist',
+    emptyOutDir: true,
     rollupOptions: {
       input: {
         sidebar: resolve(__dirname, 'src/sidebar.html'),
@@ -30,7 +35,14 @@ export default defineConfig({
       output: {
         entryFileNames: '[name].js',
         chunkFileNames: 'chunks/[name].js',
-        assetFileNames: 'assets/[name].[ext]'
+        assetFileNames: (assetInfo) => {
+          // Keep sidebar assets in assets folder
+          if (assetInfo.name?.includes('sidebar')) {
+            return 'assets/[name].[ext]';
+          }
+          // Other assets go to root
+          return '[name].[ext]';
+        }
       }
     }
   },
