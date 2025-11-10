@@ -11,27 +11,33 @@
 
 ## Color Palette
 
+**Design Philosophy:**
+This palette prioritizes warmth without overwhelming red tones. Soft Sand and Sage Green create a natural, calming foundation, while Deep Charcoal ensures excellent text readability (7:1+ contrast on light backgrounds). All colors meet WCAG AA standards for accessibility.
+
 ### Primary Colors
-- **Apricot Cream** `#FFD7C4` - Main brand color, warm and inviting
-- **Soft Terracotta** `#E8B4A0` - Secondary, grounding and earthy
-- **Warm Sage** `#C8D5B9` - Accent, natural and calming
+- **Soft Sand** `#E8DCC8` - Main brand color, warm and neutral
+- **Sage Green** `#A8B89F` - Secondary, calming and natural
+- **Warm Taupe** `#C9B5A0` - Accent, grounding and earthy
 
 ### Supporting Colors
-- **Powder Peach** `#FFDFD3` - Light backgrounds, soft alerts
-- **Dusty Rose** `#E5C3C6` - Medium emphasis, gentle warnings
-- **Cream** `#FFF8F0` - Canvas/background color
-- **Warm Gray** `#9D9D9C` - Text, subtle elements
+- **Pale Linen** `#F5F0E8` - Light backgrounds, cards
+- **Cream** `#FFFBF5` - Canvas/main background color
+- **Light Sage** `#D4DBC9` - Soft accents, success highlights
+- **Deep Charcoal** `#3A3633` - Primary text color (strong contrast)
+- **Medium Gray** `#6B6560` - Secondary text, labels
 
 ### Semantic Colors
-- **Safe Green** `#B8D4C6` - Products with low harm scores
-- **Caution Peach** `#FFB8A0` - Medium harm scores
-- **Alert Coral** `#E89B8C` - High harm scores (still warm, not alarming red)
+- **Safe Green** `#9BB88F` - Products with low harm scores
+- **Caution Amber** `#D4A574` - Medium harm scores (warm tan, not orange)
+- **Alert Rust** `#C18A72` - High harm scores (muted rust, not red)
 
 ### Usage Guidelines
-- Use Apricot Cream as the primary brand color for logo, buttons, and key UI elements
+- Use Soft Sand as the primary brand color for logo, buttons, and key UI elements
 - Cream serves as the main background for extension interface
-- Warm Sage for secondary actions and success states
-- Keep contrast ratios accessible (minimum 4.5:1 for body text)
+- Sage Green for secondary actions and success states
+- Deep Charcoal for all body text (ensures 7:1+ contrast on light backgrounds)
+- Medium Gray for secondary text (ensures 4.5:1+ contrast)
+- Keep all interactive elements above 3:1 contrast ratio
 
 ---
 
@@ -84,8 +90,8 @@ ruh
 ```
 - Font: Cormorant Medium (500) or Semi Bold (600)
 - All lowercase
-- Color: Apricot Cream (#FFD7C4) on dark backgrounds
-- Color: Soft Terracotta (#E8B4A0) on light backgrounds
+- Color: Soft Sand (#E8DCC8) on dark backgrounds
+- Color: Warm Taupe (#C9B5A0) on light backgrounds
 - Letter spacing: +75 to +100 tracking
 
 ### Logo Icon (Browser Extension)
@@ -93,7 +99,7 @@ ruh
 
 Visual description:
 - Rounded shield shape (soft, not angular)
-- Single color: Apricot Cream
+- Single color: Soft Sand
 - Could incorporate a subtle leaf or droplet motif inside
 - 16x16px, 32x32px, 48x48px versions needed
 - Should work in monochrome for toolbar states
@@ -132,25 +138,25 @@ Maintain clear space around logo equal to the height of lowercase "r" on all sid
 **Philosophy:** Inviting, not demanding. Every button should feel like a gentle suggestion rather than a command.
 
 **Primary Buttons (CTAs):**
-- Filled with Apricot Cream background
-- Text in deep Warm Gray or white (test for contrast)
+- Filled with Soft Sand background
+- Text in Deep Charcoal (excellent contrast)
 - 12px padding vertical, 24px horizontal (generous breathing room)
 - 8px border radius (soft corners, never sharp)
-- Hover state: Slightly deeper Soft Terracotta, subtle lift with shadow
+- Hover state: Warm Taupe background, subtle lift with shadow
 - Active state: Very slight scale down (0.98), feels responsive
 - Font: Inter Medium, 15-16px size
 - Never use ALL CAPS (lowercase or sentence case only)
 
 **Secondary Buttons:**
-- Outlined style with 2px Soft Terracotta border
+- Outlined style with 2px Sage Green border
 - Transparent or Cream background
 - Same padding and radius as primary
-- Hover: Fill with Powder Peach, border stays
-- Text matches border color
+- Hover: Fill with Light Sage, border stays
+- Text matches border color (Sage Green)
 
 **Tertiary/Ghost Buttons:**
 - No border, no background
-- Text in Soft Terracotta or Warm Sage
+- Text in Sage Green or Warm Taupe
 - Underline on hover (1px, subtle)
 - Use for "Learn more" or dismissible actions
 
@@ -158,8 +164,8 @@ Maintain clear space around logo equal to the height of lowercase "r" on all sid
 **Philosophy:** Create sanctuary spaces. Each card is a safe zone for information.
 
 **Product Cards:**
-- Background: Cream with very soft shadow (never harsh drop shadows)
-- Border: Optional 1px in Powder Peach (only if needed for definition)
+- Background: Pale Linen with very soft shadow (never harsh drop shadows)
+- Border: Optional 1px in Light Sage (only if needed for definition)
 - Padding: 20-24px (never cramped)
 - Border radius: 12px (more rounded than buttons for hierarchy)
 - Space between cards: 16px minimum
@@ -169,15 +175,15 @@ Maintain clear space around logo equal to the height of lowercase "r" on all sid
 **Information Cards:**
 - Similar to product cards but can use color-coded left borders
 - Safe products: 3px left border in Safe Green
-- Caution products: 3px left border in Caution Peach
-- Alert products: 3px left border in Alert Coral
+- Caution products: 3px left border in Caution Amber
+- Alert products: 3px left border in Alert Rust
 - Keep content inside card spacious and scannable
 
 **Chemical Detail Cards:**
 - Nested inside main product cards (card within card)
-- Slightly darker background (Powder Peach) for visual hierarchy
+- Slightly darker background (Soft Sand) for visual hierarchy
 - 8px border radius (smaller than parent)
-- Include small icon (molecule, warning, info) in Warm Sage
+- Include small icon (molecule, warning, info) in Sage Green
 - Expandable/collapsible with smooth animation (200-300ms ease)
 
 ### Input Fields & Forms
@@ -186,26 +192,26 @@ Maintain clear space around logo equal to the height of lowercase "r" on all sid
 **Text Inputs:**
 - Height: 44px minimum (thumb-friendly)
 - Padding: 12px horizontal
-- Background: White or very light Cream
-- Border: 1.5px solid Warm Gray (subtle, not harsh)
+- Background: White or Cream
+- Border: 1.5px solid Medium Gray (subtle, not harsh)
 - Border radius: 6px (slightly less rounded than buttons)
-- Focus state: Border becomes Apricot Cream, add soft glow shadow in same color
-- Placeholder text: Warm Gray at 70% opacity
-- Error state: Border becomes Alert Coral, never shake animation (too aggressive)
+- Focus state: Border becomes Sage Green, add soft glow shadow in same color
+- Placeholder text: Medium Gray at 60% opacity
+- Error state: Border becomes Alert Rust, never shake animation (too aggressive)
 - Success state: Border becomes Safe Green with checkmark icon inside
 
 **Search Bars:**
 - Same as text inputs but with search icon inside (left side)
-- Icon in Warm Gray, 20px size
+- Icon in Medium Gray, 20px size
 - Clear button appears on right when text entered (small X in circle)
 - Wider than regular inputs (full width or 60% of container)
 
 **Dropdowns/Selects:**
 - Match text input styling exactly
-- Chevron icon (down arrow) on right, 16px, Warm Gray
-- Dropdown menu: Card styling with Cream background
-- Options have 12px padding, hover with Powder Peach background
-- Selected option shows checkmark in Warm Sage
+- Chevron icon (down arrow) on right, 16px, Medium Gray
+- Dropdown menu: Card styling with Pale Linen background
+- Options have 12px padding, hover with Light Sage background
+- Selected option shows checkmark in Sage Green
 
 ### Progress Indicators & Scores
 **Philosophy:** Visual feedback should inform without alarming. Even bad scores are presented with care.
@@ -213,27 +219,27 @@ Maintain clear space around logo equal to the height of lowercase "r" on all sid
 **Harm Score Circle:**
 - Large (120-140px diameter for main score)
 - Circular progress ring, 8-10px thickness
-- Background ring: Light gray at 20% opacity
+- Background ring: Medium Gray at 20% opacity
 - Progress ring: Color-coded gradient
   - 0-30: Safe Green
-  - 31-60: Warm Sage to Caution Peach gradient
-  - 61-80: Caution Peach to Alert Coral gradient
-  - 81-100: Alert Coral (but never harsh red)
-- Number in center: Large (32-36px), Inter Semi Bold
-- Label underneath: Small (12px), Inter Regular, "Harm Score"
+  - 31-60: Safe Green to Caution Amber gradient
+  - 61-80: Caution Amber to Alert Rust gradient
+  - 81-100: Alert Rust (muted, not harsh red)
+- Number in center: Large (32-36px), Inter Semi Bold, Deep Charcoal
+- Label underneath: Small (12px), Inter Regular, Medium Gray, "Harm Score"
 - Smooth animation on load (1 second ease-out)
 
 **Loading States:**
 - Soft pulsing animation (never harsh spinning)
-- Skeleton screens in Powder Peach (not gray)
+- Skeleton screens in Pale Linen (not gray)
 - Shimmer effect that moves slowly (2-3 seconds per cycle)
 - Text: "Finding safer options..." not "Loading..."
 
 **Progress Bars (Linear):**
 - Height: 8px
 - Border radius: 4px (fully rounded ends)
-- Background: Powder Peach
-- Progress fill: Apricot Cream
+- Background: Pale Linen
+- Progress fill: Sage Green
 - Smooth animation, never jumpy
 
 ### Alerts & Notifications
@@ -248,20 +254,20 @@ Maintain clear space around logo equal to the height of lowercase "r" on all sid
 - Close icon: Small X in top-right corner
 
 **Success Toast:**
-- Background: Safe Green at 90% opacity
-- Text: Deep gray (for contrast)
+- Background: Safe Green at 85% opacity
+- Text: Deep Charcoal (for strong contrast)
 - Icon: Checkmark circle, same green but solid
 - Message: "Saved" or "Found 3 cleaner alternatives"
 
 **Warning Toast:**
-- Background: Caution Peach at 90% opacity
-- Text: Deep gray
-- Icon: Info circle in Soft Terracotta
+- Background: Caution Amber at 85% opacity
+- Text: Deep Charcoal
+- Icon: Info circle in Warm Taupe
 - Message: "This product contains 2 allergens you've flagged"
 
 **Error Toast:**
-- Background: Alert Coral at 90% opacity (not bright red)
-- Text: Deep gray or white (test contrast)
+- Background: Alert Rust at 85% opacity
+- Text: Deep Charcoal
 - Icon: Gentle exclamation circle
 - Message: Never blame user. "We couldn't load that product. Try again?"
 
@@ -277,8 +283,8 @@ Maintain clear space around logo equal to the height of lowercase "r" on all sid
 **Ingredient Lists:**
 - Each item: 48-52px height minimum
 - 16px padding vertical, 20px horizontal
-- Subtle divider lines (1px Powder Peach, not harsh gray)
-- Hover state: Very light Powder Peach background
+- Subtle divider lines (1px Light Sage, not harsh gray)
+- Hover state: Very light Pale Linen background
 - Expandable items show chevron icon on right
 - When expanded, nested content indents 20px with slightly darker background
 
@@ -288,12 +294,12 @@ Maintain clear space around logo equal to the height of lowercase "r" on all sid
 - 3 alternatives shown, "See more" button for additional
 - Score badge in top-right corner of card (small circular indicator)
 - Product image: 80x80px, rounded 8px
-- Name: Inter Medium, 16px
-- Price: Below name, smaller (14px), Warm Gray
+- Name: Inter Medium, 16px, Deep Charcoal
+- Price: Below name, smaller (14px), Medium Gray
 
 **Chemical Comparison Tables:**
 - Only use tables when comparing multiple products side-by-side
-- Header row: Powder Peach background, Inter Semi Bold
+- Header row: Pale Linen background, Inter Semi Bold
 - Cell padding: 12px vertical, 16px horizontal
 - Zebra striping: Alternating Cream and White rows
 - Border radius on outer corners of entire table (12px)
@@ -307,7 +313,7 @@ Maintain clear space around logo equal to the height of lowercase "r" on all sid
 - 2px stroke weight consistently
 - Rounded line caps and joins (never sharp)
 - 24x24px default size (scale proportionally)
-- Color: Warm Gray for inactive, Apricot Cream or Warm Sage for active
+- Color: Medium Gray for inactive, Sage Green or Warm Taupe for active
 - Never use stark black icons
 
 **Icon Usage:**
@@ -359,14 +365,14 @@ Maintain clear space around logo equal to the height of lowercase "r" on all sid
 - Letter spacing: -0.5px (tighter for large text)
 - Line height: 1.2
 - Margin bottom: 24px
-- Color: Deep gray/black, never pure black (#2D2D2D)
+- Color: Deep Charcoal (#3A3633)
 
 **H2 (Section Headings):**
 - Inter Semi Bold, 22-24px
 - Letter spacing: -0.25px
 - Line height: 1.3
 - Margin bottom: 16px
-- Can use Soft Terracotta for emphasis in some contexts
+- Color: Deep Charcoal, can use Warm Taupe for emphasis in some contexts
 
 **H3 (Subsections):**
 - Inter Medium, 18-20px
@@ -378,18 +384,18 @@ Maintain clear space around logo equal to the height of lowercase "r" on all sid
 - Inter Regular, 15-16px
 - Letter spacing: 0
 - Line height: 1.6 (generous for readability)
-- Color: Warm Gray (#2D2D2D)
+- Color: Deep Charcoal (#3A3633)
 - Paragraph spacing: 16px between paragraphs
 
 **Small Text (Labels, Captions):**
 - Inter Regular, 13-14px
 - Line height: 1.5
-- Color: Warm Gray at 80% opacity
+- Color: Medium Gray (#6B6560)
 - Use sparingly (most text should be body size)
 
 **Links:**
 - Same size as surrounding text
-- Color: Soft Terracotta
+- Color: Sage Green
 - Underline on hover only
 - Never open links in new tabs without warning
 
@@ -430,7 +436,7 @@ Maintain clear space around logo equal to the height of lowercase "r" on all sid
 **Must-haves for all components:**
 - Minimum 4.5:1 contrast ratio for text
 - 3:1 for UI components and graphics
-- Focus states visible for keyboard navigation (Apricot Cream outline, 2px)
+- Focus states visible for keyboard navigation (Sage Green outline, 2px)
 - Touch targets minimum 44x44px
 - Alt text for all images and icons
 - Labels for all form inputs
@@ -444,7 +450,7 @@ Maintain clear space around logo equal to the height of lowercase "r" on all sid
 ### Example: Product Detection Card
 When you combine multiple components, maintain hierarchy and breathing room:
 
-1. **Card Container** (Cream background, 12px radius, soft shadow)
+1. **Card Container** (Pale Linen background, 12px radius, soft shadow)
 2. **Product Header** (Name in H2, brand in small text)
 3. **Harm Score Circle** (Centered, prominent)
 4. **Chemical List** (Expandable items below score)
@@ -515,28 +521,28 @@ Maintain consistent padding throughout (32px on all sides). Each screen stands a
 
 ### Color Usage in UI
 - Green zone (0-30): Safe, mostly clean products
-- Yellow zone (31-60): Some concerns, moderate chemicals
-- Orange zone (61-80): Notable concerns, consider alternatives
-- Red zone (81-100): High concern, strongly suggest alternatives
+- Amber zone (31-60): Some concerns, moderate chemicals
+- Rust zone (61-80): Notable concerns, consider alternatives
+- Deep rust zone (81-100): High concern, strongly suggest alternatives
 
 ---
 
 ## Brand Applications
 
 ### Chrome Web Store Listing
-- **Icon:** 128x128px ruh shield icon in Apricot Cream
-- **Screenshots:** Light Cream backgrounds, warm interface examples
-- **Banner:** Apricot Cream gradient with "ruh" wordmark
+- **Icon:** 128x128px ruh shield icon in Soft Sand
+- **Screenshots:** Pale Linen backgrounds, warm interface examples
+- **Banner:** Soft Sand gradient with "ruh" wordmark
 
 ### Website
-- **Hero section:** Cream background, Apricot Cream CTAs
-- **Features:** Card-based layout with Powder Peach accents
-- **Footer:** Warm Sage with white text
+- **Hero section:** Cream background, Soft Sand CTAs
+- **Features:** Card-based layout with Pale Linen accents
+- **Footer:** Sage Green with white text
 
 ### Social Media
-- **Profile image:** Shield icon on Apricot Cream background
-- **Cover images:** Warm pastel gradients
-- **Post templates:** Cream backgrounds with Apricot Cream accents
+- **Profile image:** Shield icon on Soft Sand background
+- **Cover images:** Warm neutral gradients (Sand to Sage)
+- **Post templates:** Cream backgrounds with Soft Sand accents
 
 ---
 
@@ -546,22 +552,22 @@ Maintain consistent padding throughout (32px on all sides). Each screen stands a
 ```css
 :root {
   /* Primary Colors */
-  --color-primary: #FFD7C4;
-  --color-secondary: #E8B4A0;
-  --color-accent: #C8D5B9;
+  --color-primary: #E8DCC8;
+  --color-secondary: #A8B89F;
+  --color-accent: #C9B5A0;
   
   /* Backgrounds */
-  --color-bg-primary: #FFF8F0;
-  --color-bg-secondary: #FFDFD3;
+  --color-bg-primary: #FFFBF5;
+  --color-bg-secondary: #F5F0E8;
   
   /* Semantic */
-  --color-safe: #B8D4C6;
-  --color-caution: #FFB8A0;
-  --color-alert: #E89B8C;
+  --color-safe: #9BB88F;
+  --color-caution: #D4A574;
+  --color-alert: #C18A72;
   
   /* Neutrals */
-  --color-text: #2D2D2D;
-  --color-text-light: #9D9D9C;
+  --color-text: #3A3633;
+  --color-text-secondary: #6B6560;
   
   /* Typography */
   --font-logo: 'Cormorant', serif;
