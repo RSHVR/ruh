@@ -29,7 +29,7 @@ steps:
       - '--timeout'
       - '300'
       - '--set-secrets'
-      - 'ANTHROPIC_API_KEY=anthropic-api-key:latest'
+      - 'ANTHROPIC_API_KEY=anthropic-api-key:latest,API_KEY=ruh-api-key:latest'
       - '--set-env-vars'
       - 'API_HOST=0.0.0.0,API_PORT=8080,DEBUG=false,ALLOWED_ORIGINS=*,LOG_LEVEL=INFO'
     dir: 'backend'
