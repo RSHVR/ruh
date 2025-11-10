@@ -1,5 +1,26 @@
 # Deployment Guide
 
+## 🔐 Prerequisites: Setup Secret Manager (Required - One-time)
+
+**IMPORTANT**: Before deploying, you must store your Anthropic API key securely in Google Secret Manager.
+
+Run the setup script from the backend directory:
+```bash
+cd ~/Eject/backend
+chmod +x setup-secrets.sh
+./setup-secrets.sh
+```
+
+This script will:
+1. Enable Secret Manager API
+2. Prompt you to enter your Anthropic API key (securely)
+3. Store it in Secret Manager
+4. Grant necessary permissions to Cloud Run and Cloud Build
+
+**You only need to do this once.** After this, your API key is never hardcoded in code or config files.
+
+---
+
 ## Option 1: Manual Deployment (Immediate)
 
 Run the deployment script from the backend directory:
@@ -66,4 +87,13 @@ cd ~/Eject/backend
 
 ## Updating Environment Variables
 
-To update environment variables, edit `deploy.sh` or `cloudbuild.yaml` and redeploy.
+**Regular environment variables**: Edit `deploy.sh` or `cloudbuild.yaml` and redeploy.
+
+**API Key**: Update the secret in Secret Manager:
+```bash
+echo -n "NEW_API_KEY" | gcloud secrets versions add anthropic-api-key \
+  --data-file=- \
+  --project=ruh-backend
+```
+
+Then redeploy - Cloud Run will automatically use the new version.
