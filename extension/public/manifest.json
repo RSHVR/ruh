@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Eject",
+  "version": "0.1.0",
+  "description": "AI-powered product safety analysis - detect harmful substances and find safer alternatives",
+  "icons": {
+    "16": "icon-16.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  },
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://*.amazon.com/*",
+    "https://*.amazon.ca/*",
+    "http://localhost:8001/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.amazon.com/*",
+        "https://*.amazon.ca/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["sidebar.html", "assets/*"],
+      "matches": ["https://*.amazon.com/*", "https://*.amazon.ca/*"]
+    }
+  ],
+  "action": {
+    "default_title": "Eject - Product Safety"
+  }
+}
