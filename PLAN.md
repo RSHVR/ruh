@@ -389,12 +389,9 @@ table product_analyses {
   analysis_version: string // track prompt versions
   claude_model: string // "claude-3-5-sonnet-20241022"
 
-  // Cache TTL
-  expires_at: timestamp // 7 days from analysis
-
   // Index for fast lookup
   INDEX idx_url_hash (product_url_hash)
-  INDEX idx_expires (expires_at)
+  INDEX idx_product_url (product_url) // for user search queries
 }
 
 // User Searches - track what users searched (privacy-respecting)
@@ -495,6 +492,7 @@ table pfas_compounds {
   cas_number: text UNIQUE // Chemical Abstracts Service number
   synonyms: text[]
   health_impacts: text[]
+  body_effects: text // detailed explanation of effects on human body
   sources: text[] // research paper URLs
   updated_at: timestamp
 }
@@ -506,7 +504,10 @@ table pfas_compounds {
 - **Opt-in sync**: Users can choose to sync allergen profiles (default: local only)
 - **Aggregate analytics only**: Individual user data never exposed
 - **GDPR compliant**: Right to deletion via UUID (users can reset extension)
-- **Data retention**: Auto-delete searches older than 90 days
+- **Data retention**:
+  - User-linked data (searches, interactions, preferences): Auto-delete after 90 days
+  - Product analysis data: Persists indefinitely (fully de-anonymized, no user linkage)
+  - Rationale: Reuse valuable product safety data while respecting user privacy
 
 **Database Hosting Costs**:
 - **Supabase Free Tier**: 500MB database (sufficient for 10K+ analyses)
@@ -661,7 +662,7 @@ export const agentPool = new AgentPool();
 
 ```typescript
 // Level 1: In-memory cache (Redis) - 1 hour TTL
-// Level 2: Database cache - 7 days TTL
+// Level 2: Database storage - permanent (de-anonymized product data)
 // Level 3: Extension local storage - 30 days TTL
 
 async function getAnalysis(productUrl: string): Promise<Analysis | null> {
@@ -671,13 +672,13 @@ async function getAnalysis(productUrl: string): Promise<Analysis | null> {
   const cached = await redis.get(`analysis:${urlHash}`);
   if (cached) return JSON.parse(cached);
 
-  // Check database (slower, but cheaper than AI)
+  // Check database (permanent storage, no expiry)
   const dbResult = await db.productAnalyses.findUnique({
     where: { product_url_hash: urlHash }
   });
 
-  if (dbResult && !isExpired(dbResult.expires_at)) {
-    // Promote to Redis
+  if (dbResult) {
+    // Promote to Redis cache
     await redis.setex(`analysis:${urlHash}`, 3600, JSON.stringify(dbResult));
     return dbResult;
   }
@@ -1797,7 +1798,7 @@ GET /api/health
 - **GDPR**: Full compliance (EU users)
 - **CCPA**: Full compliance (California users)
 - **Cookie consent**: Not needed (no cookies used)
-- **Data retention**: Analyses cached 7 days, then deleted
+- **Data retention**: Product analyses stored indefinitely (de-anonymized); user-linked data deleted after 90 days
 - **User data**: Encrypted at rest and in transit
 - **Third-party sharing**: Only with explicit consent
 
