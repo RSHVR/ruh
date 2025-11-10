@@ -2,6 +2,7 @@
 
 import json
 from typing import Dict, Any, List, Optional
+import httpx
 from anthropic import Anthropic
 from ..infrastructure.config import settings
 
@@ -13,6 +14,7 @@ class ProductSafetyAgent:
         """Initialize the Claude Agent."""
         self.client = Anthropic(api_key=settings.anthropic_api_key)
         self.model = "claude-sonnet-4-5-20250929"
+        self.http_client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
 
     async def analyze_product(
         self,
@@ -42,44 +44,110 @@ class ProductSafetyAgent:
         )
         user_message = self._build_user_message(product_url)
 
-        # Call Claude with tools
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=4096,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
-            tools=[
-                {
-                    "name": "web_fetch",
-                    "description": "Fetch and extract content from a URL",
-                    "input_schema": {
-                        "type": "object",
-                        "properties": {
-                            "url": {"type": "string", "description": "URL to fetch"},
-                        },
-                        "required": ["url"],
+        # Tool definitions
+        tools = [
+            {
+                "name": "web_fetch",
+                "description": "Fetch and extract content from a URL. Returns the HTML content of the page.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": "URL to fetch"},
                     },
+                    "required": ["url"],
                 },
-                {
-                    "name": "web_search",
-                    "description": "Search the web for information",
-                    "input_schema": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "Search query",
-                            },
-                        },
-                        "required": ["query"],
-                    },
-                },
-            ],
-        )
+            },
+        ]
 
-        # Parse the response and extract analysis
-        analysis = self._parse_response(response)
-        return analysis
+        # Start conversation with Claude
+        messages = [{"role": "user", "content": user_message}]
+
+        # Tool calling loop (max 5 iterations)
+        for iteration in range(5):
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=4096,
+                system=system_prompt,
+                messages=messages,
+                tools=tools,
+            )
+
+            # Check if Claude wants to use tools
+            if response.stop_reason == "tool_use":
+                # Process tool calls
+                tool_results = []
+                for content_block in response.content:
+                    if content_block.type == "tool_use":
+                        tool_name = content_block.name
+                        tool_input = content_block.input
+                        tool_use_id = content_block.id
+
+                        # Execute the tool
+                        if tool_name == "web_fetch":
+                            result = await self._execute_web_fetch(tool_input["url"])
+                        else:
+                            result = {"error": f"Unknown tool: {tool_name}"}
+
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_use_id,
+                            "content": json.dumps(result),
+                        })
+
+                # Add assistant's response and tool results to messages
+                messages.append({"role": "assistant", "content": response.content})
+                messages.append({"role": "user", "content": tool_results})
+
+            elif response.stop_reason == "end_turn":
+                # Claude is done, parse final response
+                analysis = self._parse_response(response)
+                return analysis
+            else:
+                # Unexpected stop reason
+                break
+
+        # If we hit max iterations or unexpected stop, return error
+        return {
+            "product_name": "Unknown",
+            "brand": "Unknown",
+            "retailer": "Unknown",
+            "ingredients": [],
+            "allergens_detected": [],
+            "pfas_detected": [],
+            "other_concerns": [],
+            "confidence": 0.1,
+            "error": "Analysis loop exceeded maximum iterations",
+        }
+
+    async def _execute_web_fetch(self, url: str) -> Dict[str, Any]:
+        """Execute web fetch tool.
+
+        Args:
+            url: URL to fetch
+
+        Returns:
+            Dict with page content or error
+        """
+        try:
+            response = await self.http_client.get(url)
+            response.raise_for_status()
+
+            # Return HTML content (truncated to avoid token limits)
+            content = response.text[:50000]  # Limit to ~50KB
+
+            return {
+                "success": True,
+                "url": url,
+                "status_code": response.status_code,
+                "content": content,
+                "content_length": len(content),
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "url": url,
+                "error": str(e),
+            }
 
     def _build_system_prompt(
         self,
@@ -92,17 +160,19 @@ class ProductSafetyAgent:
 
 **Your Analysis Process:**
 1. Use web_fetch to retrieve the product page content
-2. Extract product information: name, brand, ingredients list
-3. Query the provided allergen and PFAS databases to match ingredients
-4. Identify any harmful substances with confidence levels
+2. Extract product information: name, brand, ingredients list, materials
+3. Look for PFAS indicators: "non-stick", "PTFE", "Teflon", "water-resistant", "stain-resistant"
+4. Match ingredients against known allergens and PFAS compounds
 5. Return a structured JSON analysis
 
+**IMPORTANT:** You MUST call web_fetch first to get the product page content before analyzing.
+
 **Output Format:**
-Return your analysis as a JSON object with this exact structure:
+After fetching and analyzing the product page, return your analysis as a JSON object with this exact structure:
 {
     "product_name": "string",
     "brand": "string",
-    "retailer": "string",
+    "retailer": "string (e.g., Amazon, Amazon.ca)",
     "ingredients": ["ingredient1", "ingredient2"],
     "allergens_detected": [
         {
@@ -114,10 +184,10 @@ Return your analysis as a JSON object with this exact structure:
     ],
     "pfas_detected": [
         {
-            "name": "PFAS compound name",
+            "name": "PFAS compound name (e.g., PTFE, PFOA)",
             "cas_number": "CAS number if known",
             "body_effects": "description of effects on human body",
-            "source": "where found",
+            "source": "where found (e.g., non-stick coating)",
             "confidence": 0.0-1.0
         }
     ],
@@ -133,60 +203,54 @@ Return your analysis as a JSON object with this exact structure:
     "confidence": 0.0-1.0
 }
 
-**Databases Available:**
-"""
-        # Add allergen database info
-        if allergen_database:
-            prompt += f"\n**Allergen Database ({len(allergen_database)} entries):**\n"
-            for allergen in allergen_database[:10]:  # Show first 10 as examples
-                prompt += f"- {allergen.get('name')}: synonyms {allergen.get('synonyms', [])}\n"
+**PFAS Detection Guidelines:**
+- Non-stick cookware often contains PTFE (Teflon) - this is PFAS
+- "Water-resistant", "stain-resistant" products may have PFAS coatings
+- Look for PTFE, PFOA, PFOS, GenX in materials or descriptions
+- If ingredients aren't fully listed, note lower confidence
 
-        # Add PFAS database info
+**Allergen Detection:**
+- Check ingredient lists carefully
+- Look in product descriptions and specifications
+- Note synonyms (e.g., "fragrance" = "parfum")
+"""
+
+        # Add allergen database info if provided
+        if allergen_database:
+            prompt += f"\n**Known Allergens ({len(allergen_database)}):**\n"
+            for allergen in allergen_database[:10]:
+                synonyms = allergen.get("synonyms", [])
+                prompt += f"- {allergen.get('name')}: synonyms {synonyms}\n"
+
+        # Add PFAS database info if provided
         if pfas_database:
-            prompt += f"\n**PFAS Database ({len(pfas_database)} entries):**\n"
-            for pfas in pfas_database[:10]:  # Show first 10 as examples
-                prompt += f"- {pfas.get('name')} (CAS: {pfas.get('cas_number', 'unknown')}): {pfas.get('body_effects', 'No description')}\n"
+            prompt += f"\n**Known PFAS Compounds ({len(pfas_database)}):**\n"
+            for pfas in pfas_database[:7]:
+                prompt += f"- {pfas.get('name')} (CAS: {pfas.get('cas_number', 'N/A')}): {pfas.get('body_effects', 'No info')[:100]}...\n"
 
         # Add user allergen profile if provided
         if allergen_profile:
-            prompt += f"\n**User's Allergen Profile:**\nPay special attention to these allergens: {', '.join(allergen_profile)}\n"
+            prompt += f"\n**User's Allergen Profile:**\nPay special attention to: {', '.join(allergen_profile)}\n"
 
-        prompt += """
-**Important Guidelines:**
-- Be conservative: if uncertain, report the risk with lower confidence
-- Check synonyms and alternate names for allergens/PFAS
-- Look for ingredients in descriptions, specifications, and reviews
-- If ingredients are not listed, note low confidence
-- Common PFAS indicators: "non-stick", "water-resistant", "stain-resistant"
-"""
         return prompt
 
     def _build_user_message(self, product_url: str) -> str:
         """Build the user message for Claude."""
         return f"""Analyze this product for harmful substances: {product_url}
 
-Use web_fetch to retrieve the product page and extract all relevant information.
-Return your analysis as structured JSON following the format provided in the system prompt."""
+First, use web_fetch to retrieve the product page.
+Then analyze the content and return your structured JSON analysis."""
 
     def _parse_response(self, response: Any) -> Dict[str, Any]:
-        """Parse Claude's response and extract analysis JSON.
-
-        Args:
-            response: Anthropic API response
-
-        Returns:
-            Parsed analysis dict
-        """
+        """Parse Claude's response and extract analysis JSON."""
         # Extract text content from response
-        content = response.content
-
-        # Look for JSON in the response
-        for block in content:
+        for block in response.content:
             if hasattr(block, "text"):
                 text = block.text
-                # Try to parse JSON from the text
+
+                # Try to extract JSON
                 try:
-                    # Find JSON block (could be in code fence or plain)
+                    # Look for JSON in various formats
                     if "```json" in text:
                         json_start = text.find("```json") + 7
                         json_end = text.find("```", json_start)
@@ -199,12 +263,16 @@ Return your analysis as structured JSON following the format provided in the sys
                         # Try to find JSON object directly
                         json_start = text.find("{")
                         json_end = text.rfind("}") + 1
-                        json_str = text[json_start:json_end]
+                        if json_start != -1 and json_end > json_start:
+                            json_str = text[json_start:json_end]
+                        else:
+                            raise ValueError("No JSON found")
 
                     analysis = json.loads(json_str)
                     return analysis
+
                 except (json.JSONDecodeError, ValueError) as e:
-                    # If parsing fails, return minimal structure
+                    # Return error structure
                     return {
                         "product_name": "Unknown",
                         "brand": "Unknown",
@@ -214,10 +282,10 @@ Return your analysis as structured JSON following the format provided in the sys
                         "pfas_detected": [],
                         "other_concerns": [],
                         "confidence": 0.1,
-                        "error": f"Failed to parse response: {str(e)}",
+                        "error": f"Failed to parse JSON: {str(e)}. Raw text: {text[:500]}",
                     }
 
-        # If no text block found, return error
+        # No text block found
         return {
             "product_name": "Unknown",
             "brand": "Unknown",
@@ -227,70 +295,16 @@ Return your analysis as structured JSON following the format provided in the sys
             "pfas_detected": [],
             "other_concerns": [],
             "confidence": 0.0,
-            "error": "No analysis content in response",
+            "error": "No text content in Claude response",
         }
 
     async def find_alternatives(
         self, product_analysis: Dict[str, Any], max_results: int = 5
     ) -> List[Dict[str, Any]]:
-        """Find safer alternative products.
-
-        Args:
-            product_analysis: Analysis of the original product
-            max_results: Maximum number of alternatives to return
-
-        Returns:
-            List of alternative product dicts
-        """
-        product_name = product_analysis.get("product_name", "")
-        product_category = product_analysis.get("retailer", "")
-
-        search_query = f"safer alternative to {product_name} without harmful chemicals allergen-free"
-
-        # Use Claude to search for alternatives
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=2048,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"""Find {max_results} safer alternatives to this product:
-Product: {product_name}
-Category: {product_category}
-
-Search for products that:
-1. Don't contain the harmful substances found in the original
-2. Are readily available on Amazon or similar retailers
-3. Have good safety ratings
-
-Return as JSON array:
-[
-    {{
-        "product_name": "string",
-        "product_url": "string",
-        "brand": "string",
-        "reason": "why this is safer"
-    }}
-]
-
-Use web_search if needed to find current products.""",
-                }
-            ],
-            tools=[
-                {
-                    "name": "web_search",
-                    "description": "Search the web for information",
-                    "input_schema": {
-                        "type": "object",
-                        "properties": {
-                            "query": {"type": "string"},
-                        },
-                        "required": ["query"],
-                    },
-                }
-            ],
-        )
-
-        # Parse alternatives from response
-        # For now, return empty list (will implement after testing main analysis)
+        """Find safer alternative products (placeholder for Phase 4)."""
+        # Will implement in Phase 4
         return []
+
+    async def close(self) -> None:
+        """Close HTTP client."""
+        await self.http_client.aclose()
