@@ -6,12 +6,12 @@
   import type { AnalysisResponse } from './types';
 
   let analysis: AnalysisResponse | null = $state(null);
-  let loading: boolean = $state(false);
+  let loading: boolean = $state(true); // Start with loading while waiting for content script
   let error: string | null = $state(null);
   let visible: boolean = $state(true);
 
   onMount(() => {
-    // Listen for messages from content script
+    // Listen for messages from content script via chrome.runtime
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === 'ANALYZE_PRODUCT') {
         handleAnalyze(message.url);
@@ -20,12 +20,21 @@
       }
     });
 
-    // Check if there's a product to analyze on mount
-    const params = new URLSearchParams(window.location.search);
-    const url = params.get('url');
-    if (url) {
-      handleAnalyze(url);
-    }
+    // Listen for postMessage from content script (for pre-loaded data)
+    window.addEventListener('message', (event) => {
+      if (event.data?.type === 'ANALYSIS_DATA') {
+        // Content script already has the analysis data, use it directly
+        analysis = event.data.data;
+        loading = false;
+        error = null;
+      } else if (event.data?.type === 'ANALYZE_PRODUCT') {
+        // Content script wants us to start analysis
+        handleAnalyze(event.data.url);
+      }
+    });
+
+    // Do NOT automatically analyze on mount - wait for content script to send data
+    // Content script will either send ANALYSIS_DATA (if ready) or ANALYZE_PRODUCT (if not)
   });
 
   async function handleAnalyze(productUrl: string) {

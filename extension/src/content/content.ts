@@ -87,8 +87,10 @@ async function startAnalysis() {
     console.log('[ruh] Analysis complete:', data);
 
     // Inject button now that analysis is complete
+    // overall_score is safety score (0-100 where 100=safe), we need harm score
+    const harmScore = 100 - data.analysis.overall_score;
     if (!buttonDismissed) {
-      injectTriggerButton(data.analysis.overall_score);
+      injectTriggerButton(harmScore);
     }
   } catch (error) {
     state.status = 'error';
