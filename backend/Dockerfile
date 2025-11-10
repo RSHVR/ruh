@@ -29,9 +29,5 @@ EXPOSE 8080
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
 
-# Health check - using httpx.Client for synchronous request
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import httpx; client = httpx.Client(); response = client.get('http://localhost:${PORT:-8080}/api/health', timeout=5.0); exit(0 if response.status_code == 200 else 1)" || exit 1
-
-# Run uvicorn
+# Run uvicorn (Cloud Run handles health checking, no Docker HEALTHCHECK needed)
 CMD uvicorn src.api.main:app --host 0.0.0.0 --port ${PORT}
