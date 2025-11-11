@@ -10,6 +10,15 @@ export class EjectAPI {
   constructor(baseUrl: string = API_BASE_URL, apiKey: string = API_KEY) {
     this.baseUrl = baseUrl;
     this.apiKey = apiKey;
+
+    // Debug logging
+    if (import.meta.env.VITE_DEBUG === 'true') {
+      console.log('[Eject API] Initialized with:', {
+        baseUrl: this.baseUrl,
+        hasApiKey: !!this.apiKey,
+        apiKeyPrefix: this.apiKey?.substring(0, 8) + '...'
+      });
+    }
   }
 
   async analyzeProduct(
@@ -26,14 +35,26 @@ export class EjectAPI {
         headers['Authorization'] = `Bearer ${this.apiKey}`;
       }
 
-      const response = await fetch(`${this.baseUrl}/api/analyze`, {
+      const requestUrl = `${this.baseUrl}/api/analyze`;
+      const requestBody = {
+        product_url: productUrl,
+        allergen_profile: allergenProfile,
+        force_refresh: false
+      };
+
+      if (import.meta.env.VITE_DEBUG === 'true') {
+        console.log('[Eject API] Making request:', {
+          url: requestUrl,
+          method: 'POST',
+          headers: Object.keys(headers),
+          hasAuth: !!headers['Authorization']
+        });
+      }
+
+      const response = await fetch(requestUrl, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          product_url: productUrl,
-          allergen_profile: allergenProfile,
-          force_refresh: false
-        })
+        body: JSON.stringify(requestBody)
       });
 
       if (!response.ok) {
@@ -42,9 +63,21 @@ export class EjectAPI {
       }
 
       const data: AnalysisResponse = await response.json();
+
+      if (import.meta.env.VITE_DEBUG === 'true') {
+        console.log('[Eject API] Response received:', {
+          status: response.status,
+          hasData: !!data
+        });
+      }
+
       return data;
     } catch (error) {
-      console.error('API Error:', error);
+      console.error('[Eject API] Request failed:', {
+        error: error instanceof Error ? error.message : String(error),
+        url: this.baseUrl,
+        type: error instanceof TypeError ? 'Network/CORS error' : 'Other error'
+      });
       throw error;
     }
   }
