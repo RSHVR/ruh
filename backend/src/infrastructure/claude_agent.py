@@ -47,25 +47,35 @@ class ProductSafetyAgent:
         )
         user_message = self._build_user_message(product_url)
 
-        # Enable Claude's built-in web search tool
-        # Web search can fetch and search web content
+        # Enable Claude's built-in web search and web fetch tools in parallel
         tools = [
-            {"type": "web_search_20250305"},  # Claude's web search tool (includes fetching)
+            {
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 5
+            },
+            {
+                "type": "web_fetch_20250910",
+                "name": "web_fetch",
+                "max_uses": 5
+            }
         ]
 
         # Start conversation with Claude
         messages = [{"role": "user", "content": user_message}]
 
-        logger.info(f"Calling Claude with web_search_20250305 tool enabled")
+        logger.info(f"Calling Claude with web_search and web_fetch tools enabled (parallel)")
 
-        # Claude handles tool use automatically - we just need to call the API
-        # The API will execute web_search and web_fetch internally
+        # Claude handles tool use automatically - uses both tools in parallel
         response = self.client.messages.create(
             model=self.model,
             max_tokens=4096,
             system=system_prompt,
             messages=messages,
             tools=tools,
+            extra_headers={
+                "anthropic-beta": "web-fetch-2025-09-10"
+            }
         )
 
         # Log tool usage information
@@ -85,13 +95,15 @@ class ProductSafetyAgent:
                         'input': tool_input
                     })
                     logger.info(f"🔧 Claude used tool: {tool_name}")
-                    if tool_name == "web_search_20250305":
+                    if tool_name == "web_search":
                         logger.info(f"   Search query: {tool_input.get('query', 'N/A')}")
+                    elif tool_name == "web_fetch":
+                        logger.info(f"   Fetch URL: {tool_input.get('url', 'N/A')}")
 
         if tool_uses:
             logger.info(f"✅ Claude used {len(tool_uses)} tool(s): {[t['name'] for t in tool_uses]}")
         else:
-            logger.warning("⚠️  Claude did NOT use any tools (no web_search)")
+            logger.warning("⚠️  Claude did NOT use any tools (no web_search or web_fetch)")
 
         # Claude is done, parse final response
         analysis = self._parse_response(response)
@@ -107,7 +119,7 @@ class ProductSafetyAgent:
         prompt = """You are a product safety analysis expert. Your job is to analyze products for harmful substances including allergens, PFAS (forever chemicals), and other toxins.
 
 **Your Analysis Process:**
-1. Use web_search to retrieve the product page and extract product information (name, brand, ingredients, materials)
+1. Use web_fetch to retrieve the product page and extract product information (name, brand, ingredients, materials)
 2. Use web_search to find:
    - Recent product recalls or safety warnings
    - Scientific studies on ingredient safety
@@ -116,7 +128,7 @@ class ProductSafetyAgent:
 3. Cross-reference findings with the knowledge base provided below
 4. Return a comprehensive structured JSON analysis
 
-**IMPORTANT:** Use web_search to gather both product details and safety data for the most accurate analysis.
+**IMPORTANT:** Use BOTH web_fetch (for product page) AND web_search (for safety data) in parallel for the most accurate and comprehensive analysis.
 
 **Output Format:**
 After fetching and analyzing the product page, return your analysis as a JSON object with this exact structure:
@@ -189,11 +201,10 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
         """Build the user message for Claude."""
         return f"""Analyze this product for harmful substances: {product_url}
 
-Use web_search to:
-1. Retrieve and analyze the product page (ingredients, materials, description)
-2. Find recent safety information, recalls, and scientific studies about this product and its ingredients
+Use web_fetch to retrieve and analyze the product page (ingredients, materials, description).
+Use web_search to find recent safety information, recalls, and scientific studies about this product and its ingredients.
 
-Then provide your comprehensive structured JSON analysis."""
+Execute both tools in parallel, then provide your comprehensive structured JSON analysis."""
 
     def _parse_response(self, response: Any) -> Dict[str, Any]:
         """Parse Claude's response and extract analysis JSON."""
