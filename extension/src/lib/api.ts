@@ -1,12 +1,15 @@
 import type { AnalysisResponse } from '@/types';
 
-const API_BASE_URL = 'http://localhost:8001';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001';
+const API_KEY = import.meta.env.VITE_API_KEY;
 
 export class EjectAPI {
   private baseUrl: string;
+  private apiKey: string;
 
-  constructor(baseUrl: string = API_BASE_URL) {
+  constructor(baseUrl: string = API_BASE_URL, apiKey: string = API_KEY) {
     this.baseUrl = baseUrl;
+    this.apiKey = apiKey;
   }
 
   async analyzeProduct(
@@ -14,11 +17,18 @@ export class EjectAPI {
     allergenProfile: string[] = []
   ): Promise<AnalysisResponse> {
     try {
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json'
+      };
+
+      // Add Authorization header if API key is configured
+      if (this.apiKey) {
+        headers['Authorization'] = `Bearer ${this.apiKey}`;
+      }
+
       const response = await fetch(`${this.baseUrl}/api/analyze`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers,
         body: JSON.stringify({
           product_url: productUrl,
           allergen_profile: allergenProfile,

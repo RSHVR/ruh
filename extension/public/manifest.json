@@ -10,7 +10,8 @@
   "host_permissions": [
     "https://*.amazon.com/*",
     "https://*.amazon.ca/*",
-    "http://localhost:8001/*"
+    "http://localhost:8001/*",
+    "https://ruh-api-*.run.app/*"
   ],
   "background": {
     "service_worker": "background.js",
