@@ -57,8 +57,9 @@ class ProductSafetyAgent:
                 "max_uses": 5,  # Limit searches to prevent token overuse
             },
             {
-                "type": "web_fetch_20250514",
+                "type": "web_fetch_20250910",
                 "name": "web_fetch",
+                "max_uses": 3,  # Limit searches to prevent token overuse
             },
         ]
 
