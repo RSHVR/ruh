@@ -75,13 +75,18 @@ async def analyze_product(
             )
 
         # Step 4: Cache miss - perform new analysis
-        logger.info("Cache miss, performing new analysis")
+        logger.info("📝 Cache miss, performing new analysis")
 
         # Query knowledge bases from Supabase
-        allergen_db = await db.get_all_allergens() if db.is_available else []
-        pfas_db = await db.get_all_pfas() if db.is_available else []
-
-        logger.info(f"Loaded {len(allergen_db)} allergens and {len(pfas_db)} PFAS compounds from database")
+        if db.is_available:
+            logger.info("🔍 Loading allergen and PFAS knowledge bases from Supabase...")
+            allergen_db = await db.get_all_allergens()
+            pfas_db = await db.get_all_pfas()
+            logger.info(f"✅ Loaded {len(allergen_db)} allergens and {len(pfas_db)} PFAS compounds from database")
+        else:
+            logger.warning("⚠️  Supabase not available - proceeding without knowledge bases")
+            allergen_db = []
+            pfas_db = []
 
         # Initialize Claude agent
         agent = ProductSafetyAgent()
@@ -114,6 +119,7 @@ async def analyze_product(
 
         # Step 5: Store analysis in Supabase
         if db.is_available:
+            logger.info(f"💾 Storing analysis in Supabase for: {analysis.product_name}")
             analysis_response = {
                 "analysis": {
                     "product_name": analysis.product_name,
@@ -129,12 +135,25 @@ async def analyze_product(
                     "confidence": analysis.confidence,
                 }
             }
-            await db.store_analysis(url_hash, request.product_url, analysis_response)
+            store_success = await db.store_analysis(url_hash, request.product_url, analysis_response)
+            if store_success:
+                logger.info(f"✅ Successfully stored analysis in Supabase (hash: {url_hash[:16]}...)")
+            else:
+                logger.error(f"❌ Failed to store analysis in Supabase")
+        else:
+            logger.warning("⚠️  Supabase not available - skipping analysis storage")
 
         # Step 6: Log search
         if db.is_available:
             user_id = await db.get_or_create_anonymous_user()
-            await db.log_search(user_id, request.product_url)
+            logger.debug(f"Logging search for user: {user_id}")
+            log_success = await db.log_search(user_id, request.product_url)
+            if log_success:
+                logger.info(f"✅ Successfully logged search for user {user_id}")
+            else:
+                logger.error(f"❌ Failed to log search")
+        else:
+            logger.warning("⚠️  Supabase not available - skipping search logging")
 
         logger.info(
             f"Analysis complete: {analysis.product_name} - Harm score: {harm_score}"
