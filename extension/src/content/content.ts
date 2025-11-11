@@ -70,10 +70,29 @@ async function startAnalysis() {
   console.log('[ruh] Starting analysis for:', currentProductUrl);
 
   try {
+    // Get API config from environment
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001';
+    const API_KEY = import.meta.env.VITE_API_KEY;
+
+    const headers: HeadersInit = { 'Content-Type': 'application/json' };
+    if (API_KEY) {
+      headers['Authorization'] = `Bearer ${API_KEY}`;
+    }
+
+    if (import.meta.env.VITE_DEBUG === 'true') {
+      console.log('[ruh] API Config:', {
+        baseUrl: API_BASE_URL,
+        hasAuth: !!API_KEY,
+        apiKeyPrefix: API_KEY?.substring(0, 8) + '...'
+      });
+    }
+
+    console.log('[ruh] Calling API:', API_BASE_URL + '/api/analyze');
+
     // Call API
-    const response = await fetch('http://localhost:8001/api/analyze', {
+    const response = await fetch(API_BASE_URL + '/api/analyze', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ product_url: currentProductUrl })
     });
 
