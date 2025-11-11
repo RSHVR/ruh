@@ -17,7 +17,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 COPY pyproject.toml ./
 
 # Install dependencies using uv
-RUN uv pip install --system --no-cache fastapi uvicorn[standard] anthropic pydantic pydantic-settings psycopg[binary] redis celery python-dotenv httpx
+RUN uv pip install --system --no-cache fastapi uvicorn[standard] anthropic pydantic pydantic-settings psycopg[binary] redis celery python-dotenv httpx beautifulsoup4 lxml supabase
 
 # Copy application code
 COPY . .

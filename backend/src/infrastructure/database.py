@@ -265,6 +265,79 @@ class DatabaseService:
             logger.error(f"Failed to get PFAS compounds: {e}")
             return []
 
+    async def cache_review_insights(
+        self,
+        url_hash: str,
+        insights_data: Dict[str, Any]
+    ) -> bool:
+        """Cache review insights in product_analyses table.
+
+        Args:
+            url_hash: Product URL hash
+            insights_data: Review insights dictionary
+
+        Returns:
+            True if cached successfully
+        """
+        if not self.is_available:
+            logger.debug("Supabase not available - skipping reviews cache")
+            return False
+
+        try:
+            # Update the product_analyses row with review insights
+            response = self.client.table('product_analyses')\
+                .update({'review_insights': insights_data})\
+                .eq('product_url_hash', url_hash)\
+                .execute()
+
+            if response.data:
+                logger.debug("✅ Cached review insights")
+                return True
+            else:
+                logger.warning("⚠️  No matching product found to cache reviews")
+                return False
+        except Exception as e:
+            logger.warning(f"⚠️  Failed to cache reviews (non-fatal): {e}")
+            return False
+
+    async def get_cached_reviews(self, url_hash: str) -> Optional[Dict[str, Any]]:
+        """Get cached review insights from product_analyses table.
+
+        Args:
+            url_hash: Product URL hash
+
+        Returns:
+            Cached insights if found and fresh (< 7 days), None otherwise
+        """
+        if not self.is_available:
+            return None
+
+        try:
+            response = self.client.table('product_analyses')\
+                .select('review_insights, analyzed_at')\
+                .eq('product_url_hash', url_hash)\
+                .execute()
+
+            if response.data and response.data[0].get('review_insights'):
+                cached = response.data[0]
+                review_insights = cached['review_insights']
+
+                # Check if reviews are populated (not empty dict)
+                if not review_insights or review_insights == {}:
+                    return None
+
+                # Check freshness (reviews change, cache for 7 days)
+                analyzed_at = datetime.fromisoformat(cached['analyzed_at'].replace('Z', '+00:00'))
+                age_days = (datetime.utcnow() - analyzed_at).days
+
+                if age_days < 7:
+                    return review_insights
+
+            return None
+        except Exception as e:
+            logger.warning(f"⚠️  Failed to retrieve cached reviews: {e}")
+            return None
+
 
 # Global database service instance
 db = DatabaseService()
