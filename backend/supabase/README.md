@@ -41,6 +41,7 @@ supabase db push
 3. Copy and paste the contents of each migration file in order:
    - `001_create_tables.sql`
    - `002_seed_allergens_pfas.sql`
+   - `003_enable_rls.sql` (⚠️ IMPORTANT: Enables Row Level Security!)
 4. Click "Run" for each migration
 
 ### Option 3: Using psql
@@ -51,6 +52,9 @@ psql postgresql://postgres:[YOUR-PASSWORD]@db.vslnwiugfuvquiaafxgh.supabase.co:5
 
 psql postgresql://postgres:[YOUR-PASSWORD]@db.vslnwiugfuvquiaafxgh.supabase.co:5432/postgres \
   -f migrations/002_seed_allergens_pfas.sql
+
+psql postgresql://postgres:[YOUR-PASSWORD]@db.vslnwiugfuvquiaafxgh.supabase.co:5432/postgres \
+  -f migrations/003_enable_rls.sql
 ```
 
 ## Verification
@@ -99,11 +103,33 @@ SELECT * FROM search_pfas('teflon');    -- Search by synonym
 
 ## Environment Setup
 
-Update your backend `.env` or Secret Manager with:
+### Important: Service Role Key vs Anon Key
+
+Your backend needs the **service_role** key (NOT the anon key):
+
+- **Anon key**: Public, used by Chrome extension, restricted by RLS
+- **Service role key**: Private, used by backend, bypasses RLS for full access
+
+### Get Your Service Role Key
+
+1. Go to: https://vslnwiugfuvquiaafxgh.supabase.co/project/vslnwiugfuvquiaafxgh/settings/api
+2. Look for "Project API keys"
+3. Copy the **`service_role`** key (NOT `anon` key)
+4. Keep it secret - this has full database access!
+
+### Update Secret Manager
+
+```bash
+# Run setup-secrets.sh and paste the SERVICE ROLE key when prompted
+cd ~/Eject/backend
+./setup-secrets.sh
+```
+
+### Environment Variables
 
 ```bash
 SUPABASE_URL=https://vslnwiugfuvquiaafxgh.supabase.co
-SUPABASE_KEY=<your-anon-key>  # Get from Supabase dashboard
+SUPABASE_KEY=<your-service-role-key>  # Service role, not anon!
 ```
 
 ## Privacy & Data Retention

@@ -90,8 +90,9 @@ echo "📝 Step 3: Supabase API Key"
 if gcloud secrets describe ${SUPABASE_SECRET_NAME} --project=${PROJECT_ID} &>/dev/null; then
   echo "✅ Secret '${SUPABASE_SECRET_NAME}' already exists, skipping..."
 else
-  echo "Please paste your Supabase API Key (anon/public key):"
+  echo "Please paste your Supabase SERVICE ROLE key (NOT anon key!):"
   echo "(Find it at: https://vslnwiugfuvquiaafxgh.supabase.co/project/vslnwiugfuvquiaafxgh/settings/api)"
+  echo "⚠️  Use 'service_role' key for backend - it bypasses RLS policies"
   read -s SUPABASE_KEY
 
   echo ""
