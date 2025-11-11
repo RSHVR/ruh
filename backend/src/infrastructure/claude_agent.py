@@ -2,9 +2,10 @@
 
 import json
 import logging
+import time
 from typing import Dict, Any, List, Optional
 import httpx
-from anthropic import Anthropic
+from anthropic import Anthropic, RateLimitError, APIError
 from ..infrastructure.config import settings
 
 logger = logging.getLogger(__name__)
@@ -47,8 +48,8 @@ class ProductSafetyAgent:
         )
         user_message = self._build_user_message(product_url)
 
-        # Enable Claude's built-in web search and fetch tools
-        # These are automatically handled by Anthropic's API
+        # Enable Claude's built-in web search and web fetch tools in parallel
+        # Limit uses to prevent token overflow
         tools = [
             {
                 "type": "web_search_20250305",
@@ -64,7 +65,7 @@ class ProductSafetyAgent:
         # Start conversation with Claude
         messages = [{"role": "user", "content": user_message}]
 
-        logger.info(f"Calling Claude with web_search and web_fetch tools enabled")
+        logger.info(f"Calling Claude with web_search (max 2) and web_fetch (max 1) tools")
 
         # Claude handles tool use automatically - we just need to call the API
         # The API will execute web_search and web_fetch internally
@@ -189,18 +190,17 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
 - Note synonyms (e.g., "fragrance" = "parfum")
 """
 
-        # Add allergen database info if provided
+        # Add allergen database info if provided (limit to reduce tokens)
         if allergen_database:
-            prompt += f"\n**Known Allergens ({len(allergen_database)}):**\n"
-            for allergen in allergen_database[:10]:
-                synonyms = allergen.get("synonyms", [])
-                prompt += f"- {allergen.get('name')}: synonyms {synonyms}\n"
+            prompt += f"\n**Top Allergens ({min(5, len(allergen_database))}):**\n"
+            for allergen in allergen_database[:5]:  # Only top 5 to save tokens
+                prompt += f"- {allergen.get('name')}\n"
 
-        # Add PFAS database info if provided
+        # Add PFAS database info if provided (limit to reduce tokens)
         if pfas_database:
-            prompt += f"\n**Known PFAS Compounds ({len(pfas_database)}):**\n"
-            for pfas in pfas_database[:7]:
-                prompt += f"- {pfas.get('name')} (CAS: {pfas.get('cas_number', 'N/A')}): {pfas.get('body_effects', 'No info')[:100]}...\n"
+            prompt += f"\n**Top PFAS Compounds ({min(3, len(pfas_database))}):**\n"
+            for pfas in pfas_database[:3]:  # Only top 3 to save tokens
+                prompt += f"- {pfas.get('name')} (CAS: {pfas.get('cas_number', 'N/A')})\n"
 
         # Add user allergen profile if provided
         if allergen_profile:
