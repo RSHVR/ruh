@@ -2,9 +2,10 @@
 
 import json
 import logging
+import time
 from typing import Dict, Any, List, Optional
 import httpx
-from anthropic import Anthropic
+from anthropic import Anthropic, RateLimitError, APIError
 from ..infrastructure.config import settings
 
 logger = logging.getLogger(__name__)
@@ -48,35 +49,59 @@ class ProductSafetyAgent:
         user_message = self._build_user_message(product_url)
 
         # Enable Claude's built-in web search and web fetch tools in parallel
+        # Limit uses to prevent token overflow
         tools = [
             {
                 "type": "web_search_20250305",
                 "name": "web_search",
-                "max_uses": 5
+                "max_uses": 2  # Reduced to avoid token limits
             },
             {
                 "type": "web_fetch_20250910",
                 "name": "web_fetch",
-                "max_uses": 5
+                "max_uses": 1  # Just one fetch of the product page
             }
         ]
 
         # Start conversation with Claude
         messages = [{"role": "user", "content": user_message}]
 
-        logger.info(f"Calling Claude with web_search and web_fetch tools enabled (parallel)")
+        logger.info(f"Calling Claude with web_search (max 2) and web_fetch (max 1) tools")
 
         # Claude handles tool use automatically - uses both tools in parallel
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=4096,
-            system=system_prompt,
-            messages=messages,
-            tools=tools,
-            extra_headers={
-                "anthropic-beta": "web-fetch-2025-09-10"
-            }
-        )
+        # Add retry logic for rate limits
+        max_retries = 3
+        retry_delay = 2
+
+        for attempt in range(max_retries):
+            try:
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=8192,  # Increased for tool results but still under 10k total
+                    system=system_prompt,
+                    messages=messages,
+                    tools=tools,
+                    extra_headers={
+                        "anthropic-beta": "web-fetch-2025-09-10"
+                    }
+                )
+                break  # Success, exit retry loop
+            except RateLimitError as e:
+                if attempt < max_retries - 1:
+                    wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(f"Rate limit hit (429), retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"Rate limit exceeded after {max_retries} attempts")
+                    raise
+            except APIError as e:
+                if "overloaded" in str(e).lower() and attempt < max_retries - 1:
+                    wait_time = retry_delay * (2 ** attempt)
+                    logger.warning(f"API overloaded (500), retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"API error: {e}")
+                    raise
 
         # Log tool usage information
         logger.info(f"Claude response - Stop reason: {response.stop_reason}")
@@ -178,18 +203,17 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
 - Note synonyms (e.g., "fragrance" = "parfum")
 """
 
-        # Add allergen database info if provided
+        # Add allergen database info if provided (limit to reduce tokens)
         if allergen_database:
-            prompt += f"\n**Known Allergens ({len(allergen_database)}):**\n"
-            for allergen in allergen_database[:10]:
-                synonyms = allergen.get("synonyms", [])
-                prompt += f"- {allergen.get('name')}: synonyms {synonyms}\n"
+            prompt += f"\n**Top Allergens ({min(5, len(allergen_database))}):**\n"
+            for allergen in allergen_database[:5]:  # Only top 5 to save tokens
+                prompt += f"- {allergen.get('name')}\n"
 
-        # Add PFAS database info if provided
+        # Add PFAS database info if provided (limit to reduce tokens)
         if pfas_database:
-            prompt += f"\n**Known PFAS Compounds ({len(pfas_database)}):**\n"
-            for pfas in pfas_database[:7]:
-                prompt += f"- {pfas.get('name')} (CAS: {pfas.get('cas_number', 'N/A')}): {pfas.get('body_effects', 'No info')[:100]}...\n"
+            prompt += f"\n**Top PFAS Compounds ({min(3, len(pfas_database))}):**\n"
+            for pfas in pfas_database[:3]:  # Only top 3 to save tokens
+                prompt += f"- {pfas.get('name')} (CAS: {pfas.get('cas_number', 'N/A')})\n"
 
         # Add user allergen profile if provided
         if allergen_profile:
@@ -201,10 +225,11 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
         """Build the user message for Claude."""
         return f"""Analyze this product for harmful substances: {product_url}
 
-Use web_fetch to retrieve and analyze the product page (ingredients, materials, description).
-Use web_search to find recent safety information, recalls, and scientific studies about this product and its ingredients.
+1. Fetch the product page to get ingredients/materials
+2. Search for the most critical safety concern (recall OR toxic ingredient)
+3. Return concise JSON analysis
 
-Execute both tools in parallel, then provide your comprehensive structured JSON analysis."""
+Keep searches focused to stay under token limits."""
 
     def _parse_response(self, response: Any) -> Dict[str, Any]:
         """Parse Claude's response and extract analysis JSON."""
