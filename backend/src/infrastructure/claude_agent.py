@@ -50,8 +50,15 @@ class ProductSafetyAgent:
         # Enable Claude's built-in web search and fetch tools
         # These are automatically handled by Anthropic's API
         tools = [
-            {"type": "web_search"},  # Claude can search the web for product safety info
-            {"type": "web_fetch"},   # Claude can fetch product pages directly
+            {
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 5,  # Limit searches to prevent token overuse
+            },
+            {
+                "type": "web_fetch_20250514",
+                "name": "web_fetch",
+            },
         ]
 
         # Start conversation with Claude
@@ -61,12 +68,14 @@ class ProductSafetyAgent:
 
         # Claude handles tool use automatically - we just need to call the API
         # The API will execute web_search and web_fetch internally
+        # tool_choice="auto" lets Claude decide when to use tools
         response = self.client.messages.create(
             model=self.model,
             max_tokens=4096,
             system=system_prompt,
             messages=messages,
             tools=tools,
+            tool_choice={"type": "auto"},  # Claude decides when to use tools
         )
 
         # Log tool usage information
@@ -110,16 +119,27 @@ class ProductSafetyAgent:
         prompt = """You are a product safety analysis expert. Your job is to analyze products for harmful substances including allergens, PFAS (forever chemicals), and other toxins.
 
 **Your Analysis Process:**
-1. Use web_fetch to retrieve the product page and extract product information (name, brand, ingredients, materials)
-2. Use web_search to find:
-   - Recent product recalls or safety warnings
-   - Scientific studies on ingredient safety
-   - Regulatory actions or warnings
-   - PFAS contamination reports for this product category
+1. **IMPORTANT:** ONLY use web_fetch if the user message does NOT contain product information (name, brand, ingredients, materials)
+   - If product info is already in the message → SKIP web_fetch, proceed to step 2
+   - If no product info in message → Use web_fetch to retrieve the product page
+
+2. Use web_search strategically (max 5 searches) to find:
+   a) **PRIORITY 1:** Manufacturer's official website for complete ingredient lists
+      - Search: "[brand] [product name] official ingredients" OR "[brand] official website"
+
+   b) **PRIORITY 2:** Consumer reviews and reported health concerns
+      - Search: "[product name] consumer reviews health concerns" OR "[product] skin reaction"
+
+   c) **PRIORITY 3:** Safety warnings and regulatory actions
+      - Search: "[product] recall FDA warning" OR "[product] safety alert"
+
+   d) **PRIORITY 4:** Scientific studies and PFAS testing (if applicable)
+      - Search: "[ingredient] safety study" OR "[product category] PFAS testing"
+
 3. Cross-reference findings with the knowledge base provided below
 4. Return a comprehensive structured JSON analysis
 
-**IMPORTANT:** Use both web_fetch (for product details) and web_search (for safety data) to provide the most accurate analysis.
+**CRITICAL:** Check if product data is already provided in the user message before calling web_fetch. Do NOT fetch if data is already available.
 
 **Output Format:**
 After fetching and analyzing the product page, return your analysis as a JSON object with this exact structure:
@@ -189,12 +209,14 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
         return prompt
 
     def _build_user_message(self, product_url: str) -> str:
-        """Build the user message for Claude."""
+        """Build the user message for Claude (fallback method when scraping fails)."""
         return f"""Analyze this product for harmful substances: {product_url}
 
-Use web_fetch to retrieve the product page and extract product details (name, brand, ingredients).
-Use web_search to find recent safety information, recalls, and scientific studies about this product and its ingredients.
-Then provide your comprehensive structured JSON analysis."""
+**FALLBACK MODE:** Scraping failed, so you need to fetch the product page yourself.
+
+1. Use web_fetch to retrieve the product page and extract product details (name, brand, ingredients)
+2. Use web_search to find safety information, consumer reviews, recalls, and scientific studies
+3. Provide your comprehensive structured JSON analysis"""
 
     def _parse_response(self, response: Any) -> Dict[str, Any]:
         """Parse Claude's response and extract analysis JSON."""
@@ -252,6 +274,207 @@ Then provide your comprehensive structured JSON analysis."""
             "confidence": 0.0,
             "error": "No text content in Claude response",
         }
+
+    async def analyze_extracted_product(
+        self,
+        product_data: Dict[str, Any],
+        product_url: str,
+        allergen_profile: List[str] = None,
+        pfas_database: List[Dict[str, Any]] = None,
+        allergen_database: List[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Analyze product data that was already extracted by Claude Query.
+
+        Args:
+            product_data: Structured data from ClaudeQueryService
+            product_url: Original product URL
+            allergen_profile: User's allergen concerns
+            pfas_database: PFAS compounds knowledge base
+            allergen_database: Allergens knowledge base
+
+        Returns:
+            Safety analysis with web_search findings
+        """
+        allergen_profile = allergen_profile or []
+        pfas_database = pfas_database or []
+        allergen_database = allergen_database or []
+
+        # Build analysis prompt
+        system_prompt = self._build_analysis_prompt_for_extracted_data(
+            allergen_profile, pfas_database, allergen_database
+        )
+
+        # Build user message from extracted data
+        user_message = self._build_user_message_from_extracted_data(product_data, product_url)
+
+        # Enable ONLY web_search (not web_fetch - we already have the product data!)
+        tools = [
+            {
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 3,  # Limit to 3 searches: manufacturer site, reviews, safety data
+            },
+        ]
+
+        messages = [{"role": "user", "content": user_message}]
+
+        logger.info(f"🔍 Calling Claude Agent for safety analysis with web_search")
+        logger.info(f"   Product: {product_data.get('product_name')}")
+
+        # tool_choice="auto" lets Claude decide when to use web_search
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=2048,  # Reduced from 4096
+            system=system_prompt,
+            messages=messages,
+            tools=tools,
+            tool_choice={"type": "auto"},  # Claude decides when to search
+        )
+
+        logger.info(f"Claude Agent usage: {response.usage}")
+        logger.info(f"   Input tokens: {response.usage.input_tokens}")
+        logger.info(f"   Output tokens: {response.usage.output_tokens}")
+
+        # Parse analysis
+        analysis = self._parse_response(response)
+        return analysis
+
+    def _build_analysis_prompt_for_extracted_data(
+        self,
+        allergen_profile: List[str],
+        pfas_database: List[Dict[str, Any]],
+        allergen_database: List[Dict[str, Any]],
+    ) -> str:
+        """Build system prompt for safety analysis with extracted data."""
+        prompt = """You are a product safety analysis expert. You have been provided with pre-extracted product information.
+
+**Your Analysis Process:**
+1. Review the provided product details (already extracted from the product page)
+2. Use web_search strategically (max 3 searches) to find:
+   a) **SEARCH 1 (REQUIRED):** Manufacturer's official website for complete ingredient lists
+      - Search: "[brand] [product name] official ingredients" OR "[brand] official website"
+      - Look for manufacturer's product page, ingredient disclosure, or safety data
+
+   b) **SEARCH 2 (REQUIRED):** Consumer reviews and health concerns
+      - Search: "[product name] [brand] consumer reviews health concerns" OR "[product] skin reaction allergic"
+      - Look for patterns of reported reactions, rashes, allergies, or complaints
+
+   c) **SEARCH 3 (IF NEEDED):** Safety warnings or scientific studies
+      - Search: "[product] recall FDA warning" OR "[ingredient] safety study PFAS"
+      - Look for regulatory actions, recalls, scientific research on ingredients
+
+**IMPORTANT:** Prioritize manufacturer website and consumer reviews. Only use the third search if critical safety data is missing.
+
+**Output Format:**
+Return JSON with this exact structure:
+{
+    "product_name": "string",
+    "brand": "string",
+    "retailer": "string",
+    "ingredients": ["complete list from manufacturer website if found, else from product page"],
+    "allergens_detected": [
+        {
+            "name": "allergen name",
+            "severity": "low|moderate|high|severe",
+            "source": "where found",
+            "confidence": 0.0-1.0
+        }
+    ],
+    "pfas_detected": [
+        {
+            "name": "PFAS compound (e.g., PTFE, PFOA)",
+            "cas_number": "CAS number if known",
+            "body_effects": "effects on human body",
+            "source": "where found",
+            "confidence": 0.0-1.0
+        }
+    ],
+    "other_concerns": [
+        {
+            "name": "concern name",
+            "category": "heavy metal|carcinogen|endocrine disruptor|other",
+            "severity": "low|moderate|high|severe",
+            "description": "brief description",
+            "confidence": 0.0-1.0
+        }
+    ],
+    "research_sources": [
+        {"type": "manufacturer_website", "url": "...", "finding": "..."},
+        {"type": "consumer_review", "url": "...", "finding": "..."},
+        {"type": "safety_recall", "url": "...", "finding": "..."}
+    ],
+    "confidence": 0.0-1.0
+}
+"""
+
+        # Add knowledge bases
+        if allergen_database:
+            prompt += f"\n**Known Allergens ({len(allergen_database)}):**\n"
+            for allergen in allergen_database[:10]:
+                synonyms = allergen.get("synonyms", [])
+                prompt += f"- {allergen.get('name')}: synonyms {synonyms}\n"
+
+        if pfas_database:
+            prompt += f"\n**Known PFAS Compounds ({len(pfas_database)}):**\n"
+            for pfas in pfas_database[:7]:
+                prompt += f"- {pfas.get('name')} (CAS: {pfas.get('cas_number', 'N/A')}): {pfas.get('body_effects', 'No info')[:100]}\n"
+
+        if allergen_profile:
+            prompt += f"\n**User's Allergen Profile:**\nPay special attention to: {', '.join(allergen_profile)}\n"
+
+        return prompt
+
+    def _build_user_message_from_extracted_data(
+        self, product_data: Dict[str, Any], product_url: str
+    ) -> str:
+        """Build user message from pre-extracted product data."""
+        message = f"""Analyze this product for harmful substances:
+
+**Product Information (pre-extracted from webpage):**
+- Product Name: {product_data.get('product_name', 'Unknown')}
+- Brand: {product_data.get('brand', 'Unknown')}
+- URL: {product_url}
+
+**Ingredients:**
+{self._format_list(product_data.get('ingredients', []))}
+
+**Materials:**
+{self._format_list(product_data.get('materials', []))}
+
+**Features:**
+{self._format_list(product_data.get('features', []))}
+
+**Warnings:**
+{self._format_list(product_data.get('warnings', []))}
+
+**Description:**
+{product_data.get('description', 'None provided')}
+
+**Your Analysis Task:**
+**DO NOT use web_fetch** - Product information has already been extracted above.
+
+1. Use web_search (ONLY) to find the manufacturer's official website for complete ingredient/material lists
+2. Use web_search to find safety warnings, recalls, regulatory actions for this product
+3. Use web_search to find consumer reviews mentioning health concerns or complaints (skin reactions, allergies, etc.)
+4. Use web_search to find PFAS testing results for this product category (if applicable)
+5. Cross-reference all findings with the provided knowledge bases
+6. Provide comprehensive structured JSON analysis
+
+**CRITICAL:** The product page has already been scraped. DO NOT call web_fetch. ONLY use web_search for external research.
+
+**Focus your web_search on:
+- "[brand] [product] official ingredients site:manufacturer-domain.com"
+- "[product name] safety recall OR warning"
+- "[product name] consumer complaints OR reactions OR rash"
+- "[product category] PFAS contamination OR testing"
+"""
+        return message
+
+    def _format_list(self, items: List[str]) -> str:
+        """Format list as numbered items."""
+        if not items:
+            return "None listed"
+        return "\n".join([f"{i+1}. {item}" for i, item in enumerate(items)])
 
     async def find_alternatives(
         self, product_analysis: Dict[str, Any], max_results: int = 5

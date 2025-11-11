@@ -1,19 +1,24 @@
 """E2E tests for product analysis with real Amazon URLs."""
 
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 from src.api.main import app
+from src.infrastructure.config import settings
 
 
 # Test product URLs from user requirements
 SUNSCREEN_URL = "https://www.amazon.ca/Roche-Posay-Anthelios-Mineral-50mL/dp/B00OZNRV00/"
 FRYING_PAN_URL = "https://www.amazon.ca/Signature-Cookware-Indicator-Utensil-Oven-Safe/dp/B07YX7DJTC/"
 
+# Authorization header for tests
+AUTH_HEADERS = {"Authorization": f"Bearer {settings.api_key}"}
+
 
 @pytest.mark.asyncio
 async def test_health_endpoint():
     """Test health check endpoint."""
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/api/health")
         assert response.status_code == 200
         data = response.json()
@@ -25,7 +30,8 @@ async def test_health_endpoint():
 @pytest.mark.asyncio
 async def test_analyze_sunscreen():
     """Test analyzing La Roche-Posay sunscreen."""
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
             "/api/analyze",
             json={
@@ -33,6 +39,7 @@ async def test_analyze_sunscreen():
                 "allergen_profile": [],
                 "force_refresh": False,
             },
+            headers=AUTH_HEADERS,
             timeout=60.0,  # Claude analysis can take time
         )
 
@@ -65,7 +72,8 @@ async def test_analyze_sunscreen():
 @pytest.mark.asyncio
 async def test_analyze_frying_pan():
     """Test analyzing non-stick frying pan."""
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
             "/api/analyze",
             json={
@@ -73,6 +81,7 @@ async def test_analyze_frying_pan():
                 "allergen_profile": [],
                 "force_refresh": False,
             },
+            headers=AUTH_HEADERS,
             timeout=60.0,
         )
 
@@ -97,7 +106,8 @@ async def test_analyze_frying_pan():
 @pytest.mark.asyncio
 async def test_analyze_with_allergen_profile():
     """Test analysis with user allergen profile."""
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
             "/api/analyze",
             json={
@@ -105,6 +115,7 @@ async def test_analyze_with_allergen_profile():
                 "allergen_profile": ["fragrance", "parabens"],
                 "force_refresh": False,
             },
+            headers=AUTH_HEADERS,
             timeout=60.0,
         )
 
@@ -120,7 +131,8 @@ async def test_analyze_with_allergen_profile():
 @pytest.mark.asyncio
 async def test_invalid_url():
     """Test error handling for invalid URL."""
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
             "/api/analyze",
             json={
@@ -128,6 +140,7 @@ async def test_invalid_url():
                 "allergen_profile": [],
                 "force_refresh": False,
             },
+            headers=AUTH_HEADERS,
             timeout=60.0,
         )
 

@@ -129,3 +129,75 @@ class AnalysisResponse(BaseModel):
     alternatives: list[AlternativeProduct] = []
     cached: bool = False
     cache_age_seconds: Optional[int] = None
+    url_hash: str = ""  # SHA256 hash of product URL for fetching reviews
+
+
+class ScrapedProduct(BaseModel):
+    """Raw scraped product data from e-commerce site."""
+
+    url: str
+    retailer: str
+
+    # Product sections (for ingredient/material analysis)
+    raw_html_product: str = ""
+
+    # Reviews/Q&A sections (for consumer insights)
+    raw_html_reviews: str = ""
+
+    # Metadata
+    raw_html_snippet: str = ""  # First 1KB for logging
+    confidence: float
+    scrape_method: str
+    scraped_at: datetime
+    has_reviews: bool = False
+    error_message: Optional[str] = None
+
+
+class HealthConcern(BaseModel):
+    """Consumer health concern from reviews."""
+
+    concern: str  # e.g., "skin rash", "allergic reaction"
+    frequency: str  # "rare", "occasional", "common", "frequent"
+    severity: str  # "low", "moderate", "high", "severe"
+    examples: list[str]  # Actual review quotes
+
+
+class CommonComplaint(BaseModel):
+    """Common complaint from reviews."""
+
+    complaint: str
+    frequency: str
+    severity: str
+    examples: list[str]
+
+
+class PositiveFeedback(BaseModel):
+    """Positive feedback from reviews."""
+
+    aspect: str
+    frequency: str
+
+
+class QuestionConcern(BaseModel):
+    """Question/concern from Q&A section."""
+
+    question: str
+    category: str  # "safety", "ingredients", "usage", "other"
+    answered: bool
+
+
+class ReviewInsights(BaseModel):
+    """Consumer insights extracted from reviews and Q&A."""
+
+    url_hash: str
+    product_url: str
+    overall_sentiment: str  # "positive", "mixed", "negative"
+    total_reviews_analyzed: int
+    rating_distribution: dict[str, int]  # {"5_star": 100, "4_star": 20, ...}
+    common_complaints: list[CommonComplaint]
+    health_concerns: list[HealthConcern]
+    positive_feedback: list[PositiveFeedback]
+    questions_concerns: list[QuestionConcern]
+    verified_purchase_ratio: float
+    confidence: float
+    analyzed_at: datetime
