@@ -1,10 +1,13 @@
 """Claude Agent for product safety analysis."""
 
 import json
+import logging
 from typing import Dict, Any, List, Optional
 import httpx
 from anthropic import Anthropic
 from ..infrastructure.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class ProductSafetyAgent:
@@ -54,6 +57,8 @@ class ProductSafetyAgent:
         # Start conversation with Claude
         messages = [{"role": "user", "content": user_message}]
 
+        logger.info(f"Calling Claude with web_search and web_fetch tools enabled")
+
         # Claude handles tool use automatically - we just need to call the API
         # The API will execute web_search and web_fetch internally
         response = self.client.messages.create(
@@ -63,6 +68,33 @@ class ProductSafetyAgent:
             messages=messages,
             tools=tools,
         )
+
+        # Log tool usage information
+        logger.info(f"Claude response - Stop reason: {response.stop_reason}")
+        logger.info(f"Claude response - Usage: {response.usage}")
+
+        # Check what tools Claude used
+        tool_uses = []
+        for content_block in response.content:
+            if hasattr(content_block, 'type'):
+                logger.debug(f"Response content block type: {content_block.type}")
+                if content_block.type == "tool_use":
+                    tool_name = getattr(content_block, 'name', 'unknown')
+                    tool_input = getattr(content_block, 'input', {})
+                    tool_uses.append({
+                        'name': tool_name,
+                        'input': tool_input
+                    })
+                    logger.info(f"🔧 Claude used tool: {tool_name}")
+                    if tool_name == "web_search":
+                        logger.info(f"   Search query: {tool_input.get('query', 'N/A')}")
+                    elif tool_name == "web_fetch":
+                        logger.info(f"   Fetch URL: {tool_input.get('url', 'N/A')}")
+
+        if tool_uses:
+            logger.info(f"✅ Claude used {len(tool_uses)} tool(s): {[t['name'] for t in tool_uses]}")
+        else:
+            logger.warning("⚠️  Claude did NOT use any tools (no web_search or web_fetch)")
 
         # Claude is done, parse final response
         analysis = self._parse_response(response)
