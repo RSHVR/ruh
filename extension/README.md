@@ -26,14 +26,37 @@ AI-powered product safety analysis Chrome extension built with Svelte 5.
 
 - Node.js 18+
 - npm or yarn
-- Backend API running at `http://localhost:8001`
+- Backend API (localhost or Cloud Run)
 
-### Install Dependencies
+### Setup
+
+1. **Install Dependencies**
 
 ```bash
 cd extension
 npm install
 ```
+
+2. **Configure Environment Variables**
+
+Create a `.env` file in the `extension/` directory:
+
+```bash
+# Backend API Configuration
+VITE_API_BASE_URL=https://ruh-api-948739110049.us-central1.run.app
+VITE_API_KEY=***REMOVED***
+
+# Development (optional)
+VITE_DEBUG=true
+```
+
+**For local backend testing**, use:
+```bash
+VITE_API_BASE_URL=http://localhost:8001
+VITE_API_KEY=your-api-key-here
+```
+
+See `.env.example` for template.
 
 ### Build Extension
 
