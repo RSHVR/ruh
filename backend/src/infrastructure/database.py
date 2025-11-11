@@ -3,10 +3,15 @@
 import hashlib
 import logging
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from supabase import create_client, Client
+from supabase import create_client
+
+if TYPE_CHECKING:
+    from supabase.client import Client
+else:
+    Client = Any  # Use Any for runtime to avoid import issues
 
 from .config import settings
 
