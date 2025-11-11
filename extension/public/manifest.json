@@ -11,7 +11,7 @@
     "https://*.amazon.com/*",
     "https://*.amazon.ca/*",
     "http://localhost:8001/*",
-    "https://ruh-api-*.run.app/*"
+    "https://ruh-api-948739110049.us-central1.run.app/*"
   ],
   "background": {
     "service_worker": "background.js",
