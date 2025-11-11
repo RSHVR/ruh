@@ -44,189 +44,29 @@ class ProductSafetyAgent:
         )
         user_message = self._build_user_message(product_url)
 
-        # Tool definitions
+        # Enable Claude's built-in web search and fetch tools
+        # These are automatically handled by Anthropic's API
         tools = [
-            {
-                "name": "web_fetch",
-                "description": "Fetch and extract content from a URL. Returns the HTML content of the page.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "url": {"type": "string", "description": "URL to fetch"},
-                    },
-                    "required": ["url"],
-                },
-            },
+            {"type": "web_search"},  # Claude can search the web for product safety info
+            {"type": "web_fetch"},   # Claude can fetch product pages directly
         ]
 
         # Start conversation with Claude
         messages = [{"role": "user", "content": user_message}]
 
-        # Tool calling loop (max 5 iterations)
-        for iteration in range(5):
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=4096,
-                system=system_prompt,
-                messages=messages,
-                tools=tools,
-            )
+        # Claude handles tool use automatically - we just need to call the API
+        # The API will execute web_search and web_fetch internally
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=4096,
+            system=system_prompt,
+            messages=messages,
+            tools=tools,
+        )
 
-            # Check if Claude wants to use tools
-            if response.stop_reason == "tool_use":
-                # Process tool calls
-                tool_results = []
-                for content_block in response.content:
-                    if content_block.type == "tool_use":
-                        tool_name = content_block.name
-                        tool_input = content_block.input
-                        tool_use_id = content_block.id
-
-                        # Execute the tool
-                        if tool_name == "web_fetch":
-                            result = await self._execute_web_fetch(tool_input["url"])
-                        else:
-                            result = {"error": f"Unknown tool: {tool_name}"}
-
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": tool_use_id,
-                            "content": json.dumps(result),
-                        })
-
-                # Add assistant's response and tool results to messages
-                messages.append({"role": "assistant", "content": response.content})
-                messages.append({"role": "user", "content": tool_results})
-
-            elif response.stop_reason == "end_turn":
-                # Claude is done, parse final response
-                analysis = self._parse_response(response)
-                return analysis
-            else:
-                # Unexpected stop reason
-                break
-
-        # If we hit max iterations or unexpected stop, return error
-        return {
-            "product_name": "Unknown",
-            "brand": "Unknown",
-            "retailer": "Unknown",
-            "ingredients": [],
-            "allergens_detected": [],
-            "pfas_detected": [],
-            "other_concerns": [],
-            "confidence": 0.1,
-            "error": "Analysis loop exceeded maximum iterations",
-        }
-
-    async def _execute_web_fetch(self, url: str) -> Dict[str, Any]:
-        """Execute web fetch tool.
-
-        Args:
-            url: URL to fetch
-
-        Returns:
-            Dict with page content or error
-        """
-        try:
-            # Browser-like headers to avoid bot detection
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.5",
-                "Accept-Encoding": "gzip, deflate, br",
-                "DNT": "1",
-                "Connection": "keep-alive",
-                "Upgrade-Insecure-Requests": "1",
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "none",
-                "Cache-Control": "max-age=0",
-            }
-
-            response = await self.http_client.get(url, headers=headers)
-            response.raise_for_status()
-
-            # Extract only relevant product information to reduce token usage
-            html = response.text
-            extracted = self._extract_product_info(html)
-
-            return {
-                "success": True,
-                "url": url,
-                "status_code": response.status_code,
-                "content": extracted,
-                "content_length": len(extracted),
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "url": url,
-                "error": str(e),
-            }
-
-    def _extract_product_info(self, html: str) -> str:
-        """Extract only relevant product information from HTML.
-
-        Args:
-            html: Full HTML content
-
-        Returns:
-            Extracted product information as text
-        """
-        import re
-
-        # Remove script and style tags
-        html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
-        html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL | re.IGNORECASE)
-
-        # Extract key sections
-        sections = []
-
-        # Product title
-        title_match = re.search(r'<span[^>]*id="productTitle"[^>]*>(.*?)</span>', html, re.DOTALL)
-        if title_match:
-            sections.append(f"PRODUCT TITLE: {title_match.group(1).strip()}")
-
-        # Brand
-        brand_match = re.search(r'<a[^>]*id="bylineInfo"[^>]*>(.*?)</a>', html, re.DOTALL)
-        if brand_match:
-            sections.append(f"BRAND: {brand_match.group(1).strip()}")
-
-        # Feature bullets
-        feature_match = re.search(r'<div[^>]*id="feature-bullets"[^>]*>(.*?)</div>', html, re.DOTALL)
-        if feature_match:
-            bullets = re.findall(r'<span[^>]*class="[^"]*a-list-item[^"]*"[^>]*>(.*?)</span>', feature_match.group(1), re.DOTALL)
-            if bullets:
-                sections.append("FEATURES:\n" + "\n".join(f"- {b.strip()}" for b in bullets[:10]))
-
-        # Product description
-        desc_match = re.search(r'<div[^>]*id="productDescription"[^>]*>(.*?)</div>', html, re.DOTALL)
-        if desc_match:
-            desc_text = re.sub(r'<[^>]+>', ' ', desc_match.group(1))
-            desc_text = ' '.join(desc_text.split())[:1000]  # Limit to 1000 chars
-            sections.append(f"DESCRIPTION: {desc_text}")
-
-        # Product details/specifications
-        details_match = re.search(r'<div[^>]*id="detailBullets"[^>]*>(.*?)</div>', html, re.DOTALL)
-        if not details_match:
-            details_match = re.search(r'<table[^>]*id="productDetails"[^>]*>(.*?)</table>', html, re.DOTALL)
-
-        if details_match:
-            details_text = re.sub(r'<[^>]+>', ' ', details_match.group(1))
-            details_text = ' '.join(details_text.split())[:1000]
-            sections.append(f"DETAILS: {details_text}")
-
-        # Combine all sections
-        extracted = "\n\n".join(sections)
-
-        # If nothing extracted, return cleaned HTML (limited)
-        if not extracted:
-            cleaned = re.sub(r'<[^>]+>', ' ', html)
-            cleaned = ' '.join(cleaned.split())
-            extracted = cleaned[:5000]  # Fallback: first 5000 chars of cleaned HTML
-
-        return extracted[:8000]  # Hard limit to ~2000 tokens
+        # Claude is done, parse final response
+        analysis = self._parse_response(response)
+        return analysis
 
     def _build_system_prompt(
         self,
@@ -238,13 +78,16 @@ class ProductSafetyAgent:
         prompt = """You are a product safety analysis expert. Your job is to analyze products for harmful substances including allergens, PFAS (forever chemicals), and other toxins.
 
 **Your Analysis Process:**
-1. Use web_fetch to retrieve the product page content
-2. Extract product information: name, brand, ingredients list, materials
-3. Look for PFAS indicators: "non-stick", "PTFE", "Teflon", "water-resistant", "stain-resistant"
-4. Match ingredients against known allergens and PFAS compounds
-5. Return a structured JSON analysis
+1. Use web_fetch to retrieve the product page and extract product information (name, brand, ingredients, materials)
+2. Use web_search to find:
+   - Recent product recalls or safety warnings
+   - Scientific studies on ingredient safety
+   - Regulatory actions or warnings
+   - PFAS contamination reports for this product category
+3. Cross-reference findings with the knowledge base provided below
+4. Return a comprehensive structured JSON analysis
 
-**IMPORTANT:** You MUST call web_fetch first to get the product page content before analyzing.
+**IMPORTANT:** Use both web_fetch (for product details) and web_search (for safety data) to provide the most accurate analysis.
 
 **Output Format:**
 After fetching and analyzing the product page, return your analysis as a JSON object with this exact structure:
@@ -317,8 +160,9 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
         """Build the user message for Claude."""
         return f"""Analyze this product for harmful substances: {product_url}
 
-First, use web_fetch to retrieve the product page.
-Then analyze the content and return your structured JSON analysis."""
+Use web_fetch to retrieve the product page and extract product details (name, brand, ingredients).
+Use web_search to find recent safety information, recalls, and scientific studies about this product and its ingredients.
+Then provide your comprehensive structured JSON analysis."""
 
     def _parse_response(self, response: Any) -> Dict[str, Any]:
         """Parse Claude's response and extract analysis JSON."""
