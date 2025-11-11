@@ -7,8 +7,26 @@ import logging
 from ...domain.models import AnalysisRequest, AnalysisResponse, ProductAnalysis
 from ...domain.harm_calculator import HarmScoreCalculator
 from ...infrastructure.claude_agent import ProductSafetyAgent
-from ...infrastructure.database import db
 from ..auth import verify_api_key
+
+# Try to import database, but make it optional
+try:
+    from ...infrastructure.database import db
+    DATABASE_AVAILABLE = True
+except ImportError as e:
+    logging.warning(f"Database module not available: {e}. Running without Supabase.")
+    DATABASE_AVAILABLE = False
+    # Create a mock db object
+    class MockDB:
+        is_available = False
+        def generate_url_hash(self, url): return ""
+        async def get_cached_analysis(self, hash): return None
+        async def get_all_allergens(self): return []
+        async def get_all_pfas(self): return []
+        async def store_analysis(self, *args, **kwargs): return False
+        async def get_or_create_anonymous_user(self): return None
+        async def log_search(self, *args, **kwargs): return False
+    db = MockDB()
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
