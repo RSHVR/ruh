@@ -135,6 +135,18 @@ CREATE TABLE allergens (
   synonyms TEXT[] DEFAULT '{}',
   severity_default INTEGER CHECK (severity_default >= 1 AND severity_default <= 10),
   common_sources TEXT[] DEFAULT '{}',
+
+  -- Enhanced fields
+  allergen_type TEXT, -- 'food', 'cosmetic', 'latex', 'preservative', 'fragrance'
+  cross_reactions TEXT[] DEFAULT '{}',
+  prevalence_percentage DECIMAL(5,2),
+  severity_range TEXT, -- 'mild_to_moderate', 'potentially_life_threatening'
+  fda_priority BOOLEAN DEFAULT FALSE,
+  health_canada_priority BOOLEAN DEFAULT FALSE,
+  alternative_names TEXT[] DEFAULT '{}',
+  metabolites TEXT[] DEFAULT '{}',
+  transformation_notes TEXT,
+
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -142,18 +154,95 @@ CREATE TABLE allergens (
 CREATE TABLE pfas_compounds (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL UNIQUE,
-  cas_number TEXT UNIQUE,
+  cas_number TEXT,
   synonyms TEXT[] DEFAULT '{}',
   health_impacts TEXT[] DEFAULT '{}',
   body_effects TEXT,
   sources TEXT[] DEFAULT '{}',
+
+  -- Enhanced fields
+  common_name TEXT,
+  carbon_chain_length INTEGER,
+  half_life_human TEXT,
+
+  -- Regulatory status
+  regulatory_status_canada TEXT,
+  regulatory_status_usa TEXT,
+  regulatory_status_eu TEXT,
+  authorized_uses TEXT[] DEFAULT '{}',
+  prohibited_uses TEXT[] DEFAULT '{}',
+  phase_out_date DATE,
+
+  -- Risk classification
+  detection_frequency TEXT,
+  risk_classification TEXT[] DEFAULT '{}',
+  bioaccumulative BOOLEAN DEFAULT FALSE,
+  product_categories TEXT[] DEFAULT '{}',
+
+  -- Precursor/metabolite tracking
+  is_precursor BOOLEAN DEFAULT FALSE,
+  is_metabolite BOOLEAN DEFAULT FALSE,
+  parent_compounds TEXT[] DEFAULT '{}',
+  metabolites TEXT[] DEFAULT '{}',
+  transformation_pathway TEXT,
+
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 9. Knowledge Base - Toxic Substances (non-PFAS)
+CREATE TABLE toxic_substances (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL UNIQUE,
+  common_names TEXT[] DEFAULT '{}',
+  cas_number TEXT,
+  synonyms TEXT[] DEFAULT '{}',
+
+  -- Classification
+  substance_category TEXT, -- 'phthalate', 'bisphenol', 'heavy_metal', 'voc', 'preservative', 'surfactant'
+  health_hazard_class TEXT[] DEFAULT '{}', -- 'carcinogen', 'endocrine_disruptor', 'reproductive_toxin', 'neurotoxin'
+
+  -- Health Effects
+  health_impacts TEXT[] DEFAULT '{}',
+  body_effects TEXT,
+  vulnerable_populations TEXT[] DEFAULT '{}', -- 'pregnant_women', 'children', 'workers'
+
+  -- Exposure
+  consumer_products TEXT[] DEFAULT '{}',
+  exposure_routes TEXT[] DEFAULT '{}', -- 'inhalation', 'dermal', 'ingestion'
+
+  -- Regulatory
+  regulatory_status_canada TEXT,
+  regulatory_status_usa TEXT,
+  regulatory_status_eu TEXT,
+  banned_applications TEXT[] DEFAULT '{}',
+  permitted_applications TEXT[] DEFAULT '{}',
+  concentration_limits JSONB,
+
+  -- Precursor/metabolite tracking
+  is_precursor BOOLEAN DEFAULT FALSE,
+  is_metabolite BOOLEAN DEFAULT FALSE,
+  parent_compounds TEXT[] DEFAULT '{}',
+  metabolites TEXT[] DEFAULT '{}',
+  transformation_pathway TEXT,
+
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Create indexes for knowledge base searches
 CREATE INDEX idx_allergen_name ON allergens(name);
+CREATE INDEX idx_allergen_type ON allergens(allergen_type);
+
 CREATE INDEX idx_pfas_name ON pfas_compounds(name);
 CREATE INDEX idx_pfas_cas ON pfas_compounds(cas_number);
+CREATE INDEX idx_pfas_category ON pfas_compounds(product_categories);
+CREATE INDEX idx_pfas_precursor ON pfas_compounds(is_precursor);
+CREATE INDEX idx_pfas_parent ON pfas_compounds(parent_compounds);
+
+CREATE INDEX idx_toxic_name ON toxic_substances(name);
+CREATE INDEX idx_toxic_cas ON toxic_substances(cas_number);
+CREATE INDEX idx_toxic_category ON toxic_substances(substance_category);
+CREATE INDEX idx_toxic_precursor ON toxic_substances(is_precursor);
+CREATE INDEX idx_toxic_parent ON toxic_substances(parent_compounds);
 
 -- Comments for documentation
 COMMENT ON TABLE users IS 'Anonymous user tracking via UUID - no PII collected';
@@ -162,5 +251,6 @@ COMMENT ON TABLE user_searches IS '90-day TTL tracking of user searches - anonym
 COMMENT ON TABLE alternative_recommendations IS 'Safer alternatives recommended by AI';
 COMMENT ON TABLE user_interactions IS 'User interaction tracking for optimization and revenue';
 COMMENT ON TABLE analysis_feedback IS 'User feedback on analysis quality';
-COMMENT ON TABLE allergens IS 'Comprehensive allergen database with synonyms';
-COMMENT ON TABLE pfas_compounds IS 'PFAS compounds database with health impact information';
+COMMENT ON TABLE allergens IS 'Comprehensive allergen database with synonyms, cross-reactions, and regulatory status';
+COMMENT ON TABLE pfas_compounds IS 'PFAS compounds database with health impacts, regulatory status, and precursor/metabolite tracking';
+COMMENT ON TABLE toxic_substances IS 'Non-PFAS toxic substances including phthalates, bisphenols, heavy metals, and their derivatives';
