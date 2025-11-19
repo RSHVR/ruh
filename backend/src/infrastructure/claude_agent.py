@@ -394,6 +394,13 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
         """Build system prompt for safety analysis with extracted data."""
         prompt = """You are a product safety analysis expert. You have been provided with pre-extracted product information.
 
+CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
+- NO explanatory text before the JSON
+- NO explanatory text after the JSON
+- NO markdown code blocks (no ```json or ```)
+- NO comments
+- Start immediately with { and end with }
+
 **Your Analysis Process:**
 1. Review the provided product details (already extracted from the product page)
 2. Use web_search strategically (max 3 searches) to find:
@@ -411,8 +418,7 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
 
 **IMPORTANT:** Prioritize manufacturer website and consumer reviews. Only use the third search if critical safety data is missing.
 
-**Output Format:**
-Return JSON with this exact structure:
+**Output Format - YOUR ENTIRE RESPONSE MUST BE THIS JSON OBJECT:**
 {
     "product_name": "string",
     "brand": "string",
@@ -453,7 +459,7 @@ Return JSON with this exact structure:
 }
 """
 
-        # Add knowledge bases
+        # Add knowledge bases with full details for proper matching
         if allergen_database:
             prompt += f"\n**Known Allergens ({len(allergen_database)}):**\n"
             for allergen in allergen_database[:10]:
@@ -499,21 +505,13 @@ Return JSON with this exact structure:
 **Your Analysis Task:**
 **DO NOT use web_fetch** - Product information has already been extracted above.
 
-1. Use web_search (ONLY) to find the manufacturer's official website for complete ingredient/material lists
+1. Use web_search to find the manufacturer's official website for complete ingredient/material lists
 2. Use web_search to find safety warnings, recalls, regulatory actions for this product
 3. Use web_search to find consumer reviews mentioning health concerns or complaints (skin reactions, allergies, etc.)
-4. Use web_search to find PFAS testing results for this product category (if applicable)
-5. Cross-reference all findings with the provided knowledge bases
-6. Provide comprehensive structured JSON analysis
+4. Cross-reference all findings with the provided knowledge bases
+5. Return your analysis as the JSON object specified in the system prompt
 
-**CRITICAL:** The product page has already been scraped. DO NOT call web_fetch. ONLY use web_search for external research.
-
-**Focus your web_search on:
-- "[brand] [product] official ingredients site:manufacturer-domain.com"
-- "[product name] safety recall OR warning"
-- "[product name] consumer complaints OR reactions OR rash"
-- "[product category] PFAS contamination OR testing"
-"""
+**CRITICAL:** Your response must be ONLY the JSON object. No text before it, no text after it."""
         return message
 
     def _format_list(self, items: List[str]) -> str:
