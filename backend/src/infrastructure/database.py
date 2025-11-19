@@ -2,7 +2,7 @@
 
 import hashlib
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 
@@ -62,7 +62,7 @@ class DatabaseService:
                 # Create anonymous user
                 user_data = {
                     'id': '00000000-0000-0000-0000-000000000000',
-                    'created_at': datetime.utcnow().isoformat()
+                    'created_at': datetime.now(timezone.utc).isoformat()
                 }
                 response = self.client.table('users').insert(user_data).execute()
                 self._anonymous_user_id = UUID(response.data[0]['id'])
@@ -171,7 +171,7 @@ class DatabaseService:
                 'pfas_detected': pfas,  # JSONB - maps to pfas_detected column
                 'other_concerns': other_concerns,  # JSONB
                 'confidence': int(analysis.get('confidence', 0.8) * 100),  # INTEGER 0-100
-                'analyzed_at': datetime.utcnow().isoformat()
+                'analyzed_at': datetime.now(timezone.utc).isoformat()
             }
 
             logger.info(f"About to store analysis with keys: {list(db_data.keys())}")
@@ -213,7 +213,7 @@ class DatabaseService:
                 'user_id': str(user_id),
                 'product_url': product_url,
                 'product_url_hash': url_hash,
-                'searched_at': datetime.utcnow().isoformat()
+                'searched_at': datetime.now(timezone.utc).isoformat()
             }
 
             self.client.table('user_searches').insert(search_data).execute()
@@ -358,7 +358,7 @@ class DatabaseService:
 
                 # Check freshness (reviews change, cache for 7 days)
                 analyzed_at = datetime.fromisoformat(cached['analyzed_at'].replace('Z', '+00:00'))
-                age_days = (datetime.utcnow() - analyzed_at).days
+                age_days = (datetime.now(timezone.utc) - analyzed_at).days
 
                 if age_days < 7:
                     return review_insights

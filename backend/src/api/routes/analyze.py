@@ -1,7 +1,7 @@
 """Product analysis endpoints."""
 
 from fastapi import APIRouter, HTTPException, Depends
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from ...domain.models import AnalysisRequest, AnalysisResponse, ProductAnalysis, ReviewInsights
@@ -72,7 +72,7 @@ async def analyze_product(
 
             # Calculate cache age
             analyzed_at = datetime.fromisoformat(cached_analysis['analyzed_at'].replace('Z', '+00:00'))
-            cache_age = (datetime.utcnow() - analyzed_at).total_seconds()
+            cache_age = (datetime.now(timezone.utc) - analyzed_at).total_seconds()
 
             # Build ProductAnalysis from cached data
             analysis = ProductAnalysis(
@@ -245,7 +245,7 @@ async def analyze_product(
             pfas_detected=analysis_data.get("pfas_detected", []),
             other_concerns=analysis_data.get("other_concerns", []),
             confidence=analysis_data.get("confidence", 0.8),
-            analyzed_at=datetime.utcnow(),
+            analyzed_at=datetime.now(timezone.utc),
         )
 
         # Step 5: Store analysis in Supabase (with graceful fallback)
@@ -404,7 +404,7 @@ async def get_review_insights(
             questions_concerns=review_data.get("questions_concerns", []),
             verified_purchase_ratio=review_data.get("verified_purchase_ratio", 0.0),
             confidence=review_data.get("confidence", 0.8),
-            analyzed_at=datetime.utcnow(),
+            analyzed_at=datetime.now(timezone.utc),
         )
 
         # Step 6: Cache in Supabase (with graceful fallback)

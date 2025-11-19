@@ -3,7 +3,7 @@
 import re
 import httpx
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict
 import logging
 
@@ -135,7 +135,7 @@ class AmazonScraper(BaseScraper):
                 raw_html_snippet=product_html[:1000],
                 confidence=self._calculate_confidence(product_size_kb, reviews_size_kb),
                 scrape_method="amazon_raw_html",
-                scraped_at=datetime.utcnow(),
+                scraped_at=datetime.now(timezone.utc),
                 has_reviews=include_reviews and len(reviews_html) > 100,
             )
 
@@ -305,7 +305,7 @@ class AmazonScraper(BaseScraper):
             raw_html_snippet="",
             confidence=0.0,
             scrape_method="failed",
-            scraped_at=datetime.utcnow(),
+            scraped_at=datetime.now(timezone.utc),
             has_reviews=False,
             error_message=error_message,
         )
