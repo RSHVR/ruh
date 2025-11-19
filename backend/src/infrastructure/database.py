@@ -206,9 +206,13 @@ class DatabaseService:
             return False
 
         try:
+            # Generate URL hash for the search
+            url_hash = self.generate_url_hash(product_url)
+
             search_data = {
                 'user_id': str(user_id),
                 'product_url': product_url,
+                'product_url_hash': url_hash,
                 'searched_at': datetime.utcnow().isoformat()
             }
 
