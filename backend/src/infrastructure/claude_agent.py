@@ -71,14 +71,23 @@ class ProductSafetyAgent:
         # Claude handles tool use automatically - we just need to call the API
         # The API will execute web_search and web_fetch internally
         # tool_choice="auto" lets Claude decide when to use tools
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=4096,
-            system=system_prompt,
-            messages=messages,
-            tools=tools,
-            tool_choice={"type": "auto"},  # Claude decides when to use tools
-        )
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=4096,
+                system=system_prompt,
+                messages=messages,
+                tools=tools,
+                tool_choice={"type": "auto"},  # Claude decides when to use tools
+            )
+        except RateLimitError as e:
+            logger.error(f"❌ Rate limit exceeded in analyze_product: {e}")
+            # Re-raise to be handled by caller
+            raise
+        except APIError as e:
+            logger.error(f"❌ Claude API error in analyze_product: {e}")
+            # Re-raise to be handled by caller
+            raise
 
         # Log tool usage information
         logger.info(f"Claude response - Stop reason: {response.stop_reason}")
@@ -220,7 +229,7 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
 3. Provide your comprehensive structured JSON analysis"""
 
     def _parse_response(self, response: Any) -> Dict[str, Any]:
-        """Parse Claude's response and extract analysis JSON."""
+        """Parse Claude's response and extract analysis JSON with validation."""
         # Extract text content from response
         for block in response.content:
             if hasattr(block, "text"):
@@ -247,10 +256,32 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
                             raise ValueError("No JSON found")
 
                     analysis = json.loads(json_str)
+
+                    # VALIDATION: Check for required fields and valid values
+                    if not analysis.get("product_name") or analysis.get("product_name") == "Unknown":
+                        logger.warning(f"⚠️  Claude returned 'Unknown' or missing product_name. Raw response: {text[:300]}")
+
+                    # Ensure lists exist
+                    analysis.setdefault('allergens_detected', [])
+                    analysis.setdefault('pfas_detected', [])
+                    analysis.setdefault('other_concerns', [])
+                    analysis.setdefault('ingredients', [])
+
+                    # Validate confidence is between 0-1
+                    confidence = analysis.get('confidence', 0.8)
+                    if not isinstance(confidence, (int, float)) or confidence < 0 or confidence > 1:
+                        logger.warning(f"⚠️  Invalid confidence value: {confidence}, defaulting to 0.5")
+                        analysis['confidence'] = 0.5
+
+                    logger.info(f"✅ Successfully parsed Claude response: {analysis.get('product_name', 'Unknown')}")
                     return analysis
 
                 except (json.JSONDecodeError, ValueError) as e:
-                    # Return error structure
+                    # Log the full error for debugging
+                    logger.error(f"❌ JSON parsing failed: {str(e)}")
+                    logger.error(f"Raw Claude response text (first 1000 chars): {text[:1000]}")
+
+                    # Return error structure with partial data if possible
                     return {
                         "product_name": "Unknown",
                         "brand": "Unknown",
@@ -260,10 +291,12 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
                         "pfas_detected": [],
                         "other_concerns": [],
                         "confidence": 0.1,
-                        "error": f"Failed to parse JSON: {str(e)}. Raw text: {text[:500]}",
+                        "error": f"Failed to parse JSON: {str(e)}",
+                        "raw_response_preview": text[:500]  # Include preview for debugging
                     }
 
         # No text block found
+        logger.error("❌ No text block found in Claude response")
         return {
             "product_name": "Unknown",
             "brand": "Unknown",
@@ -323,14 +356,23 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
         logger.info(f"   Product: {product_data.get('product_name')}")
 
         # tool_choice="auto" lets Claude decide when to use web_search
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=2048,  # Reduced from 4096
-            system=system_prompt,
-            messages=messages,
-            tools=tools,
-            tool_choice={"type": "auto"},  # Claude decides when to search
-        )
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=2048,  # Reduced from 4096
+                system=system_prompt,
+                messages=messages,
+                tools=tools,
+                tool_choice={"type": "auto"},  # Claude decides when to search
+            )
+        except RateLimitError as e:
+            logger.error(f"❌ Rate limit exceeded in analyze_extracted_product: {e}")
+            # Re-raise to be handled by caller (will fallback to database-only results)
+            raise
+        except APIError as e:
+            logger.error(f"❌ Claude API error in analyze_extracted_product: {e}")
+            # Re-raise to be handled by caller
+            raise
 
         logger.info(f"Claude Agent usage: {response.usage}")
         logger.info(f"   Input tokens: {response.usage.input_tokens}")
