@@ -6,11 +6,13 @@ import logging
 
 from ...domain.models import AnalysisRequest, AnalysisResponse, ProductAnalysis, ReviewInsights
 from ...domain.harm_calculator import HarmScoreCalculator
+from ...domain.ingredient_matcher import match_ingredients_to_databases
 from ...infrastructure.claude_agent import ProductSafetyAgent
 from ...infrastructure.product_scraper import ProductScraperService
 from ...infrastructure.claude_query import ClaudeQueryService
 from ...infrastructure.database import db
 from ..auth import verify_api_key
+from anthropic import RateLimitError
 
 # Try to import database, but make it optional
 try:
@@ -125,6 +127,8 @@ async def analyze_product(
         agent = ProductSafetyAgent()
 
         # Step 4d: Branch based on scraping success
+        basic_analysis = None  # Store database-only fallback
+
         if scraped_html is not None and scraped_html.confidence > 0.3:
             # SUCCESS PATH: Scrape → Query → Agent
             logger.info("✅ Scraping succeeded - using two-step Claude process")
@@ -136,31 +140,95 @@ async def analyze_product(
             if product_data.get("confidence", 0) < 0.3:
                 logger.warning("⚠️  Claude extraction failed, falling back to web_fetch")
                 # Fallback to old method
+                try:
+                    analysis_data = await agent.analyze_product(
+                        product_url=request.product_url,
+                        allergen_profile=request.allergen_profile,
+                        allergen_database=allergen_db,
+                        pfas_database=pfas_db,
+                    )
+                except RateLimitError as e:
+                    logger.warning(f"⚠️  Rate limit hit during web_fetch fallback: {e}")
+                    raise HTTPException(
+                        status_code=429,
+                        detail="Rate limit exceeded. Please try again later.",
+                        headers={"Retry-After": "60"}
+                    )
+            else:
+                # NEW: Step 1 - Python-level database comparison (fast, always works)
+                logger.info("🔍 Step 1/3: Database matching - comparing ingredients against databases")
+                basic_analysis = match_ingredients_to_databases(
+                    ingredients=product_data.get('ingredients', []),
+                    materials=product_data.get('materials', []),
+                    allergen_database=allergen_db,
+                    pfas_database=pfas_db
+                )
+                logger.info(f"✅ Database matching complete: {len(basic_analysis['allergens_detected'])} allergens, {len(basic_analysis['pfas_detected'])} PFAS")
+
+                # Step 2/3 - Try Claude Agent enhancement with web_search
+                logger.info("🤖 Step 2/3: Claude Agent - enriching with AI analysis and web_search")
+                try:
+                    analysis_data = await agent.analyze_extracted_product(
+                        product_data=product_data,
+                        product_url=request.product_url,
+                        allergen_profile=request.allergen_profile,
+                        allergen_database=allergen_db,
+                        pfas_database=pfas_db,
+                    )
+
+                    # Merge basic + enhanced analysis (prefer Claude's findings, supplement with database matches)
+                    logger.info("🔀 Step 3/3: Merging database results with AI analysis")
+                    # Keep Claude's allergens and PFAS, but add any database-only finds
+                    db_allergen_names = {a['name'] for a in basic_analysis['allergens_detected']}
+                    ai_allergen_names = {a['name'] for a in analysis_data.get('allergens_detected', [])}
+                    db_pfas_names = {p['name'] for p in basic_analysis['pfas_detected']}
+                    ai_pfas_names = {p['name'] for p in analysis_data.get('pfas_detected', [])}
+
+                    # Add database findings not found by AI
+                    for allergen in basic_analysis['allergens_detected']:
+                        if allergen['name'] not in ai_allergen_names:
+                            analysis_data.setdefault('allergens_detected', []).append(allergen)
+
+                    for pfas in basic_analysis['pfas_detected']:
+                        if pfas['name'] not in ai_pfas_names:
+                            analysis_data.setdefault('pfas_detected', []).append(pfas)
+
+                    logger.info(f"✅ Merged analysis: {len(analysis_data['allergens_detected'])} allergens, {len(analysis_data['pfas_detected'])} PFAS")
+
+                except RateLimitError as e:
+                    logger.warning(f"⚠️  Rate limit hit - returning database-only results: {e}")
+                    # Return basic database results with note about rate limit
+                    analysis_data = basic_analysis
+                    analysis_data['product_name'] = product_data.get('product_name', 'Unknown Product')
+                    analysis_data['brand'] = product_data.get('brand', 'Unknown')
+                    analysis_data['ingredients'] = product_data.get('ingredients', [])
+                    analysis_data['note'] = 'Rate limit reached - showing database matches only'
+
+                except Exception as e:
+                    logger.error(f"⚠️  Claude Agent failed - returning database-only results: {e}")
+                    # Return basic database results as fallback
+                    analysis_data = basic_analysis
+                    analysis_data['product_name'] = product_data.get('product_name', 'Unknown Product')
+                    analysis_data['brand'] = product_data.get('brand', 'Unknown')
+                    analysis_data['ingredients'] = product_data.get('ingredients', [])
+                    analysis_data['note'] = 'AI analysis unavailable - showing database matches only'
+        else:
+            # FALLBACK PATH: Use Claude web_fetch (old method)
+            logger.info("🔄 Scraping not available - using Claude web_fetch fallback")
+            try:
                 analysis_data = await agent.analyze_product(
                     product_url=request.product_url,
                     allergen_profile=request.allergen_profile,
                     allergen_database=allergen_db,
                     pfas_database=pfas_db,
                 )
-            else:
-                # Claude Agent: Analyze with web_search
-                logger.info("🔍 Step 2/2: Claude Agent - analyzing with web_search")
-                analysis_data = await agent.analyze_extracted_product(
-                    product_data=product_data,
-                    product_url=request.product_url,
-                    allergen_profile=request.allergen_profile,
-                    allergen_database=allergen_db,
-                    pfas_database=pfas_db,
+            except RateLimitError as e:
+                logger.warning(f"⚠️  Rate limit hit during web_fetch: {e}")
+                raise HTTPException(
+                    status_code=429,
+                    detail="Rate limit exceeded. Please try again later.",
+                    headers={"Retry-After": "60"}
                 )
-        else:
-            # FALLBACK PATH: Use Claude web_fetch (old method)
-            logger.info("🔄 Scraping not available - using Claude web_fetch fallback")
-            analysis_data = await agent.analyze_product(
-                product_url=request.product_url,
-                allergen_profile=request.allergen_profile,
-                allergen_database=allergen_db,
-                pfas_database=pfas_db,
-            )
 
         # Calculate harm score
         harm_score = HarmScoreCalculator.calculate(analysis_data)
