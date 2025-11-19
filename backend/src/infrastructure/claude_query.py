@@ -210,7 +210,7 @@ Return ONLY a JSON object (no explanation text) with this structure:
     def _build_html_message(self, scraped: ScrapedProduct) -> str:
         """Build user message with HTML."""
         # Limit HTML size to prevent 400 errors (max ~100KB or 25k tokens)
-        max_chars = 100000  # 100KB limit
+        max_chars = 10000  # 10-20KB limit
         html_content = scraped.raw_html_product
         if len(html_content) > max_chars:
             logger.warning(f"⚠️  HTML too large ({len(html_content)} chars), truncating to {max_chars} chars")
@@ -229,7 +229,7 @@ Return the structured JSON object."""
     def _build_reviews_message(self, scraped: ScrapedProduct) -> str:
         """Build user message with reviews HTML."""
         # Limit reviews HTML size to prevent 400 errors
-        max_chars = 150000  # 150KB limit (reviews need more space)
+        max_chars = 10000  # 10-20KB limit (reviews need more space)
         reviews_content = scraped.raw_html_reviews
         if len(reviews_content) > max_chars:
             logger.warning(f"⚠️  Reviews HTML too large ({len(reviews_content)} chars), truncating to {max_chars} chars")
