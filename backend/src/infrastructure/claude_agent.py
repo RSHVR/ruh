@@ -59,7 +59,7 @@ class ProductSafetyAgent:
             {
                 "type": "web_fetch_20250910",
                 "name": "web_fetch",
-                "max_uses": 3,  # Limit searches to prevent token overuse
+                "max_uses": 3,  # Limit fetches to prevent token overuse
             },
         ]
 
@@ -79,6 +79,9 @@ class ProductSafetyAgent:
                 messages=messages,
                 tools=tools,
                 tool_choice={"type": "auto"},  # Claude decides when to use tools
+                extra_headers={
+                    "anthropic-beta": "web-fetch-2025-09-10"
+                }
             )
         except RateLimitError as e:
             logger.error(f"❌ Rate limit exceeded in analyze_product: {e}")
