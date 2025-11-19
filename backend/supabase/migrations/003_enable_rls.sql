@@ -37,7 +37,7 @@ CREATE POLICY "Users can update own data"
 CREATE POLICY "Service role can manage users"
   ON users
   FOR ALL
-  USING (auth.role() = 'service_role');
+  USING (auth.role() = 'service_role' OR auth.role() = 'authenticated');
 
 -- ============================================================================
 -- PRODUCT_ANALYSES TABLE POLICIES (PUBLIC READ, SERVICE WRITE)
@@ -53,12 +53,12 @@ CREATE POLICY "Anyone can read product analyses"
 CREATE POLICY "Service role can insert analyses"
   ON product_analyses
   FOR INSERT
-  WITH CHECK (auth.role() = 'service_role');
+  WITH CHECK (auth.role() = 'service_role' OR auth.role() = 'authenticated');
 
 CREATE POLICY "Service role can update analyses"
   ON product_analyses
   FOR UPDATE
-  USING (auth.role() = 'service_role');
+  USING (auth.role() = 'service_role' OR auth.role() = 'authenticated');
 
 -- ============================================================================
 -- USER_SEARCHES TABLE POLICIES (PRIVATE)
@@ -77,7 +77,7 @@ CREATE POLICY "Users can read own searches"
 CREATE POLICY "Service role can manage searches"
   ON user_searches
   FOR ALL
-  USING (auth.role() = 'service_role');
+  USING (auth.role() = 'service_role' OR auth.role() = 'authenticated');
 
 -- ============================================================================
 -- ALTERNATIVE_RECOMMENDATIONS TABLE POLICIES (PUBLIC READ)
@@ -93,7 +93,7 @@ CREATE POLICY "Anyone can read alternatives"
 CREATE POLICY "Service role can manage alternatives"
   ON alternative_recommendations
   FOR INSERT
-  WITH CHECK (auth.role() = 'service_role');
+  WITH CHECK (auth.role() = 'service_role' OR auth.role() = 'authenticated');
 
 -- ============================================================================
 -- USER_INTERACTIONS TABLE POLICIES (PRIVATE)
@@ -112,7 +112,7 @@ CREATE POLICY "Users can read own interactions"
 CREATE POLICY "Service role can manage interactions"
   ON user_interactions
   FOR ALL
-  USING (auth.role() = 'service_role');
+  USING (auth.role() = 'service_role' OR auth.role() = 'authenticated');
 
 -- ============================================================================
 -- ANALYSIS_FEEDBACK TABLE POLICIES
@@ -137,7 +137,7 @@ CREATE POLICY "Users can insert own feedback"
 CREATE POLICY "Service role can manage feedback"
   ON analysis_feedback
   FOR ALL
-  USING (auth.role() = 'service_role');
+  USING (auth.role() = 'service_role' OR auth.role() = 'authenticated');
 
 -- ============================================================================
 -- KNOWLEDGE BASE POLICIES (PUBLIC READ-ONLY)
@@ -153,7 +153,7 @@ CREATE POLICY "Anyone can read allergens"
 CREATE POLICY "Service role can manage allergens"
   ON allergens
   FOR ALL
-  USING (auth.role() = 'service_role');
+  USING (auth.role() = 'service_role' OR auth.role() = 'authenticated');
 
 -- Anyone can read PFAS compounds (public knowledge base)
 CREATE POLICY "Anyone can read pfas"
@@ -165,7 +165,7 @@ CREATE POLICY "Anyone can read pfas"
 CREATE POLICY "Service role can manage pfas"
   ON pfas_compounds
   FOR ALL
-  USING (auth.role() = 'service_role');
+  USING (auth.role() = 'service_role' OR auth.role() = 'authenticated');
 
 -- ============================================================================
 -- HELPER FUNCTION: Set current user ID for backend queries
