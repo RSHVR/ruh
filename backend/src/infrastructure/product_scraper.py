@@ -36,25 +36,30 @@ class ProductScraperService:
             ScrapedProduct if successful (confidence >= 0.3)
             None if should fallback to Claude web_fetch
         """
+        logger.info(f"🕷️  SCRAPER START: Attempting to scrape {url}")
+
         # Get appropriate scraper
         scraper = await self.factory.get_scraper(url)
 
         if scraper is None:
-            logger.info(f"🔄 No scraper available for {url}, will use Claude web_fetch fallback")
+            logger.info(f"🔄 SCRAPER SKIP: No scraper available for {url}, will use Claude web_fetch fallback")
             return None
 
         # Attempt scraping
+        logger.info(f"🕷️  SCRAPER RUNNING: Fetching HTML from {url}")
         result = await scraper.scrape(url, include_reviews=include_reviews)
+
+        logger.info(f"🕷️  SCRAPER COMPLETE: HTML size = {len(result.raw_html_product)} chars, confidence = {result.confidence:.2f}")
 
         # Check confidence threshold
         if result.confidence < 0.3:
             logger.warning(
-                f"⚠️  Scraping confidence too low ({result.confidence:.2f}), "
+                f"⚠️  SCRAPER FAILED: Scraping confidence too low ({result.confidence:.2f}), "
                 f"will fallback to Claude web_fetch"
             )
             if result.error_message:
                 logger.warning(f"   Error: {result.error_message}")
             return None
 
-        logger.info(f"✅ Successfully scraped product (confidence: {result.confidence:.2f})")
+        logger.info(f"✅ SCRAPER SUCCESS: Scraped {len(result.raw_html_product)} chars with confidence {result.confidence:.2f}")
         return result

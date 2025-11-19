@@ -39,29 +39,35 @@ class ClaudeQueryService:
         system_prompt = self._build_extraction_prompt()
         user_message = self._build_html_message(scraped_html)
 
-        logger.info("📊 Calling Claude Query endpoint to extract product data from HTML")
-        logger.info(f"   HTML size: {len(scraped_html.raw_html_product) / 1024:.1f}KB")
+        logger.info("📊 CLAUDE QUERY START: Calling Claude to extract product data from HTML")
+        logger.info(f"   Original HTML size: {len(scraped_html.raw_html_product) / 1024:.1f}KB")
+        logger.info(f"   Message size after processing: {len(user_message) / 1024:.1f}KB")
 
         # Call Claude - NO TOOLS, just extraction
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=1024,  # Small - just need structured output
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
-            # NO TOOLS - pure extraction
-        )
+        try:
+            logger.info("📊 CLAUDE QUERY API CALL: Sending request to Anthropic...")
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=1024,  # Small - just need structured output
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+                # NO TOOLS - pure extraction
+            )
+            logger.info("📊 CLAUDE QUERY API SUCCESS: Received response from Anthropic")
 
-        # Log usage
-        logger.info(f"Claude Query usage: {response.usage}")
-        logger.info(f"   Input tokens: {response.usage.input_tokens}")
-        logger.info(f"   Output tokens: {response.usage.output_tokens}")
+            # Log usage
+            logger.info(f"📊 CLAUDE QUERY TOKENS: Input={response.usage.input_tokens}, Output={response.usage.output_tokens}")
 
-        # Parse JSON response
-        extracted_data = self._parse_json_response(response)
+            # Parse JSON response
+            extracted_data = self._parse_json_response(response)
 
-        logger.info(f"✅ Extracted product: {extracted_data.get('product_name', 'Unknown')}")
-        logger.info(f"   Ingredients: {len(extracted_data.get('ingredients', []))}")
-        logger.info(f"   Materials: {len(extracted_data.get('materials', []))}")
+            logger.info(f"✅ CLAUDE QUERY COMPLETE: Extracted product '{extracted_data.get('product_name', 'Unknown')}'")
+            logger.info(f"   Ingredients: {len(extracted_data.get('ingredients', []))}")
+            logger.info(f"   Materials: {len(extracted_data.get('materials', []))}")
+
+        except Exception as e:
+            logger.error(f"❌ CLAUDE QUERY FAILED: {type(e).__name__}: {str(e)}")
+            raise
 
         return extracted_data
 
@@ -203,25 +209,39 @@ Return ONLY a JSON object (no explanation text) with this structure:
 
     def _build_html_message(self, scraped: ScrapedProduct) -> str:
         """Build user message with HTML."""
+        # Limit HTML size to prevent 400 errors (max ~100KB or 25k tokens)
+        max_chars = 100000  # 100KB limit
+        html_content = scraped.raw_html_product
+        if len(html_content) > max_chars:
+            logger.warning(f"⚠️  HTML too large ({len(html_content)} chars), truncating to {max_chars} chars")
+            html_content = html_content[:max_chars] + "\n\n[... HTML truncated due to size ...]"
+
         return f"""Extract product information from this HTML:
 
 URL: {scraped.url}
 Retailer: {scraped.retailer}
 
 HTML Content:
-{scraped.raw_html_product}
+{html_content}
 
 Return the structured JSON object."""
 
     def _build_reviews_message(self, scraped: ScrapedProduct) -> str:
         """Build user message with reviews HTML."""
+        # Limit reviews HTML size to prevent 400 errors
+        max_chars = 150000  # 150KB limit (reviews need more space)
+        reviews_content = scraped.raw_html_reviews
+        if len(reviews_content) > max_chars:
+            logger.warning(f"⚠️  Reviews HTML too large ({len(reviews_content)} chars), truncating to {max_chars} chars")
+            reviews_content = reviews_content[:max_chars] + "\n\n[... Reviews truncated due to size ...]"
+
         return f"""Extract consumer insights from these product reviews and Q&A:
 
 URL: {scraped.url}
 Retailer: {scraped.retailer}
 
 Reviews & Q&A HTML Content:
-{scraped.raw_html_reviews}
+{reviews_content}
 
 Return the structured JSON object with consumer insights."""
 
