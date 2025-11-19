@@ -1,6 +1,11 @@
 <script lang="ts">
-  import type { AnalysisResponse } from '@/types';
-  import { getHarmScore, getRiskLevel, getRiskClass, formatTimeAgo } from '@/lib/utils';
+  import type { AnalysisResponse } from "@/types";
+  import {
+    getHarmScore,
+    getRiskLevel,
+    getRiskClass,
+    formatTimeAgo,
+  } from "@/lib/utils";
 
   export let analysis: AnalysisResponse | null = null;
   export let loading: boolean = false;
@@ -8,7 +13,9 @@
   export let onClose: () => void;
 
   $: productAnalysis = analysis?.analysis;
-  $: harmScore = productAnalysis ? getHarmScore(productAnalysis.overall_score) : 0;
+  $: harmScore = productAnalysis
+    ? getHarmScore(productAnalysis.overall_score)
+    : 0;
   $: riskLevel = getRiskLevel(harmScore);
   $: riskClass = getRiskClass(riskLevel);
 
@@ -19,10 +26,10 @@
 
   // Get color based on risk level (ruh brand guidelines)
   function getScoreColor(score: number): string {
-    if (score <= 30) return '#9BB88F'; // Safe Green
-    if (score <= 60) return '#D4A574'; // Caution Amber
-    if (score <= 80) return '#C18A72'; // Alert Rust (moderate)
-    return '#C18A72'; // Alert Rust (high)
+    if (score <= 30) return "#9BB88F"; // Safe Green
+    if (score <= 60) return "#D4A574"; // Caution Amber
+    if (score <= 80) return "#C18A72"; // Alert Rust (moderate)
+    return "#C18A72"; // Alert Rust (high)
   }
 
   $: scoreColor = getScoreColor(harmScore);
@@ -32,7 +39,7 @@
   <!-- Header -->
   <div class="header">
     <div class="flex items-center justify-between">
-      <h1 class="brand-title">ruh</h1>
+      <img src="/ruh_logo_transparent.png" alt="ruh" class="brand-logo" />
       <button onclick={onClose} class="close-btn" aria-label="Close sidebar">
         ✕
       </button>
@@ -59,8 +66,12 @@
     {:else if productAnalysis}
       <!-- Product Info -->
       <div class="section">
-        <h2 class="section-title">{productAnalysis.product_name}</h2>
-        <p class="text-sm text-gray-600">{productAnalysis.brand}</p>
+        <h2 class="section-title">
+          {productAnalysis.product_name || "Product Analysis"}
+        </h2>
+        {#if productAnalysis.brand}
+          <p class="text-sm text-gray-600">{productAnalysis.brand}</p>
+        {/if}
         {#if productAnalysis.analyzed_at}
           <p class="text-xs text-gray-400 mt-1">
             Analyzed {formatTimeAgo(productAnalysis.analyzed_at)}
@@ -106,10 +117,72 @@
           <div class="ml-6">
             <h3 class="text-lg font-semibold text-gray-800">{riskLevel}</h3>
             <p class="text-sm text-gray-600">Harm Level</p>
-            <p class="text-xs text-gray-500 mt-1">
-              Confidence: {Math.round(productAnalysis.confidence * 100)}%
-            </p>
+            <div class="mt-2 flex items-center">
+              <span class="text-base font-semibold text-gray-700"
+                >{Math.round(productAnalysis.confidence * 100)}%</span
+              >
+              <span class="text-xs text-gray-500 ml-1">confidence</span>
+            </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Analysis Details / Proof of Checks -->
+      <div class="section">
+        <h3 class="section-subtitle">🔍 Analysis Complete</h3>
+        <div class="space-y-3">
+          <div class="analysis-detail-item">
+            <div class="flex items-center">
+              <span class="text-2xl mr-3">📋</span>
+              <div>
+                <p class="font-medium text-gray-800">Ingredients Analyzed</p>
+                <p class="text-sm text-gray-600">
+                  {productAnalysis.ingredients.length > 0
+                    ? `${productAnalysis.ingredients.length} ingredients checked`
+                    : "Product composition reviewed"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="analysis-detail-item">
+            <div class="flex items-center">
+              <span class="text-2xl mr-3">🧪</span>
+              <div>
+                <p class="font-medium text-gray-800">Database Screening</p>
+                <p class="text-sm text-gray-600">
+                  Checked against allergen and PFAS compound databases
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="analysis-detail-item">
+            <div class="flex items-center">
+              <span class="text-2xl mr-3">✅</span>
+              <div>
+                <p class="font-medium text-gray-800">Confidence Level</p>
+                <p class="text-sm text-gray-600">
+                  {Math.round(productAnalysis.confidence * 100)}% - Based on
+                  available data and sources
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {#if productAnalysis.allergens_detected.length === 0 && productAnalysis.pfas_detected.length === 0 && productAnalysis.other_concerns.length === 0}
+            <div
+              class="text-center py-4 bg-green-50 rounded-lg border border-green-200"
+            >
+              <span class="text-4xl">✨</span>
+              <p class="text-sm font-semibold text-green-700 mt-2">
+                No Major Concerns Detected
+              </p>
+              <p class="text-xs text-green-600 mt-1">
+                This product appears safe based on our analysis
+              </p>
+            </div>
+          {/if}
         </div>
       </div>
 
@@ -144,7 +217,9 @@
               <div class="item-card">
                 <p class="font-medium text-gray-800">{pfas.name}</p>
                 {#if pfas.cas_number}
-                  <p class="text-xs text-gray-500 mt-1">CAS: {pfas.cas_number}</p>
+                  <p class="text-xs text-gray-500 mt-1">
+                    CAS: {pfas.cas_number}
+                  </p>
                 {/if}
                 <p class="text-sm text-gray-600 mt-2">{pfas.body_effects}</p>
                 <p class="text-xs text-gray-500 mt-2">Source: {pfas.source}</p>
@@ -164,8 +239,12 @@
                 <div class="flex items-start justify-between">
                   <div class="flex-1">
                     <p class="font-medium text-gray-800">{concern.name}</p>
-                    <p class="text-sm text-gray-600 mt-1">{concern.description}</p>
-                    <p class="text-xs text-gray-500 mt-1">Category: {concern.category}</p>
+                    <p class="text-sm text-gray-600 mt-1">
+                      {concern.description}
+                    </p>
+                    <p class="text-xs text-gray-500 mt-1">
+                      Category: {concern.category}
+                    </p>
                   </div>
                   <span class="severity-badge severity-{concern.severity}">
                     {concern.severity}
@@ -182,7 +261,9 @@
         <div class="section">
           <div class="text-center py-8">
             <span class="text-6xl">✅</span>
-            <h3 class="text-lg font-semibold text-green-600 mt-4">No Major Concerns Found</h3>
+            <h3 class="text-lg font-semibold text-green-600 mt-4">
+              No Major Concerns Found
+            </h3>
             <p class="text-sm text-gray-600 mt-2">
               This product appears to be safe based on available information.
             </p>
@@ -194,16 +275,21 @@
       {#if analysis.alternatives && analysis.alternatives.length > 0}
         <div class="section">
           <h3 class="section-subtitle">🔄 Safer Alternatives</h3>
-          <p class="text-sm text-gray-600 mb-3">Based on your analysis, here are safer options:</p>
+          <p class="text-sm text-gray-600 mb-3">
+            Based on your analysis, here are safer options:
+          </p>
           <!-- Will implement in Phase 4 -->
         </div>
       {/if}
     {:else}
       <div class="empty">
         <span class="text-6xl">🛡️</span>
-        <h3 class="text-lg font-semibold text-gray-700 mt-4">Product Safety Analysis</h3>
+        <h3 class="text-lg font-semibold text-gray-700 mt-4">
+          Product Safety Analysis
+        </h3>
         <p class="text-sm text-gray-600 mt-2">
-          Navigate to an Amazon product page to analyze it for harmful substances.
+          Navigate to an Amazon product page to analyze it for harmful
+          substances.
         </p>
       </div>
     {/if}
@@ -211,26 +297,31 @@
 </div>
 
 <style lang="postcss">
-  @import url('https://fonts.googleapis.com/css2?family=Cormorant:wght@500;600&family=Inter:wght@400;500;600&display=swap');
+  @import url("https://fonts.googleapis.com/css2?family=Cormorant:wght@500;600&family=Inter:wght@400;500;600&display=swap");
 
   /* CSS Custom Properties - ruh Brand Variables */
   :root {
-    --color-primary: #E8DCC8;        /* Soft Sand */
-    --color-secondary: #A8B89F;      /* Sage Green */
-    --color-accent: #C9B5A0;         /* Warm Taupe */
-    --color-bg-primary: #FFFBF5;     /* Cream */
-    --color-bg-secondary: #F5F0E8;   /* Pale Linen */
-    --color-safe: #9BB88F;           /* Safe Green */
-    --color-caution: #D4A574;        /* Caution Amber */
-    --color-alert: #C18A72;          /* Alert Rust */
-    --color-text: #3A3633;           /* Deep Charcoal */
-    --color-text-secondary: #6B6560; /* Medium Gray */
+    --color-primary: #e8dcc8; /* Soft Sand */
+    --color-secondary: #a8b89f; /* Sage Green */
+    --color-accent: #c9b5a0; /* Warm Taupe */
+    --color-bg-primary: #fffbf5; /* Cream */
+    --color-bg-secondary: #f5f0e8; /* Pale Linen */
+    --color-safe: #9bb88f; /* Safe Green */
+    --color-caution: #d4a574; /* Caution Amber */
+    --color-alert: #c18a72; /* Alert Rust */
+    --color-text: #3a3633; /* Deep Charcoal */
+    --color-text-secondary: #6b6560; /* Medium Gray */
   }
 
   .sidebar {
     @apply fixed top-0 right-0 h-full w-[400px] shadow-2xl z-[999999] flex flex-col;
     background: var(--color-bg-primary); /* Cream */
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family:
+      "Inter",
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
   }
 
   .header {
@@ -239,13 +330,10 @@
     border-bottom: 1px solid var(--color-bg-secondary); /* Subtle separator */
   }
 
-  .brand-title {
-    font-family: 'Cormorant', serif;
-    font-weight: 600;
-    font-size: 44px;
-    color: var(--color-accent); /* Warm Taupe */
-    letter-spacing: 0.075em; /* +75 tracking */
-    text-transform: lowercase;
+  .brand-logo {
+    height: 96px;
+    width: auto;
+    object-fit: contain;
   }
 
   .close-btn {
@@ -263,14 +351,14 @@
   }
 
   .section-title {
-    font-family: 'Inter', sans-serif;
+    font-family: "Inter", sans-serif;
     font-weight: 600;
     font-size: 18px;
     color: var(--color-text);
   }
 
   .section-subtitle {
-    font-family: 'Inter', sans-serif;
+    font-family: "Inter", sans-serif;
     font-weight: 600;
     font-size: 16px;
     color: var(--color-text);
@@ -314,7 +402,7 @@
   }
 
   .score-number {
-    font-family: 'Inter', sans-serif;
+    font-family: "Inter", sans-serif;
     font-weight: 600;
     font-size: 32px;
     color: var(--color-text);
@@ -322,7 +410,7 @@
   }
 
   .score-label {
-    font-family: 'Inter', sans-serif;
+    font-family: "Inter", sans-serif;
     font-size: 12px;
     color: var(--color-text-secondary);
     margin-top: 4px;
@@ -337,10 +425,17 @@
     margin-bottom: 8px;
   }
 
+  .analysis-detail-item {
+    padding: 12px;
+    border-radius: 8px;
+    background: white;
+    border: 1px solid rgba(168, 184, 159, 0.1);
+  }
+
   .severity-badge {
     padding: 4px 12px;
     border-radius: 9999px;
-    font-family: 'Inter', sans-serif;
+    font-family: "Inter", sans-serif;
     font-size: 12px;
     font-weight: 500;
     text-transform: uppercase;
@@ -349,22 +444,22 @@
 
   .severity-low {
     background: var(--color-safe);
-    color: #2D4A2A;
+    color: #2d4a2a;
   }
 
   .severity-moderate {
     background: var(--color-caution);
-    color: #6B4E2A;
+    color: #6b4e2a;
   }
 
   .severity-high {
     background: var(--color-alert);
-    color: #5C3A2D;
+    color: #5c3a2d;
   }
 
   .severity-severe {
     background: var(--color-alert);
-    color: #5C3A2D;
+    color: #5c3a2d;
   }
 
   .loading,
@@ -385,14 +480,16 @@
   }
 
   @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .retry-btn {
     margin-top: 16px;
     padding: 12px 24px;
     border-radius: 8px;
-    font-family: 'Inter', sans-serif;
+    font-family: "Inter", sans-serif;
     font-weight: 500;
     font-size: 15px;
     background: var(--color-primary); /* Soft Sand */
