@@ -129,21 +129,51 @@
 
       <!-- Analysis Details / Proof of Checks -->
       <div class="section">
-        <h3 class="section-subtitle">🔍 Analysis Complete</h3>
+        <h3 class="section-subtitle">
+          {productAnalysis.ingredients.length > 0 ? '🔍 Analysis Complete' : '⚠️ Analysis Inconclusive'}
+        </h3>
         <div class="space-y-3">
-          <div class="analysis-detail-item">
-            <div class="flex items-center">
-              <span class="text-2xl mr-3">📋</span>
+          <!-- Ingredients Display -->
+          {#if productAnalysis.ingredients.length > 0}
+            <div class="analysis-detail-item">
               <div>
-                <p class="font-medium text-gray-800">Ingredients Analyzed</p>
-                <p class="text-sm text-gray-600">
-                  {productAnalysis.ingredients.length > 0
-                    ? `${productAnalysis.ingredients.length} ingredients checked`
-                    : "Product composition reviewed"}
-                </p>
+                <p class="font-medium text-gray-800 mb-3">Ingredients Analyzed ({productAnalysis.ingredients.length})</p>
+                <div class="ingredient-grid">
+                  {#each productAnalysis.ingredients as ingredient}
+                    {@const isAllergen = productAnalysis.allergens_detected.some(a =>
+                      ingredient.toLowerCase().includes(a.name.toLowerCase()) ||
+                      a.name.toLowerCase().includes(ingredient.toLowerCase())
+                    )}
+                    {@const isPFAS = productAnalysis.pfas_detected.some(p =>
+                      ingredient.toLowerCase().includes(p.name.toLowerCase()) ||
+                      p.name.toLowerCase().includes(ingredient.toLowerCase())
+                    )}
+                    {@const isToxic = productAnalysis.other_concerns.some(c =>
+                      ingredient.toLowerCase().includes(c.name.toLowerCase()) ||
+                      c.name.toLowerCase().includes(ingredient.toLowerCase())
+                    )}
+                    {@const isSafe = !isAllergen && !isPFAS && !isToxic &&
+                      productAnalysis.allergens_detected.length === 0 &&
+                      productAnalysis.pfas_detected.length === 0 &&
+                      productAnalysis.other_concerns.length === 0}
+                    <span class="ingredient-badge {isAllergen || isPFAS || isToxic ? (isAllergen ? 'badge-allergen' : 'badge-pfas') : (isSafe ? 'badge-safe' : 'badge-unknown')}">
+                      {ingredient}
+                    </span>
+                  {/each}
+                </div>
               </div>
             </div>
-          </div>
+          {:else}
+            <div class="analysis-detail-item">
+              <div class="flex items-center">
+                <span class="text-2xl mr-3">📋</span>
+                <div>
+                  <p class="font-medium text-gray-800">Ingredients Analyzed</p>
+                  <p class="text-sm text-gray-600">No Ingredients Found</p>
+                </div>
+              </div>
+            </div>
+          {/if}
 
           <div class="analysis-detail-item">
             <div class="flex items-center">
@@ -159,13 +189,22 @@
 
           <div class="analysis-detail-item">
             <div class="flex items-center">
-              <span class="text-2xl mr-3">✅</span>
+              <span class="text-2xl mr-3">{productAnalysis.confidence < 0.3 ? '🚨' : '✅'}</span>
               <div>
                 <p class="font-medium text-gray-800">Confidence Level</p>
-                <p class="text-sm text-gray-600">
-                  {Math.round(productAnalysis.confidence * 100)}% - Based on
-                  available data and sources
-                </p>
+                {#if productAnalysis.confidence < 0.3}
+                  <p class="text-sm text-amber-600 font-semibold">
+                    {Math.round(productAnalysis.confidence * 100)}% - Low Confidence
+                  </p>
+                  <p class="text-xs text-gray-600 mt-1">
+                    Limited ingredient data available. Analysis based on database screening only. Results may be incomplete.
+                  </p>
+                {:else}
+                  <p class="text-sm text-gray-600">
+                    {Math.round(productAnalysis.confidence * 100)}% - Based on
+                    available data and sources
+                  </p>
+                {/if}
               </div>
             </div>
           </div>
@@ -252,21 +291,6 @@
                 </div>
               </div>
             {/each}
-          </div>
-        </div>
-      {/if}
-
-      <!-- No Issues Found -->
-      {#if productAnalysis.allergens_detected.length === 0 && productAnalysis.pfas_detected.length === 0 && productAnalysis.other_concerns.length === 0}
-        <div class="section">
-          <div class="text-center py-8">
-            <span class="text-6xl">✅</span>
-            <h3 class="text-lg font-semibold text-green-600 mt-4">
-              No Major Concerns Found
-            </h3>
-            <p class="text-sm text-gray-600 mt-2">
-              This product appears to be safe based on available information.
-            </p>
           </div>
         </div>
       {/if}
@@ -497,6 +521,49 @@
     transition: all 150ms ease-in-out;
     border: none;
     cursor: pointer;
+  }
+
+  /* Ingredient Badge Styles */
+  .ingredient-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .ingredient-badge {
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-family: "Inter", sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
+    word-wrap: break-word;
+    border: 1px solid transparent;
+  }
+
+  .badge-allergen {
+    background: #fee2e2; /* Pastel red */
+    color: #991b1b;
+    border-color: #fca5a5;
+  }
+
+  .badge-pfas {
+    background: #fef3c7; /* Pastel yellow */
+    color: #92400e;
+    border-color: #fcd34d;
+  }
+
+  .badge-safe {
+    background: #d1fae5; /* Pastel green */
+    color: #065f46;
+    border-color: #6ee7b7;
+  }
+
+  .badge-unknown {
+    background: #f3f4f6; /* Grey */
+    color: #6b7280;
+    border-color: #d1d5db;
   }
 
   .retry-btn:hover {
