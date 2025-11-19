@@ -77,13 +77,13 @@ async def analyze_product(
                 product_url=cached_analysis['product_url'],
                 product_name=cached_analysis['product_name'],
                 brand=cached_analysis['brand'],
-                retailer=cached_analysis.get('category', 'Unknown'),  # Using category as retailer for now
-                ingredients=cached_analysis.get('raw_analysis', {}).get('ingredients', []),
-                overall_score=100 - cached_analysis['harm_score'],
-                allergens_detected=cached_analysis.get('allergens', []),
-                pfas_detected=cached_analysis.get('pfas_compounds', []),
+                retailer=cached_analysis.get('retailer', cached_analysis.get('category', 'Unknown')),
+                ingredients=cached_analysis.get('ingredients', []),
+                overall_score=cached_analysis.get('overall_score', 100 - cached_analysis.get('harm_score', 0)),
+                allergens_detected=cached_analysis.get('allergens_detected', []),
+                pfas_detected=cached_analysis.get('pfas_detected', []),
                 other_concerns=cached_analysis.get('other_concerns', []),
-                confidence=cached_analysis.get('raw_analysis', {}).get('confidence', 0.8),
+                confidence=cached_analysis.get('confidence', 80) / 100.0,  # Convert integer 0-100 to float 0.0-1.0
                 analyzed_at=analyzed_at,
             )
 
@@ -184,18 +184,18 @@ async def analyze_product(
         if db.is_available:
             try:
                 logger.info(f"💾 Storing analysis in Supabase for: {analysis.product_name}")
+                # Format data to match what database.py expects
                 analysis_response = {
                     "analysis": {
                         "product_name": analysis.product_name,
                         "brand": analysis.brand,
                         "category": analysis.retailer,
+                        "retailer": analysis.retailer,
                         "overall_score": analysis.overall_score,
-                        "summary": analysis_data.get("summary", ""),
                         "ingredients": analysis.ingredients,
-                        "allergens": analysis.allergens_detected,
-                        "pfas_compounds": analysis.pfas_detected,
+                        "allergens": analysis.allergens_detected,  # database.py maps this to allergens_detected
+                        "pfas_compounds": analysis.pfas_detected,  # database.py maps this to pfas_detected
                         "other_concerns": analysis.other_concerns,
-                        "safer_alternatives": "",  # TODO: Implement alternatives
                         "confidence": analysis.confidence,
                     }
                 }
