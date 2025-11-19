@@ -138,32 +138,58 @@ class DatabaseService:
             # Calculate harm score (inverse of safety score)
             harm_score = 100 - analysis.get('overall_score', 0)
 
-            # Prepare data for insertion
+            # Prepare data for insertion - match actual schema columns
+            ingredients = analysis.get('ingredients', [])
+            # Ensure ingredients is a list of strings for PostgreSQL TEXT[] type
+            if not isinstance(ingredients, list):
+                ingredients = []
+
+            # Get allergens and PFAS - ensure they're lists
+            allergens = analysis.get('allergens', analysis.get('allergens_detected', []))
+            if not isinstance(allergens, list):
+                allergens = []
+
+            pfas = analysis.get('pfas_compounds', analysis.get('pfas_detected', []))
+            if not isinstance(pfas, list):
+                pfas = []
+
+            other_concerns = analysis.get('other_concerns', [])
+            if not isinstance(other_concerns, list):
+                other_concerns = []
+
             db_data = {
                 'product_url_hash': url_hash,
                 'product_url': product_url,
                 'product_name': analysis.get('product_name', ''),
                 'brand': analysis.get('brand', ''),
                 'category': analysis.get('category', ''),
+                'retailer': analysis.get('retailer', ''),
+                'ingredients': ingredients,  # PostgreSQL TEXT[] array
                 'harm_score': harm_score,
-                'overall_safety_summary': analysis.get('summary', ''),
-                'allergens': analysis.get('allergens', []),
-                'pfas_compounds': analysis.get('pfas_compounds', []),
-                'other_concerns': analysis.get('other_concerns', []),
-                'alternatives_summary': analysis.get('safer_alternatives', ''),
-                'raw_analysis': analysis_data,
+                'overall_score': analysis.get('overall_score', 0),
+                'allergens_detected': allergens,  # JSONB - maps to allergens_detected column
+                'pfas_detected': pfas,  # JSONB - maps to pfas_detected column
+                'other_concerns': other_concerns,  # JSONB
+                'confidence': int(analysis.get('confidence', 0.8) * 100),  # INTEGER 0-100
                 'analyzed_at': datetime.utcnow().isoformat()
             }
+
+            logger.info(f"About to store analysis with keys: {list(db_data.keys())}")
 
             # Upsert (insert or update if exists)
             response = self.client.table('product_analyses')\
                 .upsert(db_data, on_conflict='product_url_hash')\
                 .execute()
 
-            logger.info(f"Stored analysis for: {analysis.get('product_name', 'Unknown')}")
+            logger.info(f"✅ Stored analysis for: {analysis.get('product_name', 'Unknown')}")
             return True
         except Exception as e:
-            logger.error(f"Failed to store analysis: {e}")
+            logger.error(f"❌ Failed to store analysis: {e}")
+            try:
+                logger.error(f"Keys being sent: {list(db_data.keys())}")
+                logger.error(f"Sample data - product_name: {db_data.get('product_name')}, allergens: {len(db_data.get('allergens_detected', []))} items")
+            except:
+                logger.error("Could not log db_data details")
             return False
 
     async def log_search(self, user_id: UUID, product_url: str) -> bool:
