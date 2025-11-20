@@ -164,28 +164,29 @@ def validate_and_filter_substances(
 @router.post("/analyze", response_model=AnalysisResponse)
 @limiter.limit("30/minute")  # 30 requests per minute per IP - generous for normal browsing
 async def analyze_product(
-    request: AnalysisRequest,
-    http_request: Request,
+    request: Request,
+    analysis_request: AnalysisRequest,
     api_key: str = Depends(verify_api_key)
 ):
     """Analyze a product for harmful substances.
 
     Args:
-        request: Analysis request with product URL
+        request: HTTP request (required by slowapi for rate limiting)
+        analysis_request: Analysis request with product URL
         api_key: Verified API key from Authorization header
 
     Returns:
         Analysis response with harm score and details
     """
     try:
-        logger.info(f"Analyzing product: {request.product_url}")
+        logger.info(f"Analyzing product: {analysis_request.product_url}")
 
         # Step 1: Generate URL hash for caching
-        url_hash = db.generate_url_hash(request.product_url)
+        url_hash = db.generate_url_hash(analysis_request.product_url)
 
         # Step 2: Check cache (unless force_refresh is requested)
         cached_analysis = None
-        if not request.force_refresh and db.is_available:
+        if not analysis_request.force_refresh and db.is_available:
             cached_analysis = await db.get_cached_analysis(url_hash)
 
         # Step 3: If cached, return immediately
@@ -214,7 +215,7 @@ async def analyze_product(
             # Log search
             if db.is_available:
                 user_id = await db.get_or_create_anonymous_user()
-                await db.log_search(user_id, request.product_url)
+                await db.log_search(user_id, analysis_request.product_url)
 
             return AnalysisResponse(
                 analysis=analysis,
@@ -229,7 +230,7 @@ async def analyze_product(
 
         # Step 4a: Try scraping HTML first
         logger.info("🕷️  Attempting to scrape product page")
-        scraped_html = await scraper_service.try_scrape(request.product_url)
+        scraped_html = await scraper_service.try_scrape(analysis_request.product_url)
 
         # Step 4b: Load knowledge bases from Supabase (with graceful fallback)
         allergen_db = []
@@ -264,7 +265,7 @@ async def analyze_product(
                 # Fallback to old method
                 try:
                     analysis_data = await agent.analyze_product(
-                        product_url=request.product_url,
+                        product_url=analysis_request.product_url,
                         allergen_profile=request.allergen_profile,
                         allergen_database=allergen_db,
                         pfas_database=pfas_db,
@@ -292,7 +293,7 @@ async def analyze_product(
                 try:
                     analysis_data = await agent.analyze_extracted_product(
                         product_data=product_data,
-                        product_url=request.product_url,
+                        product_url=analysis_request.product_url,
                         allergen_profile=request.allergen_profile,
                         allergen_database=allergen_db,
                         pfas_database=pfas_db,
@@ -339,7 +340,7 @@ async def analyze_product(
             logger.info("🔄 Scraping not available - using Claude web_fetch fallback")
             try:
                 analysis_data = await agent.analyze_product(
-                    product_url=request.product_url,
+                    product_url=analysis_request.product_url,
                     allergen_profile=request.allergen_profile,
                     allergen_database=allergen_db,
                     pfas_database=pfas_db,
@@ -358,7 +359,7 @@ async def analyze_product(
             analysis_data=analysis_data,
             allergen_database=allergen_db,
             pfas_database=pfas_db,
-            product_url=request.product_url,
+            product_url=analysis_request.product_url,
             product_name=analysis_data.get("product_name", "Unknown")
         )
 
@@ -367,7 +368,7 @@ async def analyze_product(
 
         # Build ProductAnalysis model
         analysis = ProductAnalysis(
-            product_url=request.product_url,
+            product_url=analysis_request.product_url,
             product_name=analysis_data.get("product_name"),
             brand=analysis_data.get("brand"),
             retailer=analysis_data.get("retailer"),
@@ -399,7 +400,7 @@ async def analyze_product(
                         "confidence": analysis.confidence,
                     }
                 }
-                store_success = await db.store_analysis(url_hash, request.product_url, analysis_response)
+                store_success = await db.store_analysis(url_hash, analysis_request.product_url, analysis_response)
                 if store_success:
                     logger.info(f"✅ Successfully stored analysis in Supabase (hash: {url_hash[:16]}...)")
                 else:
@@ -414,7 +415,7 @@ async def analyze_product(
             try:
                 user_id = await db.get_or_create_anonymous_user()
                 logger.debug(f"Logging search for user: {user_id}")
-                log_success = await db.log_search(user_id, request.product_url)
+                log_success = await db.log_search(user_id, analysis_request.product_url)
                 if log_success:
                     logger.info(f"✅ Successfully logged search for user {user_id}")
                 else:
