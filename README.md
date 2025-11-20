@@ -1,6 +1,8 @@
-# Eject
+# Ruh
 
-> AI-powered product safety intelligence for conscious consumers
+pronounced [ˈɹu] - rooh
+
+> AI-powered product safety analysis for conscious consumers - detect harmful substances and find safer alternatives. 
 
 **Eject** is a Chrome extension that analyzes products for harmful substances (allergens, PFAS, and other chemicals) and recommends safer alternatives - all powered by a Claude AI agent.
 
