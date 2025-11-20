@@ -1,14 +1,14 @@
-# Eject - AI Product Safety Analyzer
+# Ruh - AI Product Safety Analyzer
 
 ## SOURCE OF TRUTH - Complete System Documentation
 
-This document provides comprehensive documentation for the entire Eject codebase, including all function-level flows, file relationships, and architectural decisions.
+This document provides comprehensive documentation for the entire Ruh codebase, including all function-level flows, file relationships, and architectural decisions.
 
 ---
 
 ## Project Overview
 
-**Eject** is an AI-powered Chrome extension that analyzes product safety by detecting allergens, PFAS compounds, and other harmful substances in consumer products. The system consists of two main components:
+**Ruh** is an AI-powered Chrome extension that analyzes product safety by detecting allergens, PFAS compounds, and other harmful substances in consumer products. The system consists of two main components:
 
 1. **Backend**: Python FastAPI server using Claude AI Agent SDK for product analysis
 2. **Extension**: Svelte 5 Chrome extension (Manifest V3) for user interface

@@ -1,6 +1,6 @@
 /* Content script styles */
 
-#eject-trigger-button {
+#ruh-trigger-button {
   animation: fadeIn 0.3s ease-in;
 }
 
@@ -15,7 +15,7 @@
   }
 }
 
-#eject-sidebar-iframe {
+#ruh-sidebar-iframe {
   animation: slideInRight 0.3s ease-out;
 }
 

@@ -1,5 +1,5 @@
 [project]
-name = "eject-backend"
+name = "ruh-backend"
 version = "0.1.0"
 description = "AI-powered product safety analysis backend"
 requires-python = ">=3.13"

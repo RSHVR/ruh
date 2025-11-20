@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Eject",
+  "name": "Ruh",
   "version": "0.1.0",
   "description": "AI-powered product safety analysis - detect harmful substances and find safer alternatives",
   "permissions": [
@@ -35,6 +35,6 @@
     }
   ],
   "action": {
-    "default_title": "Eject - Product Safety"
+    "default_title": "Ruh - Product Safety"
   }
 }
