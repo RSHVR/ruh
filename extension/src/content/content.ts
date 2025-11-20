@@ -391,6 +391,10 @@ function openSidebar() {
         '*'
       );
     }, 100);
+  } else {
+    // state.status === 'idle' - trigger new analysis
+    // Will hit backend cache if recently analyzed
+    startAnalysis();
   }
 }
 
