@@ -1,5 +1,5 @@
 {
-  "name": "eject-extension",
+  "name": "ruh-extension",
   "version": "0.1.0",
   "description": "AI-powered product safety analysis Chrome extension",
   "type": "module",

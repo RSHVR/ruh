@@ -1,7 +1,7 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import type { AnalysisResponse, CachedAnalysis } from '@/types';
 
-const DB_NAME = 'eject-cache';
+const DB_NAME = 'ruh-cache';
 const STORE_NAME = 'analyses';
 const DB_VERSION = 1;
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds

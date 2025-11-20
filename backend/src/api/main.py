@@ -20,15 +20,15 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
-    logger.info("Starting Eject API...")
+    logger.info("Starting Ruh API...")
     logger.info(f"Debug mode: {settings.debug}")
     yield
-    logger.info("Shutting down Eject API...")
+    logger.info("Shutting down Ruh API...")
 
 
 # Create FastAPI app
 app = FastAPI(
-    title="Eject API",
+    title="Ruh API",
     description="AI-powered product safety analysis backend",
     version="0.1.0",
     debug=settings.debug,
@@ -56,7 +56,7 @@ app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 async def root():
     """Root endpoint."""
     return {
-        "name": "Eject API",
+        "name": "Ruh API",
         "version": "0.1.0",
         "status": "running",
         "docs": "/docs",
