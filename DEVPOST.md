@@ -172,27 +172,23 @@ Result: Zero runtime type errors in production.
 
 ## 🎯 What's Next for Ruh
 
-### Short-term (Next 30 days):
+### Medium-term (3-6 months):
 1. **Alternative Product Recommendations** - AI finds safer alternatives with Amazon affiliate links
 2. **User Accounts** - Save personal allergen profiles across devices
 3. **Browser Extension Polish** - Improved animations and error states
-
-### Medium-term (3-6 months):
 4. **Multi-Platform Support** - Expand to Target, Walmart, Whole Foods, iHerb
-5. **Mobile App** - iOS/Android for barcode scanning in physical stores
-6. **Community Validation** - User-submitted ingredient corrections and reviews
+5. **Community Validation** - User-submitted ingredient corrections and reviews
 
 ### Long-term (6-12 months):
-7. **Regulatory Data Integration** - FDA recalls, EPA warnings, EU bans
-8. **Personalized Risk Profiles** - Machine learning on user preferences
-9. **B2B API** - License safety analysis to e-commerce platforms
-10. **International Expansion** - Support for EU, UK, Canadian regulations
+6. **Regulatory Data Integration** - FDA recalls, EPA warnings, EU bans
+7. **Personalized Risk Profiles** - Machine learning on user preferences
+8. **B2B API** - License safety analysis to e-commerce platforms
 
 ## 🏆 Why This Matters
 
 **The Problem:**
-- **17 million Americans** have food allergies
-- **PFAS chemicals** are in **97% of Americans' bloodstreams**
+- **Millions of people** have food allergies
+- **PFAS chemicals** are in **87% of the world population's bloodstreams**
 - **Consumers spend 15+ minutes** researching product safety before purchases
 - **No centralized tool** exists for real-time ingredient analysis
 
@@ -206,7 +202,7 @@ Ruh democratizes product safety analysis—putting laboratory-grade ingredient a
 - Anyone concerned about "forever chemicals"
 
 **Market Opportunity:**
-- 60M+ allergy sufferers in the US
+- 60M+ allergy sufferers in the US and Canada
 - $250B+ US e-commerce market
 - Growing consumer demand for transparency
 - Potential for affiliate revenue on recommended alternatives
@@ -228,7 +224,6 @@ Ruh democratizes product safety analysis—putting laboratory-grade ingredient a
 - **TypeScript 5.3** - Type-safe extension development
 - **Svelte 5** - Reactive UI framework
 - **FastAPI** - High-performance async Python web framework
-- **HTML5/CSS3** - Web standards
 
 ### AI & Machine Learning:
 - **Anthropic Claude Sonnet 4.5** - Latest frontier model
@@ -272,8 +267,7 @@ Ruh democratizes product safety analysis—putting laboratory-grade ingredient a
 
 - **GitHub Repository**: https://github.com/RSHVR/ruh
 - **Live Demo**: [Chrome Extension - Load Unpacked]
-- **API Documentation**: https://ruh-api-nlxvekfjuq-uc.a.run.app/docs
 
 ---
 
-Built with ❤️ by Arshveer Gahir for [Hackathon Name]
+Built with ❤️ by Arshveer Gahir
