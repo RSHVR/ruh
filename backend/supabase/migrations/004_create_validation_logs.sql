@@ -134,7 +134,7 @@ CREATE OR REPLACE FUNCTION get_validation_logs_by_product(
 )
 RETURNS TABLE (
     id UUID,
-    timestamp TIMESTAMPTZ,
+    log_timestamp TIMESTAMPTZ,
     log_type TEXT,
     substance_name TEXT,
     severity TEXT,
