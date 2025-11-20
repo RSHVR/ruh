@@ -2,33 +2,33 @@
 
 pronounced [ˈɹu] - rooh
 
-> AI-powered product safety analysis for conscious consumers - detect harmful substances and find safer alternatives. 
+> AI-powered product safety analysis for conscious consumers - detect harmful substances and make informed choices.
 
-**Eject** is a Chrome extension that analyzes products for harmful substances (allergens, PFAS, and other chemicals) and recommends safer alternatives - all powered by a Claude AI agent.
+**Ruh** is a Chrome extension that analyzes Amazon products for harmful substances (allergens, PFAS, and other chemicals) using Claude AI to help you make safer purchasing decisions.
 
 ## What It Does
 
-1. **Detects Products**: Automatically recognizes when you're viewing a product online
-2. **Analyzes Safety**: Claude agent examines ingredients for allergens, PFAS, and other harmful substances
+1. **Detects Products**: Automatically recognizes when you're viewing an Amazon product
+2. **Analyzes Safety**: Claude AI agent examines ingredients for allergens, PFAS, and other harmful substances
 3. **Scores Harm Level**: Clear visual indicator (0-100) showing how safe/risky the product is
-4. **Recommends Alternatives**: AI finds safer products with lower risk scores
-5. **Monetizes Ethically**: Free for users, earns through affiliate links on recommended alternatives
+4. **Detailed Breakdown**: Lists specific allergens, PFAS compounds, and other concerns detected
+5. **Fast & Cached**: Results are cached for 30 days for instant subsequent views
 
 ## Architecture
 
-- **Chrome Extension**: React + TypeScript frontend with content scripts and popup UI
-- **Backend Agent**: Node.js server using Claude Agent SDK with WebFetch and WebSearch tools
-- **AI Analysis**: Claude 3.5 Sonnet performs ingredient analysis and alternative discovery
-- **Monetization**: Affiliate links on safer alternative products (transparent disclosure)
-
-## Current Status
-
-🚧 **Phase 1 - MVP Development** (See [PLAN.md](./PLAN.md) for full roadmap)
+- **Chrome Extension**: Svelte 5 + TypeScript with content scripts and sidebar UI
+- **Backend API**: FastAPI (Python) server using Claude Agent SDK with web scraping
+- **AI Analysis**: Claude Sonnet 4.5 performs ingredient analysis with web search capabilities
+- **Database**: Supabase (PostgreSQL) for caching analysis results
+- **Deployment**: Google Cloud Run with automatic CI/CD from GitHub
 
 ## Documentation
 
-- **[PLAN.md](./PLAN.md)**: Complete technical architecture, implementation roadmap, and guiding principles
-- More docs coming as we build
+- **[CLAUDE.md](./CLAUDE.md)**: Complete system documentation with function-level flows
+- **[ruh-brand-guide.md](./ruh-brand-guide.md)**: Brand identity and design guidelines
+- **Backend**: FastAPI server with clean architecture ([backend/README.md](./backend/README.md))
+- **Extension**: Svelte 5 Chrome extension ([extension/README.md](./extension/README.md))
+- **Future Plans**: Planned features and improvements ([backend/supabase/FUTURE_IMPROVEMENTS.md](./backend/supabase/FUTURE_IMPROVEMENTS.md))
 
 ## Authors
 
