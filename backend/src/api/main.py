@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from ..infrastructure.config import settings
-from .routes import health, analyze
+from .routes import health, analyze, admin
 
 # Configure logging
 logging.basicConfig(
@@ -49,6 +49,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(analyze.router, prefix="/api", tags=["analysis"])
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 
 @app.get("/")
