@@ -138,22 +138,29 @@ class ProductSafetyAgent:
    - If no product info in message → Use web_fetch to retrieve the product page
 
 2. Use web_search strategically (max 5 searches) to find:
-   a) **PRIORITY 1:** Manufacturer's official website for complete ingredient lists
-      - Search: "[brand] [product name] official ingredients" OR "[brand] official website"
+   a) **PRIORITY 1:** Manufacturer's official website for complete ingredient/material lists when missing from product page
+      - Search: "[brand] [product name] official ingredients" OR "[brand] official MSDS"
+      - ONLY use credible sources: manufacturer.com, official MSDS, .gov sites
 
-   b) **PRIORITY 2:** Consumer reviews and reported health concerns
-      - Search: "[product name] consumer reviews health concerns" OR "[product] skin reaction"
+   b) **PRIORITY 2:** Regulatory actions and safety recalls
+      - Search: "[product] recall FDA warning" OR "[product] safety alert CPSC"
+      - ONLY use: FDA.gov, HealthCanada.gc.ca, CPSC.gov, EPA.gov, EU REACH
 
-   c) **PRIORITY 3:** Safety warnings and regulatory actions
-      - Search: "[product] recall FDA warning" OR "[product] safety alert"
+   c) **PRIORITY 3:** Scientific studies and carcinogen classifications
+      - Search: "[ingredient] IARC classification" OR "[ingredient] EPA toxicity"
+      - ONLY use: PubMed, peer-reviewed journals, IARC, EPA, NIH
 
-   d) **PRIORITY 4:** Scientific studies and PFAS testing (if applicable)
-      - Search: "[ingredient] safety study" OR "[product category] PFAS testing"
+   d) **PRIORITY 4:** Class action lawsuits and documented health impacts
+      - Search: "[product] class action lawsuit [ingredient]" OR "[brand] settlement"
+      - ONLY use: Court records, major news outlets (.gov, .edu, established media)
 
 3. Cross-reference findings with the knowledge base provided below
 4. Return a comprehensive structured JSON analysis
 
-**CRITICAL:** Check if product data is already provided in the user message before calling web_fetch. Do NOT fetch if data is already available.
+**CRITICAL WEBSEARCH RESTRICTIONS:**
+- DO NOT use consumer blogs, forums, or non-scientific health websites
+- DO NOT use marketing materials or unverified product review sites (except for lawsuit discovery)
+- ONLY use credible sources: .gov, .edu, manufacturer official sites, peer-reviewed journals, major news outlets
 
 **Output Format:**
 After fetching and analyzing the product page, return your analysis as a JSON object with this exact structure:
@@ -164,7 +171,7 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
     "ingredients": ["ingredient1", "ingredient2"],
     "allergens_detected": [
         {
-            "name": "allergen name",
+            "name": "allergen name (MUST match knowledge base below)",
             "severity": "low|moderate|high|severe",
             "source": "where found in product",
             "confidence": 0.0-1.0
@@ -172,7 +179,7 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
     ],
     "pfas_detected": [
         {
-            "name": "PFAS compound name (e.g., PTFE, PFOA)",
+            "name": "PFAS compound name (MUST match knowledge base below)",
             "cas_number": "CAS number if known",
             "body_effects": "description of effects on human body",
             "source": "where found (e.g., non-stick coating)",
@@ -181,8 +188,8 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
     ],
     "other_concerns": [
         {
-            "name": "toxin name",
-            "category": "heavy metal|carcinogen|endocrine disruptor|other",
+            "name": "concern name",
+            "category": "under_investigation|carcinogen|regulatory_action|heavy_metal|endocrine_disruptor|other",
             "severity": "low|moderate|high|severe",
             "description": "brief description",
             "confidence": 0.0-1.0
@@ -191,29 +198,64 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
     "confidence": 0.0-1.0
 }
 
+**CRITICAL CLASSIFICATION RULES - READ CAREFULLY:**
+
+1. **ALLERGENS - ONLY substances in the Allergen Knowledge Base below can go in allergens_detected**
+   - If you find an ingredient via websearch that is NOT in the Allergen Knowledge Base → DO NOT add to allergens_detected
+   - Minor irritants (citric acid, fragrance, etc.) are NOT allergens unless listed in the knowledge base
+   - If a substance causes irritation but is not a priority allergen → add to other_concerns with category="under_investigation"
+
+2. **PFAS - ONLY substances in the PFAS Knowledge Base below can go in pfas_detected**
+   - If you find a chemical via websearch that is NOT in the PFAS Knowledge Base → DO NOT add to pfas_detected
+   - Unknown fluorinated compounds → add to other_concerns with category="under_investigation"
+   - Match by CAS number or exact name from the knowledge base
+
+3. **OTHER CONCERNS - Use this for substances not in the knowledge bases**
+   - category="under_investigation": Substances with credible evidence but not in our database (max severity=low)
+   - category="carcinogen": IARC-classified carcinogens (Groups 1, 2A, 2B) with credible source
+   - category="regulatory_action": Substances with FDA recall, EPA warning, or class action lawsuit
+   - category="heavy_metal", "endocrine_disruptor", "other": Other toxins with credible evidence
+
+4. **EVIDENCE REQUIREMENTS for other_concerns:**
+   - MUST have credible source (.gov, .edu, peer-reviewed journal, court record)
+   - MUST NOT include unverified consumer complaints or blog posts
+   - MUST include description with source citation
+
 **PFAS Detection Guidelines:**
-- Non-stick cookware often contains PTFE (Teflon) - this is PFAS
+- Non-stick cookware often contains PTFE (Teflon) - check knowledge base
 - "Water-resistant", "stain-resistant" products may have PFAS coatings
-- Look for PTFE, PFOA, PFOS, GenX in materials or descriptions
+- Match against knowledge base by CAS number or exact name
 - If ingredients aren't fully listed, note lower confidence
 
 **Allergen Detection:**
-- Check ingredient lists carefully
-- Look in product descriptions and specifications
-- Note synonyms (e.g., "fragrance" = "parfum")
+- Check ingredient lists carefully against knowledge base
+- Look for synonyms listed in knowledge base
+- If not in knowledge base → NOT an allergen (may be irritant)
 """
 
-        # Add allergen database info if provided (limit to reduce tokens)
+        # Add FULL allergen database (token-efficient format)
         if allergen_database:
-            prompt += f"\n**Top Allergens ({min(5, len(allergen_database))}):**\n"
-            for allergen in allergen_database[:5]:  # Only top 5 to save tokens
-                prompt += f"- {allergen.get('name')}\n"
+            prompt += f"\n**ALLERGEN KNOWLEDGE BASE ({len(allergen_database)} priority allergens):**\n"
+            prompt += "ONLY these substances can be classified as allergens. If a substance is not on this list, it is NOT an allergen.\n\n"
+            for allergen in allergen_database:
+                name = allergen.get('name', '')
+                synonyms = allergen.get('synonyms', [])
+                if synonyms:
+                    prompt += f"- {name} (synonyms: {', '.join(synonyms[:3])})\n"  # Limit synonyms to 3
+                else:
+                    prompt += f"- {name}\n"
 
-        # Add PFAS database info if provided (limit to reduce tokens)
+        # Add FULL PFAS database (token-efficient format)
         if pfas_database:
-            prompt += f"\n**Top PFAS Compounds ({min(3, len(pfas_database))}):**\n"
-            for pfas in pfas_database[:3]:  # Only top 3 to save tokens
-                prompt += f"- {pfas.get('name')} (CAS: {pfas.get('cas_number', 'N/A')})\n"
+            prompt += f"\n**PFAS KNOWLEDGE BASE ({len(pfas_database)} compounds):**\n"
+            prompt += "ONLY these substances can be classified as PFAS. If a substance is not on this list, it is NOT PFAS.\n\n"
+            for pfas in pfas_database:
+                name = pfas.get('name', '')
+                cas = pfas.get('cas_number', '')
+                if cas:
+                    prompt += f"- {name} (CAS: {cas})\n"
+                else:
+                    prompt += f"- {name}\n"
 
         # Add user allergen profile if provided
         if allergen_profile:
@@ -404,19 +446,25 @@ CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
 **Your Analysis Process:**
 1. Review the provided product details (already extracted from the product page)
 2. Use web_search strategically (max 3 searches) to find:
-   a) **SEARCH 1 (REQUIRED):** Manufacturer's official website for complete ingredient lists
-      - Search: "[brand] [product name] official ingredients" OR "[brand] official website"
+   a) **SEARCH 1 (IF INGREDIENTS/MATERIALS MISSING):** Manufacturer's official website for complete ingredient/material lists
+      - Search: "[brand] [product name] official ingredients" OR "[brand] official MSDS"
+      - ONLY use: manufacturer.com, official MSDS, .gov sites
       - Look for manufacturer's product page, ingredient disclosure, or safety data
 
-   b) **SEARCH 2 (REQUIRED):** Consumer reviews and health concerns
-      - Search: "[product name] [brand] consumer reviews health concerns" OR "[product] skin reaction allergic"
-      - Look for patterns of reported reactions, rashes, allergies, or complaints
+   b) **SEARCH 2:** Regulatory actions and safety recalls
+      - Search: "[product] recall FDA warning" OR "[product] safety alert CPSC"
+      - ONLY use: FDA.gov, HealthCanada.gc.ca, CPSC.gov, EPA.gov, EU REACH
+      - Look for regulatory actions, recalls, safety warnings
 
-   c) **SEARCH 3 (IF NEEDED):** Safety warnings or scientific studies
-      - Search: "[product] recall FDA warning" OR "[ingredient] safety study PFAS"
-      - Look for regulatory actions, recalls, scientific research on ingredients
+   c) **SEARCH 3:** Scientific studies, carcinogen classifications, or class action lawsuits
+      - Search: "[ingredient] IARC classification" OR "[product] class action lawsuit"
+      - ONLY use: PubMed, peer-reviewed journals, IARC, EPA, court records, major news outlets
+      - Look for scientific research, carcinogen status, documented health impacts
 
-**IMPORTANT:** Prioritize manufacturer website and consumer reviews. Only use the third search if critical safety data is missing.
+**CRITICAL WEBSEARCH RESTRICTIONS:**
+- DO NOT use consumer blogs, forums, review sites, or non-scientific health websites
+- DO NOT use marketing materials or unverified sources
+- ONLY use credible sources: .gov, .edu, manufacturer official sites, peer-reviewed journals, court records
 
 **Output Format - YOUR ENTIRE RESPONSE MUST BE THIS JSON OBJECT:**
 {
@@ -426,7 +474,7 @@ CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
     "ingredients": ["complete list from manufacturer website if found, else from product page"],
     "allergens_detected": [
         {
-            "name": "allergen name",
+            "name": "allergen name (MUST match knowledge base below)",
             "severity": "low|moderate|high|severe",
             "source": "where found",
             "confidence": 0.0-1.0
@@ -434,7 +482,7 @@ CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
     ],
     "pfas_detected": [
         {
-            "name": "PFAS compound (e.g., PTFE, PFOA)",
+            "name": "PFAS compound (MUST match knowledge base below)",
             "cas_number": "CAS number if known",
             "body_effects": "effects on human body",
             "source": "where found",
@@ -444,32 +492,67 @@ CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
     "other_concerns": [
         {
             "name": "concern name",
-            "category": "heavy metal|carcinogen|endocrine disruptor|other",
+            "category": "under_investigation|carcinogen|regulatory_action|heavy_metal|endocrine_disruptor|other",
             "severity": "low|moderate|high|severe",
-            "description": "brief description",
+            "description": "brief description with source citation",
             "confidence": 0.0-1.0
         }
     ],
     "research_sources": [
         {"type": "manufacturer_website", "url": "...", "finding": "..."},
-        {"type": "consumer_review", "url": "...", "finding": "..."},
-        {"type": "safety_recall", "url": "...", "finding": "..."}
+        {"type": "regulatory_action", "url": "...", "finding": "..."},
+        {"type": "scientific_study", "url": "...", "finding": "..."}
     ],
     "confidence": 0.0-1.0
 }
+
+**CRITICAL CLASSIFICATION RULES - READ CAREFULLY:**
+
+1. **ALLERGENS - ONLY substances in the Allergen Knowledge Base below can go in allergens_detected**
+   - If you find an ingredient via websearch that is NOT in the Allergen Knowledge Base → DO NOT add to allergens_detected
+   - Minor irritants (citric acid, fragrance, etc.) are NOT allergens unless listed in the knowledge base
+   - If a substance causes irritation but is not a priority allergen → add to other_concerns with category="under_investigation", severity="low"
+
+2. **PFAS - ONLY substances in the PFAS Knowledge Base below can go in pfas_detected**
+   - If you find a chemical via websearch that is NOT in the PFAS Knowledge Base → DO NOT add to pfas_detected
+   - Unknown fluorinated compounds → add to other_concerns with category="under_investigation"
+   - Match by CAS number or exact name from the knowledge base
+
+3. **OTHER CONCERNS - Use this for substances not in the knowledge bases**
+   - category="under_investigation": Substances with credible evidence but not in our database (MUST have severity="low" max)
+   - category="carcinogen": ONLY IARC-classified carcinogens (Groups 1, 2A, 2B) from credible sources
+   - category="regulatory_action": ONLY substances with FDA recall, EPA warning, or class action lawsuit
+   - category="heavy_metal", "endocrine_disruptor", "other": Other toxins with credible evidence
+
+4. **EVIDENCE REQUIREMENTS for other_concerns:**
+   - MUST have credible source (.gov, .edu, peer-reviewed journal, court record)
+   - MUST NOT include unverified consumer complaints or blog posts
+   - MUST include description with source citation (e.g., "IARC Group 2A carcinogen per iarc.who.int/2023")
 """
 
-        # Add knowledge bases with full details for proper matching
+        # Add FULL allergen database (token-efficient format)
         if allergen_database:
-            prompt += f"\n**Known Allergens ({len(allergen_database)}):**\n"
-            for allergen in allergen_database[:10]:
-                synonyms = allergen.get("synonyms", [])
-                prompt += f"- {allergen.get('name')}: synonyms {synonyms}\n"
+            prompt += f"\n**ALLERGEN KNOWLEDGE BASE ({len(allergen_database)} priority allergens):**\n"
+            prompt += "ONLY these substances can be classified as allergens. If a substance is not on this list, it is NOT an allergen.\n\n"
+            for allergen in allergen_database:
+                name = allergen.get('name', '')
+                synonyms = allergen.get('synonyms', [])
+                if synonyms:
+                    prompt += f"- {name} (synonyms: {', '.join(synonyms[:3])})\n"  # Limit synonyms to 3
+                else:
+                    prompt += f"- {name}\n"
 
+        # Add FULL PFAS database (token-efficient format)
         if pfas_database:
-            prompt += f"\n**Known PFAS Compounds ({len(pfas_database)}):**\n"
-            for pfas in pfas_database[:7]:
-                prompt += f"- {pfas.get('name')} (CAS: {pfas.get('cas_number', 'N/A')}): {pfas.get('body_effects', 'No info')[:100]}\n"
+            prompt += f"\n**PFAS KNOWLEDGE BASE ({len(pfas_database)} compounds):**\n"
+            prompt += "ONLY these substances can be classified as PFAS. If a substance is not on this list, it is NOT PFAS.\n\n"
+            for pfas in pfas_database:
+                name = pfas.get('name', '')
+                cas = pfas.get('cas_number', '')
+                if cas:
+                    prompt += f"- {name} (CAS: {cas})\n"
+                else:
+                    prompt += f"- {name}\n"
 
         if allergen_profile:
             prompt += f"\n**User's Allergen Profile:**\nPay special attention to: {', '.join(allergen_profile)}\n"

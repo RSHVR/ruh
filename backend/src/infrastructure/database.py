@@ -144,18 +144,24 @@ class DatabaseService:
             if not isinstance(ingredients, list):
                 ingredients = []
 
-            # Get allergens and PFAS - ensure they're lists
+            # Get allergens and PFAS - ensure they're lists and convert Pydantic models to dicts
             allergens = analysis.get('allergens', analysis.get('allergens_detected', []))
             if not isinstance(allergens, list):
                 allergens = []
+            # Convert Pydantic models to dictionaries
+            allergens = [item.model_dump() if hasattr(item, 'model_dump') else item for item in allergens]
 
             pfas = analysis.get('pfas_compounds', analysis.get('pfas_detected', []))
             if not isinstance(pfas, list):
                 pfas = []
+            # Convert Pydantic models to dictionaries
+            pfas = [item.model_dump() if hasattr(item, 'model_dump') else item for item in pfas]
 
             other_concerns = analysis.get('other_concerns', [])
             if not isinstance(other_concerns, list):
                 other_concerns = []
+            # Convert Pydantic models to dictionaries
+            other_concerns = [item.model_dump() if hasattr(item, 'model_dump') else item for item in other_concerns]
 
             db_data = {
                 'product_url_hash': url_hash,
