@@ -266,7 +266,7 @@ async def analyze_product(
                 try:
                     analysis_data = await agent.analyze_product(
                         product_url=analysis_request.product_url,
-                        allergen_profile=request.allergen_profile,
+                        allergen_profile=analysis_request.allergen_profile,
                         allergen_database=allergen_db,
                         pfas_database=pfas_db,
                     )
@@ -294,7 +294,7 @@ async def analyze_product(
                     analysis_data = await agent.analyze_extracted_product(
                         product_data=product_data,
                         product_url=analysis_request.product_url,
-                        allergen_profile=request.allergen_profile,
+                        allergen_profile=analysis_request.allergen_profile,
                         allergen_database=allergen_db,
                         pfas_database=pfas_db,
                     )
@@ -341,7 +341,7 @@ async def analyze_product(
             try:
                 analysis_data = await agent.analyze_product(
                     product_url=analysis_request.product_url,
-                    allergen_profile=request.allergen_profile,
+                    allergen_profile=analysis_request.allergen_profile,
                     allergen_database=allergen_db,
                     pfas_database=pfas_db,
                 )
