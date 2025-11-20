@@ -32,8 +32,8 @@ pronounced [ˈɹu] - rooh
 
 ## Authors
 
-Arshveer Gahir, Kaustubh KC
+Arshveer Gahir
 
 ## License
 
-MIT (to be added)
+All Rights Reserved
