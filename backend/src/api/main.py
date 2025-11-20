@@ -1,9 +1,12 @@
 """FastAPI application entry point."""
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from ..infrastructure.config import settings
 from .routes import health, analyze, admin
@@ -15,6 +18,10 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# Initialize rate limiter
+# 100 requests per minute per IP - very generous for normal use
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 
 
 @asynccontextmanager
@@ -34,6 +41,10 @@ app = FastAPI(
     debug=settings.debug,
     lifespan=lifespan,
 )
+
+# Add rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Configure CORS for Chrome extensions and web clients
 app.add_middleware(

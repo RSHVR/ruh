@@ -1,8 +1,10 @@
 """Product analysis endpoints."""
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from datetime import datetime, timezone
 import logging
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from ...domain.models import AnalysisRequest, AnalysisResponse, ProductAnalysis, ReviewInsights
 from ...domain.harm_calculator import HarmScoreCalculator
@@ -15,6 +17,9 @@ from ...infrastructure.validation_logger import validation_logger
 from ..auth import verify_api_key
 from anthropic import RateLimitError
 from typing import List, Dict, Any
+
+# Initialize limiter
+limiter = Limiter(key_func=get_remote_address)
 
 # Try to import database, but make it optional
 try:
@@ -157,8 +162,10 @@ def validate_and_filter_substances(
 
 
 @router.post("/analyze", response_model=AnalysisResponse)
+@limiter.limit("30/minute")  # 30 requests per minute per IP - generous for normal browsing
 async def analyze_product(
     request: AnalysisRequest,
+    http_request: Request,
     api_key: str = Depends(verify_api_key)
 ):
     """Analyze a product for harmful substances.
