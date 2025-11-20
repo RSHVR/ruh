@@ -230,7 +230,7 @@ async def get_product_validation_logs(
         - product_url: Full product URL (URL-encoded)
 
     Returns:
-        List of validation logs for the product
+        List of validation logs for the product (log_timestamp renamed from timestamp)
     """
     if not db.is_available:
         raise HTTPException(
