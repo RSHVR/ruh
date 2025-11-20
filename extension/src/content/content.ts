@@ -105,6 +105,14 @@ async function startAnalysis() {
     state.data = data;
     console.log('[ruh] Analysis complete:', data);
 
+    // If sidebar is open, send data to it
+    if (sidebarIframe) {
+      sidebarIframe.contentWindow?.postMessage(
+        { type: 'ANALYSIS_DATA', data: state.data },
+        '*'
+      );
+    }
+
     // Inject button now that analysis is complete
     // overall_score is safety score (0-100 where 100=safe), we need harm score
     const harmScore = 100 - data.analysis.overall_score;
@@ -130,7 +138,7 @@ function injectTriggerButton(harmScore: number) {
   triggerButton = document.createElement('div');
   triggerButton.id = 'ruh-trigger-button';
 
-  // Create donut badge SVG
+  // Always show donut chart with harm score
   const radius = 16;
   const circumference = 2 * Math.PI * radius;
   const progress = (harmScore / 100) * circumference;
@@ -215,6 +223,28 @@ function injectTriggerButton(harmScore: number) {
         width: 44px;
         height: 44px;
         flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .ruh-icon-badge {
+        position: relative;
+        width: 44px;
+        height: 44px;
+        flex-shrink: 0;
+        border-radius: 50%;
+        overflow: hidden;
+        background: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .ruh-icon {
+        width: 32px;
+        height: 32px;
+        object-fit: contain;
       }
 
       .ruh-donut {
@@ -350,11 +380,14 @@ function openSidebar() {
         '*'
       );
     }, 100);
-  } else {
-    // Send message to start analysis if not complete
+  } else if (state.status === 'loading') {
+    // Analysis is in progress, sidebar will receive data when complete
+    // No need to trigger another API call
+  } else if (state.status === 'error') {
+    // Send error state to sidebar
     setTimeout(() => {
       sidebarIframe?.contentWindow?.postMessage(
-        { type: 'ANALYZE_PRODUCT', url: currentProductUrl },
+        { type: 'ANALYSIS_ERROR', error: state.error },
         '*'
       );
     }, 100);
@@ -366,8 +399,11 @@ function openSidebar() {
  */
 function closeSidebar() {
   if (sidebarIframe) {
-    sidebarIframe.remove();
-    sidebarIframe = null;
+    // Wait for slide-out animation to complete before removing
+    setTimeout(() => {
+      sidebarIframe?.remove();
+      sidebarIframe = null;
+    }, 300); // Match animation duration in Sidebar.svelte
   }
 
   // Show trigger button again (if not dismissed)
@@ -382,6 +418,12 @@ function closeSidebar() {
 function handleMessage(event: MessageEvent) {
   if (event.data?.type === 'EJECT_CLOSE_SIDEBAR') {
     closeSidebar();
+  } else if (event.data?.type === 'RETRY_ANALYSIS') {
+    // Reset state and retry analysis
+    state.status = 'idle';
+    state.error = null;
+    closeSidebar();
+    startAnalysis();
   }
 }
 

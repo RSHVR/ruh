@@ -11,8 +11,10 @@ from ...infrastructure.claude_agent import ProductSafetyAgent
 from ...infrastructure.product_scraper import ProductScraperService
 from ...infrastructure.claude_query import ClaudeQueryService
 from ...infrastructure.database import db
+from ...infrastructure.validation_logger import validation_logger
 from ..auth import verify_api_key
 from anthropic import RateLimitError
+from typing import List, Dict, Any
 
 # Try to import database, but make it optional
 try:
@@ -39,6 +41,119 @@ logger = logging.getLogger(__name__)
 # Initialize services
 scraper_service = ProductScraperService()
 query_service = ClaudeQueryService()
+
+
+def validate_and_filter_substances(
+    analysis_data: Dict[str, Any],
+    allergen_database: List[Dict[str, Any]],
+    pfas_database: List[Dict[str, Any]],
+    product_url: str,
+    product_name: str
+) -> Dict[str, Any]:
+    """Validate Claude's detected substances against database and filter/reclassify as needed.
+
+    This implements LOG-ONLY mode initially - we log mismatches but don't remove them yet.
+
+    Args:
+        analysis_data: Claude's analysis results
+        allergen_database: Full allergen knowledge base
+        pfas_database: Full PFAS knowledge base
+        product_url: Product URL for logging
+        product_name: Product name for logging
+
+    Returns:
+        Validated analysis_data with filtered substances
+    """
+    # Build lookup sets for fast validation (case-insensitive)
+    allergen_names = {a.get('name', '').lower() for a in allergen_database}
+    allergen_synonyms = set()
+    for a in allergen_database:
+        for syn in a.get('synonyms', []):
+            allergen_synonyms.add(syn.lower())
+    all_allergen_matches = allergen_names | allergen_synonyms
+
+    pfas_names = {p.get('name', '').lower() for p in pfas_database}
+    pfas_cas_numbers = {p.get('cas_number', '').strip() for p in pfas_database if p.get('cas_number')}
+
+    # Validate allergens
+    allergens_detected = analysis_data.get('allergens_detected', [])
+    valid_allergens = []
+    invalid_allergens = []
+
+    for allergen in allergens_detected:
+        name = allergen.get('name', '')
+        name_lower = name.lower()
+
+        # Check if in database (exact or synonym match)
+        if name_lower in all_allergen_matches:
+            valid_allergens.append(allergen)
+        else:
+            invalid_allergens.append(allergen)
+            validation_logger.log_invalid_allergen(
+                substance_name=name,
+                severity=allergen.get('severity', 'unknown'),
+                confidence=allergen.get('confidence', 0.0),
+                source=allergen.get('source', 'unknown'),
+                product_url=product_url,
+                product_name=product_name
+            )
+
+    # Validate PFAS
+    pfas_detected = analysis_data.get('pfas_detected', [])
+    valid_pfas = []
+    invalid_pfas = []
+
+    for pfas in pfas_detected:
+        name = pfas.get('name', '')
+        name_lower = name.lower()
+        cas = pfas.get('cas_number', '').strip()
+
+        # Check if in database (by name or CAS number)
+        if name_lower in pfas_names or (cas and cas in pfas_cas_numbers):
+            valid_pfas.append(pfas)
+        else:
+            invalid_pfas.append(pfas)
+            validation_logger.log_invalid_pfas(
+                substance_name=name,
+                cas_number=cas if cas else None,
+                confidence=pfas.get('confidence', 0.0),
+                source=pfas.get('source', 'unknown'),
+                product_url=product_url,
+                product_name=product_name
+            )
+
+    # LOG-ONLY MODE: Keep all substances for now, just log the issues
+    # In future, we can switch to STRICT mode by using valid_* lists only
+    analysis_data['allergens_detected'] = allergens_detected  # Keep all for now
+    analysis_data['pfas_detected'] = pfas_detected  # Keep all for now
+
+    # Log validation summary
+    validation_logger.log_validation_summary(
+        product_name=product_name,
+        product_url=product_url,
+        allergens_total=len(allergens_detected),
+        allergens_valid=len(valid_allergens),
+        allergens_invalid=len(invalid_allergens),
+        pfas_total=len(pfas_detected),
+        pfas_valid=len(valid_pfas),
+        pfas_invalid=len(invalid_pfas)
+    )
+
+    # TODO: Once we review logs and are confident, switch to strict mode:
+    # analysis_data['allergens_detected'] = valid_allergens
+    # analysis_data['pfas_detected'] = valid_pfas
+    #
+    # # Move invalid substances to other_concerns
+    # for allergen in invalid_allergens:
+    #     analysis_data.setdefault('other_concerns', []).append({
+    #         "name": allergen['name'],
+    #         "category": "under_investigation",
+    #         "severity": "low",
+    #         "description": f"Potential irritant (not a priority allergen): {allergen.get('source', '')}",
+    #         "confidence": min(allergen.get('confidence', 0.5), 0.6)
+    #     })
+
+    return analysis_data
 
 
 @router.post("/analyze", response_model=AnalysisResponse)
@@ -229,6 +344,16 @@ async def analyze_product(
                     detail="Rate limit exceeded. Please try again later.",
                     headers={"Retry-After": "60"}
                 )
+
+        # Step 5: Validate Claude's substances against database (LOG-ONLY mode)
+        logger.info("🔍 Validating detected substances against database...")
+        analysis_data = validate_and_filter_substances(
+            analysis_data=analysis_data,
+            allergen_database=allergen_db,
+            pfas_database=pfas_db,
+            product_url=request.product_url,
+            product_name=analysis_data.get("product_name", "Unknown")
+        )
 
         # Calculate harm score
         harm_score = HarmScoreCalculator.calculate(analysis_data)

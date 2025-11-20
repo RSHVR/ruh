@@ -30,7 +30,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/sidebar.html", "sidebar.js", "assets/*"],
+      "resources": ["src/sidebar.html", "sidebar.js", "assets/*", "icon-128.png", "icon-16.png", "icon-48.png", "ruh_icon_transparent.png"],
       "matches": ["https://*.amazon.com/*", "https://*.amazon.ca/*"]
     }
   ],

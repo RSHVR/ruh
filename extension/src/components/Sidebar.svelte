@@ -12,6 +12,8 @@
   export let error: string | null = null;
   export let onClose: () => void;
 
+  let isClosing = false;
+
   $: productAnalysis = analysis?.analysis;
   $: harmScore = productAnalysis
     ? getHarmScore(productAnalysis.overall_score)
@@ -33,14 +35,32 @@
   }
 
   $: scoreColor = getScoreColor(harmScore);
+
+  function handleClose() {
+    isClosing = true;
+    setTimeout(() => {
+      onClose();
+    }, 300); // Match animation duration
+  }
 </script>
 
-<div class="sidebar slide-in">
+<div class="sidebar slide-in" class:slide-out={isClosing}>
   <!-- Header -->
   <div class="header">
     <div class="flex items-center justify-between">
-      <img src="/ruh_logo_transparent.png" alt="ruh" class="brand-logo" />
-      <button onclick={onClose} class="close-btn" aria-label="Close sidebar">
+      <div class="flex items-center gap-3">
+        <!-- <img
+          src="/ruh_icon_transparent.png"
+          alt="ruh icon"
+          class="brand-icon"
+        /> -->
+        <img src="/ruh_logo_transparent.png" alt="ruh" class="brand-logo" />
+      </div>
+      <button
+        onclick={handleClose}
+        class="close-btn"
+        aria-label="Close sidebar"
+      >
         ✕
       </button>
     </div>
@@ -59,7 +79,11 @@
         <span class="text-4xl">⚠️</span>
         <h3 class="text-lg font-semibold text-red-600 mt-3">Analysis Failed</h3>
         <p class="text-sm text-gray-600 mt-2">{error}</p>
-        <button class="retry-btn" onclick={() => window.location.reload()}>
+        <button
+          class="retry-btn"
+          onclick={() =>
+            window.parent.postMessage({ type: "RETRY_ANALYSIS" }, "*")}
+        >
           Try Again
         </button>
       </div>
@@ -130,33 +154,60 @@
       <!-- Analysis Details / Proof of Checks -->
       <div class="section">
         <h3 class="section-subtitle">
-          {productAnalysis.ingredients.length > 0 ? '🔍 Analysis Complete' : '⚠️ Analysis Inconclusive'}
+          {productAnalysis.ingredients.length > 0
+            ? "🔍 Analysis Complete"
+            : "⚠️ Analysis Inconclusive"}
         </h3>
         <div class="space-y-3">
           <!-- Ingredients Display -->
           {#if productAnalysis.ingredients.length > 0}
             <div class="analysis-detail-item">
               <div>
-                <p class="font-medium text-gray-800 mb-3">Ingredients Analyzed ({productAnalysis.ingredients.length})</p>
+                <p class="font-medium text-gray-800 mb-3">
+                  Ingredients Analyzed ({productAnalysis.ingredients.length})
+                </p>
                 <div class="ingredient-grid">
                   {#each productAnalysis.ingredients as ingredient}
-                    {@const isAllergen = productAnalysis.allergens_detected.some(a =>
-                      ingredient.toLowerCase().includes(a.name.toLowerCase()) ||
-                      a.name.toLowerCase().includes(ingredient.toLowerCase())
+                    {@const isAllergen =
+                      productAnalysis.allergens_detected.some(
+                        (a) =>
+                          ingredient
+                            .toLowerCase()
+                            .includes(a.name.toLowerCase()) ||
+                          a.name
+                            .toLowerCase()
+                            .includes(ingredient.toLowerCase()),
+                      )}
+                    {@const isPFAS = productAnalysis.pfas_detected.some(
+                      (p) =>
+                        ingredient
+                          .toLowerCase()
+                          .includes(p.name.toLowerCase()) ||
+                        p.name.toLowerCase().includes(ingredient.toLowerCase()),
                     )}
-                    {@const isPFAS = productAnalysis.pfas_detected.some(p =>
-                      ingredient.toLowerCase().includes(p.name.toLowerCase()) ||
-                      p.name.toLowerCase().includes(ingredient.toLowerCase())
+                    {@const isToxic = productAnalysis.other_concerns.some(
+                      (c) =>
+                        ingredient
+                          .toLowerCase()
+                          .includes(c.name.toLowerCase()) ||
+                        c.name.toLowerCase().includes(ingredient.toLowerCase()),
                     )}
-                    {@const isToxic = productAnalysis.other_concerns.some(c =>
-                      ingredient.toLowerCase().includes(c.name.toLowerCase()) ||
-                      c.name.toLowerCase().includes(ingredient.toLowerCase())
-                    )}
-                    {@const isSafe = !isAllergen && !isPFAS && !isToxic &&
+                    {@const isSafe =
+                      !isAllergen &&
+                      !isPFAS &&
+                      !isToxic &&
                       productAnalysis.allergens_detected.length === 0 &&
                       productAnalysis.pfas_detected.length === 0 &&
                       productAnalysis.other_concerns.length === 0}
-                    <span class="ingredient-badge {isAllergen || isPFAS || isToxic ? (isAllergen ? 'badge-allergen' : 'badge-pfas') : (isSafe ? 'badge-safe' : 'badge-unknown')}">
+                    <span
+                      class="ingredient-badge {isAllergen || isPFAS || isToxic
+                        ? isAllergen
+                          ? 'badge-allergen'
+                          : 'badge-pfas'
+                        : isSafe
+                          ? 'badge-safe'
+                          : 'badge-unknown'}"
+                    >
                       {ingredient}
                     </span>
                   {/each}
@@ -189,15 +240,19 @@
 
           <div class="analysis-detail-item">
             <div class="flex items-center">
-              <span class="text-2xl mr-3">{productAnalysis.confidence < 0.3 ? '🚨' : '✅'}</span>
+              <span class="text-2xl mr-3"
+                >{productAnalysis.confidence < 0.3 ? "🚨" : "✅"}</span
+              >
               <div>
                 <p class="font-medium text-gray-800">Confidence Level</p>
                 {#if productAnalysis.confidence < 0.3}
                   <p class="text-sm text-amber-600 font-semibold">
-                    {Math.round(productAnalysis.confidence * 100)}% - Low Confidence
+                    {Math.round(productAnalysis.confidence * 100)}% - Low
+                    Confidence
                   </p>
                   <p class="text-xs text-gray-600 mt-1">
-                    Limited ingredient data available. Analysis based on database screening only. Results may be incomplete.
+                    Limited ingredient data available. Analysis based on
+                    database screening only. Results may be incomplete.
                   </p>
                 {:else}
                   <p class="text-sm text-gray-600">
@@ -348,10 +403,31 @@
       sans-serif;
   }
 
+  .slide-out {
+    animation: slideOut 300ms ease-in forwards;
+  }
+
+  @keyframes slideOut {
+    from {
+      transform: translateX(0);
+      opacity: 1;
+    }
+    to {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+  }
+
   .header {
     padding: 24px 20px;
     background: var(--color-bg-primary); /* Same as body - blends in */
     border-bottom: 1px solid var(--color-bg-secondary); /* Subtle separator */
+  }
+
+  .brand-icon {
+    height: 84px;
+    width: 84px;
+    object-fit: contain;
   }
 
   .brand-logo {
