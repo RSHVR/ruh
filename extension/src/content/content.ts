@@ -155,7 +155,7 @@ function injectTriggerButton(harmScore: number) {
 
       #ruh-trigger-button {
         position: fixed;
-        top: 20px;
+        top: 110px;
         right: 20px;
         z-index: 999998;
         animation: ruhFadeIn 400ms ease-out 200ms both;
