@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Ruh",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "AI-powered product safety analysis - detect harmful substances and find safer alternatives",
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://*.amazon.com/*",
@@ -28,13 +29,15 @@
       "run_at": "document_idle"
     }
   ],
-  "web_accessible_resources": [
-    {
-      "resources": ["src/sidebar.html", "sidebar.js", "assets/*", "icon-128.png", "icon-16.png", "icon-48.png", "ruh_icon_transparent.png"],
-      "matches": ["https://*.amazon.com/*", "https://*.amazon.ca/*"]
-    }
-  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
   "action": {
     "default_title": "Ruh - Product Safety"
+  },
+  "icons": {
+    "16": "icon-16.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
   }
 }

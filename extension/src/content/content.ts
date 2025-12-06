@@ -21,14 +21,6 @@ function getScoreColor(score: number): string {
 console.log('[ruh] Content script loaded');
 
 // State
-interface AnalysisState {
-  status: 'idle' | 'loading' | 'complete' | 'error';
-  data: any | null;
-  error: string | null;
-}
-
-let state: AnalysisState = { status: 'idle', data: null, error: null };
-let sidebarIframe: HTMLIFrameElement | null = null;
 let triggerButton: HTMLDivElement | null = null;
 let currentProductUrl: string | null = null;
 let buttonDismissed: boolean = false;
@@ -45,17 +37,6 @@ function init() {
   currentProductUrl = window.location.href;
   console.log('[ruh] Product page detected:', currentProductUrl);
 
-  // Listen for messages from background script (extension icon click)
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === 'OPEN_SIDEBAR') {
-      openSidebar();
-      sendResponse({ success: true });
-    }
-  });
-
-  // Listen for messages from sidebar iframe
-  window.addEventListener('message', handleMessage);
-
   // Start analysis in background
   startAnalysis();
 }
@@ -66,8 +47,13 @@ function init() {
 async function startAnalysis() {
   if (!currentProductUrl) return;
 
-  state.status = 'loading';
   console.log('[ruh] Starting analysis for:', currentProductUrl);
+
+  // Notify background worker that analysis started
+  chrome.runtime.sendMessage({
+    type: 'ANALYSIS_STARTED',
+    productUrl: currentProductUrl
+  });
 
   try {
     // Get API config from environment
@@ -101,17 +87,14 @@ async function startAnalysis() {
     }
 
     const data = await response.json();
-    state.status = 'complete';
-    state.data = data;
     console.log('[ruh] Analysis complete:', data);
 
-    // If sidebar is open, send data to it
-    if (sidebarIframe) {
-      sidebarIframe.contentWindow?.postMessage(
-        { type: 'ANALYSIS_DATA', data: state.data },
-        '*'
-      );
-    }
+    // Notify background worker that analysis is complete
+    chrome.runtime.sendMessage({
+      type: 'ANALYSIS_COMPLETE',
+      productUrl: currentProductUrl,
+      data
+    });
 
     // Inject button now that analysis is complete
     // overall_score is safety score (0-100 where 100=safe), we need harm score
@@ -120,9 +103,16 @@ async function startAnalysis() {
       injectTriggerButton(harmScore);
     }
   } catch (error) {
-    state.status = 'error';
-    state.error = error instanceof Error ? error.message : 'Analysis failed';
+    const errorMessage = error instanceof Error ? error.message : 'Analysis failed';
     console.error('[ruh] Analysis error:', error);
+
+    // Notify background worker about the error
+    chrome.runtime.sendMessage({
+      type: 'ANALYSIS_ERROR',
+      productUrl: currentProductUrl,
+      error: errorMessage
+    });
+
     // Don't show button on error
   }
 }
@@ -138,27 +128,21 @@ function injectTriggerButton(harmScore: number) {
   triggerButton = document.createElement('div');
   triggerButton.id = 'ruh-trigger-button';
 
-  // Always show donut chart with harm score
-  const radius = 16;
+  // Donut-only design: just the chart with harm score (no text, no dismiss)
+  const radius = 18;
   const circumference = 2 * Math.PI * radius;
   const progress = (harmScore / 100) * circumference;
   const offset = circumference - progress;
 
   triggerButton.innerHTML = `
-    <div class="ruh-button-container">
-      <div class="ruh-button-content">
-        <div class="ruh-score-badge">
-          <svg viewBox="0 0 40 40" class="ruh-donut">
-            <circle cx="20" cy="20" r="${radius}" fill="none" stroke="rgba(107, 101, 96, 0.2)" stroke-width="3"/>
-            <circle cx="20" cy="20" r="${radius}" fill="none" stroke="${scoreColor}" stroke-width="3" stroke-linecap="round"
-              stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"
-              transform="rotate(-90 20 20)" class="ruh-donut-progress"/>
-          </svg>
-          <span class="ruh-score-number">${harmScore}</span>
-        </div>
-        <span class="ruh-button-text">View Safety Score</span>
-      </div>
-      <button class="ruh-dismiss-btn">dismiss</button>
+    <div class="ruh-donut-button">
+      <svg viewBox="0 0 44 44" class="ruh-donut">
+        <circle cx="22" cy="22" r="${radius}" fill="none" stroke="rgba(107, 101, 96, 0.2)" stroke-width="3"/>
+        <circle cx="22" cy="22" r="${radius}" fill="none" stroke="${scoreColor}" stroke-width="3" stroke-linecap="round"
+          stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"
+          transform="rotate(-90 22 22)" class="ruh-donut-progress"/>
+      </svg>
+      <span class="ruh-score-number">${harmScore}</span>
     </div>
   `;
 
@@ -188,68 +172,33 @@ function injectTriggerButton(harmScore: number) {
         }
       }
 
-      .ruh-button-container {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 4px;
-      }
-
-      .ruh-button-content {
-        display: flex;
-        align-items: center;
-        gap: 12px;
+      .ruh-donut-button {
+        position: relative;
+        width: 52px;
+        height: 52px;
         background: #E8DCC8;
-        border-radius: 24px;
-        padding: 8px 20px 8px 8px;
+        border-radius: 50%;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         cursor: pointer;
         transition: all 150ms ease-in-out;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
 
-      .ruh-button-content:hover {
-        background: #C9B5A0;
-        transform: translateY(-2px);
+      .ruh-donut-button:hover {
+        background: #DBC9B1;
+        transform: translateY(-2px) scale(1.05);
         box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
       }
 
-      .ruh-button-content:active {
-        transform: translateY(-1px) scale(0.98);
-      }
-
-      .ruh-score-badge {
-        position: relative;
-        width: 44px;
-        height: 44px;
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .ruh-icon-badge {
-        position: relative;
-        width: 44px;
-        height: 44px;
-        flex-shrink: 0;
-        border-radius: 50%;
-        overflow: hidden;
-        background: white;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .ruh-icon {
-        width: 32px;
-        height: 32px;
-        object-fit: contain;
+      .ruh-donut-button:active {
+        transform: scale(0.95);
       }
 
       .ruh-donut {
-        width: 100%;
-        height: 100%;
+        width: 44px;
+        height: 44px;
       }
 
       .ruh-donut-progress {
@@ -263,173 +212,22 @@ function injectTriggerButton(harmScore: number) {
         transform: translate(-50%, -50%);
         font-family: 'Inter', sans-serif;
         font-weight: 600;
-        font-size: 14px;
+        font-size: 16px;
         color: #3A3633;
         line-height: 1;
-      }
-
-      .ruh-button-text {
-        font-size: 15px;
-        font-weight: 500;
-        color: #3A3633;
-        white-space: nowrap;
-      }
-
-      .ruh-dismiss-btn {
-        background: none;
-        border: none;
-        padding: 0;
-        font-family: 'Inter', sans-serif;
-        font-size: 12px;
-        font-weight: 400;
-        color: #6B6560;
-        cursor: pointer;
-        transition: color 150ms ease;
-        text-transform: lowercase;
-      }
-
-      .ruh-dismiss-btn:hover {
-        color: #3A3633;
       }
     `;
     document.head.appendChild(styleEl);
   }
 
-  // Add click handlers
-  const buttonContent = triggerButton.querySelector('.ruh-button-content');
-  const dismissBtn = triggerButton.querySelector('.ruh-dismiss-btn');
-
-  buttonContent?.addEventListener('click', openSidebar);
-  dismissBtn?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    dismissButton();
+  // Add click handler to open side panel
+  triggerButton.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });
   });
 
   document.body.appendChild(triggerButton);
 }
 
-/**
- * Dismiss the trigger button
- */
-function dismissButton() {
-  if (triggerButton) {
-    triggerButton.style.animation = 'ruhFadeOut 200ms ease-out forwards';
-    setTimeout(() => {
-      triggerButton?.remove();
-      triggerButton = null;
-      buttonDismissed = true;
-    }, 200);
-  }
-
-  // Add fadeOut animation
-  const styleEl = document.getElementById('ruh-button-styles');
-  if (styleEl && !styleEl.textContent?.includes('ruhFadeOut')) {
-    styleEl.textContent += `
-      @keyframes ruhFadeOut {
-        from {
-          opacity: 1;
-          transform: translateY(0);
-        }
-        to {
-          opacity: 0;
-          transform: translateY(-10px);
-        }
-      }
-    `;
-  }
-}
-
-/**
- * Open the sidebar with product analysis
- */
-function openSidebar() {
-  if (sidebarIframe) {
-    // Sidebar already open
-    return;
-  }
-
-  if (!currentProductUrl) return;
-
-  // Create iframe for sidebar
-  sidebarIframe = document.createElement('iframe');
-  sidebarIframe.id = 'ruh-sidebar-iframe';
-  sidebarIframe.src = chrome.runtime.getURL(`src/sidebar.html?url=${encodeURIComponent(currentProductUrl)}`);
-  sidebarIframe.style.cssText = `
-    position: fixed;
-    top: 0;
-    right: 0;
-    width: 400px;
-    height: 100%;
-    border: none;
-    z-index: 999999;
-    box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
-  `;
-
-  document.body.appendChild(sidebarIframe);
-
-  // Hide trigger button when sidebar is open
-  if (triggerButton) {
-    triggerButton.style.display = 'none';
-  }
-
-  // If analysis is complete, send data to sidebar immediately
-  if (state.status === 'complete' && state.data) {
-    setTimeout(() => {
-      sidebarIframe?.contentWindow?.postMessage(
-        { type: 'ANALYSIS_DATA', data: state.data },
-        '*'
-      );
-    }, 100);
-  } else if (state.status === 'loading') {
-    // Analysis is in progress, sidebar will receive data when complete
-    // No need to trigger another API call
-  } else if (state.status === 'error') {
-    // Send error state to sidebar
-    setTimeout(() => {
-      sidebarIframe?.contentWindow?.postMessage(
-        { type: 'ANALYSIS_ERROR', error: state.error },
-        '*'
-      );
-    }, 100);
-  } else {
-    // state.status === 'idle' - trigger new analysis
-    // Will hit backend cache if recently analyzed
-    startAnalysis();
-  }
-}
-
-/**
- * Close the sidebar
- */
-function closeSidebar() {
-  if (sidebarIframe) {
-    // Wait for slide-out animation to complete before removing
-    setTimeout(() => {
-      sidebarIframe?.remove();
-      sidebarIframe = null;
-    }, 300); // Match animation duration in Sidebar.svelte
-  }
-
-  // Show trigger button again (if not dismissed)
-  if (triggerButton && !buttonDismissed) {
-    triggerButton.style.display = 'block';
-  }
-}
-
-/**
- * Handle messages from sidebar iframe
- */
-function handleMessage(event: MessageEvent) {
-  if (event.data?.type === 'EJECT_CLOSE_SIDEBAR') {
-    closeSidebar();
-  } else if (event.data?.type === 'RETRY_ANALYSIS') {
-    // Reset state and retry analysis
-    state.status = 'idle';
-    state.error = null;
-    closeSidebar();
-    startAnalysis();
-  }
-}
 
 /**
  * Clean up on page navigation
@@ -439,10 +237,8 @@ function cleanup() {
     triggerButton.remove();
     triggerButton = null;
   }
-  closeSidebar();
-  window.removeEventListener('message', handleMessage);
-  state = { status: 'idle', data: null, error: null };
   buttonDismissed = false;
+  currentProductUrl = null;
 }
 
 // Initialize on load
