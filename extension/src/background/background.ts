@@ -1,14 +1,14 @@
-console.log('[Eject] Background service worker initialized');
+console.log('[Ruh] Background service worker initialized');
 
 // Listen for extension installation
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
-    console.log('[Eject] Extension installed');
+    console.log('[Ruh] Extension installed');
 
     // Generate and store user UUID
     const userId = crypto.randomUUID();
     chrome.storage.local.set({ userId }, () => {
-      console.log('[Eject] User ID generated:', userId);
+      console.log('[Ruh] User ID generated:', userId);
     });
 
     // Set default settings
@@ -18,13 +18,13 @@ chrome.runtime.onInstalled.addListener((details) => {
       notificationsEnabled: true
     });
   } else if (details.reason === 'update') {
-    console.log('[Eject] Extension updated to version', chrome.runtime.getManifest().version);
+    console.log('[Ruh] Extension updated to version', chrome.runtime.getManifest().version);
   }
 });
 
-// Handle messages from content scripts
+// Handle messages from content scripts and side panel
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('[Eject] Message received:', message);
+  console.log('[Ruh] Message received:', message);
 
   if (message.type === 'GET_USER_ID') {
     chrome.storage.local.get(['userId'], (result) => {
@@ -35,30 +35,123 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'TRACK_ANALYSIS') {
     // Track that a product was analyzed (for metrics)
-    console.log('[Eject] Product analyzed:', message.productUrl);
-    // Could send to analytics service here
+    console.log('[Ruh] Product analyzed:', message.productUrl);
     sendResponse({ success: true });
   }
 
   if (message.type === 'TRACK_CLICK') {
     // Track alternative product clicks
-    console.log('[Eject] Alternative clicked:', message.alternativeUrl);
-    // Could send to analytics service here
+    console.log('[Ruh] Alternative clicked:', message.alternativeUrl);
+    sendResponse({ success: true });
+  }
+
+  if (message.type === 'ANALYSIS_COMPLETE') {
+    // Content script has completed analysis - store in chrome.storage
+    const tabId = sender.tab?.id;
+    if (!tabId) {
+      console.warn('[Ruh] No tab ID in ANALYSIS_COMPLETE message');
+      return;
+    }
+
+    console.log('[Ruh] Storing analysis for tab:', tabId);
+    const harmScore = message.data?.analysis?.overall_score
+      ? 100 - message.data.analysis.overall_score
+      : null;
+
+    chrome.storage.local.set({
+      [`analysis_${tabId}`]: {
+        tabId,
+        productUrl: message.productUrl,
+        status: 'complete',
+        data: message.data,
+        error: null,
+        timestamp: Date.now(),
+        harmScore
+      }
+    });
+
+    sendResponse({ success: true });
+  }
+
+  if (message.type === 'ANALYSIS_ERROR') {
+    // Content script encountered an error
+    const tabId = sender.tab?.id;
+    if (!tabId) return;
+
+    console.log('[Ruh] Storing error for tab:', tabId);
+    chrome.storage.local.set({
+      [`analysis_${tabId}`]: {
+        tabId,
+        productUrl: message.productUrl,
+        status: 'error',
+        data: null,
+        error: message.error,
+        timestamp: Date.now(),
+        harmScore: null
+      }
+    });
+
+    sendResponse({ success: true });
+  }
+
+  if (message.type === 'ANALYSIS_STARTED') {
+    // Content script started analysis
+    const tabId = sender.tab?.id;
+    if (!tabId) return;
+
+    console.log('[Ruh] Analysis started for tab:', tabId);
+    chrome.storage.local.set({
+      [`analysis_${tabId}`]: {
+        tabId,
+        productUrl: message.productUrl,
+        status: 'loading',
+        data: null,
+        error: null,
+        timestamp: Date.now(),
+        harmScore: null
+      }
+    });
+
+    sendResponse({ success: true });
+  }
+
+  if (message.type === 'OPEN_SIDE_PANEL') {
+    // Donut button clicked - open side panel
+    const tabId = message.tabId || sender.tab?.id;
+    if (!tabId) {
+      console.warn('[Ruh] No tab ID in OPEN_SIDE_PANEL message');
+      return;
+    }
+
+    console.log('[Ruh] Opening side panel for tab:', tabId);
+    chrome.sidePanel.open({ tabId }).catch((err) => {
+      console.error('[Ruh] Failed to open side panel:', err);
+    });
+
     sendResponse({ success: true });
   }
 });
 
-// Handle browser action click (extension icon)
-chrome.action.onClicked.addListener((tab) => {
-  if (tab.id) {
-    // Send message to content script to open sidebar (with error handling)
-    chrome.tabs.sendMessage(tab.id, { type: 'OPEN_SIDEBAR' }, (response) => {
-      if (chrome.runtime.lastError) {
-        // Content script not loaded on this tab, ignore
-        console.log('[Eject] Could not send message to tab:', chrome.runtime.lastError.message);
-      }
-    });
+// Handle browser action click (toolbar icon) - Open side panel
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab.id) {
+    console.warn('[Ruh] No tab ID in action click');
+    return;
   }
+
+  console.log('[Ruh] Toolbar icon clicked for tab:', tab.id);
+
+  try {
+    await chrome.sidePanel.open({ tabId: tab.id });
+  } catch (err) {
+    console.error('[Ruh] Failed to open side panel:', err);
+  }
+});
+
+// Clean up storage when tabs are closed
+chrome.tabs.onRemoved.addListener((tabId) => {
+  console.log('[Ruh] Tab closed, cleaning up:', tabId);
+  chrome.storage.local.remove(`analysis_${tabId}`);
 });
 
 export {};

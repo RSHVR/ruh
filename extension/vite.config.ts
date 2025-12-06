@@ -2,6 +2,8 @@ import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import { resolve } from 'path';
+import fs from 'fs';
+import path from 'path';
 
 export default defineConfig({
   base: './',
@@ -21,8 +23,26 @@ export default defineConfig({
           src: 'src/content/content.css',
           dest: '.'
         }
-      ]
-    })
+      ],
+      hook: 'writeBundle'
+    }),
+    {
+      name: 'move-sidepanel-html',
+      closeBundle() {
+        // Move sidepanel.html from dist/src/ to dist/ after build
+        const srcPath = path.resolve(process.cwd(), 'dist/src/sidepanel.html');
+        const destPath = path.resolve(process.cwd(), 'dist/sidepanel.html');
+        if (fs.existsSync(srcPath)) {
+          fs.renameSync(srcPath, destPath);
+          // Remove empty src directory
+          try {
+            fs.rmdirSync(path.resolve(process.cwd(), 'dist/src'));
+          } catch (e) {
+            // Directory might not be empty or might not exist
+          }
+        }
+      }
+    }
   ],
   build: {
     outDir: 'dist',
@@ -32,7 +52,7 @@ export default defineConfig({
       // Use relative paths for assets in subdirectories
       makeAbsoluteExternalsRelative: true,
       input: {
-        sidebar: resolve(__dirname, 'src/sidebar.html'),
+        sidepanel: resolve(__dirname, 'src/sidepanel.html'),
         content: resolve(__dirname, 'src/content/content.ts'),
         background: resolve(__dirname, 'src/background/background.ts')
       },
@@ -40,11 +60,11 @@ export default defineConfig({
         entryFileNames: '[name].js',
         chunkFileNames: '[name].js',
         assetFileNames: (assetInfo) => {
-          // Keep HTML files at root for web_accessible_resources
+          // Keep HTML files at root for side panel
           if (assetInfo.name?.endsWith('.html')) {
-            return '[name].[ext]';
+            return '[name][extname]';
           }
-          return 'assets/[name].[ext]';
+          return 'assets/[name][extname]';
         }
       }
     }

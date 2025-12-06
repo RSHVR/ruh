@@ -7,24 +7,26 @@
     formatTimeAgo,
   } from "@/lib/utils";
 
-  export let analysis: AnalysisResponse | null = null;
-  export let loading: boolean = false;
-  export let error: string | null = null;
-  export let onClose: () => void;
+  interface Props {
+    analysis: AnalysisResponse | null;
+    loading?: boolean;
+    error?: string | null;
+    visible?: boolean;
+  }
 
-  let isClosing = false;
+  let { analysis, loading = false, error = null, visible = true }: Props = $props();
 
-  $: productAnalysis = analysis?.analysis;
-  $: harmScore = productAnalysis
+  const productAnalysis = $derived(analysis?.analysis);
+  const harmScore = $derived(productAnalysis
     ? getHarmScore(productAnalysis.overall_score)
-    : 0;
-  $: riskLevel = getRiskLevel(harmScore);
-  $: riskClass = getRiskClass(riskLevel);
+    : 0);
+  const riskLevel = $derived(getRiskLevel(harmScore));
+  const riskClass = $derived(getRiskClass(riskLevel));
 
   // Donut chart calculations
   const radius = 54;
   const circumference = 2 * Math.PI * radius;
-  $: strokeDashoffset = circumference - (harmScore / 100) * circumference;
+  const strokeDashoffset = $derived(circumference - (harmScore / 100) * circumference);
 
   // Get color based on risk level (ruh brand guidelines)
   function getScoreColor(score: number): string {
@@ -34,35 +36,19 @@
     return "#C18A72"; // Alert Rust (high)
   }
 
-  $: scoreColor = getScoreColor(harmScore);
+  const scoreColor = $derived(getScoreColor(harmScore));
 
-  function handleClose() {
-    isClosing = true;
-    setTimeout(() => {
-      onClose();
-    }, 300); // Match animation duration
+  function handleRetry() {
+    // Reload the page to trigger a new analysis
+    window.location.reload();
   }
 </script>
 
-<div class="sidebar slide-in" class:slide-out={isClosing}>
+<div class="sidebar">
   <!-- Header -->
   <div class="header">
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <!-- <img
-          src="/ruh_icon_transparent.png"
-          alt="ruh icon"
-          class="brand-icon"
-        /> -->
-        <img src="/ruh_logo_transparent.png" alt="ruh" class="brand-logo" />
-      </div>
-      <button
-        onclick={handleClose}
-        class="close-btn"
-        aria-label="Close sidebar"
-      >
-        ✕
-      </button>
+    <div class="flex items-center">
+      <img src="/ruh_logo_transparent.png" alt="ruh" class="brand-logo" />
     </div>
   </div>
 
@@ -79,11 +65,7 @@
         <span class="text-4xl">⚠️</span>
         <h3 class="text-lg font-semibold text-red-600 mt-3">Analysis Failed</h3>
         <p class="text-sm text-gray-600 mt-2">{error}</p>
-        <button
-          class="retry-btn"
-          onclick={() =>
-            window.parent.postMessage({ type: "RETRY_ANALYSIS" }, "*")}
-        >
+        <button class="retry-btn" onclick={handleRetry}>
           Try Again
         </button>
       </div>
