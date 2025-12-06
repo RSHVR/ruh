@@ -1,8 +1,8 @@
 import './app.css';
-import SidePanel from './SidePanel.svelte';
+import SidePanelContainer from './SidePanelContainer.svelte';
 import { mount } from 'svelte';
 
-const app = mount(SidePanel, {
+const app = mount(SidePanelContainer, {
   target: document.getElementById('app')!
 });
 
