@@ -26,16 +26,37 @@ let currentProductUrl: string | null = null;
 let buttonDismissed: boolean = false;
 
 /**
+ * Listen for side panel state changes from background
+ */
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'SIDE_PANEL_STATE_CHANGED') {
+    console.log('[Ruh Content] Side panel state changed:', message.isOpen);
+
+    if (message.isOpen) {
+      // Hide trigger button when side panel opens
+      if (triggerButton) {
+        triggerButton.style.display = 'none';
+      }
+    } else {
+      // Show trigger button when side panel closes (if analysis exists)
+      if (triggerButton && currentProductUrl) {
+        triggerButton.style.display = 'block';
+      }
+    }
+  }
+});
+
+/**
  * Initialize the extension on Amazon product pages
  */
 function init() {
   if (!isAmazonProductPage(window.location.href)) {
-    console.log('[ruh] Not a product page, skipping');
+    console.log('[Ruh Content] Not a product page, skipping analysis');
     return;
   }
 
   currentProductUrl = window.location.href;
-  console.log('[ruh] Product page detected:', currentProductUrl);
+  console.log('[Ruh Content] Product page detected:', currentProductUrl);
 
   // Start analysis in background
   startAnalysis();
@@ -120,7 +141,7 @@ async function startAnalysis() {
 /**
  * Create and inject the trigger button with score badge
  */
-function injectTriggerButton(harmScore: number) {
+async function injectTriggerButton(harmScore: number) {
   if (triggerButton || buttonDismissed) return;
 
   const scoreColor = getScoreColor(harmScore);
@@ -224,6 +245,16 @@ function injectTriggerButton(harmScore: number) {
   triggerButton.addEventListener('click', () => {
     chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });
   });
+
+  // Check if side panel is already open
+  const response = await chrome.runtime.sendMessage({
+    type: 'GET_SIDE_PANEL_STATE'
+  });
+
+  if (response?.isOpen) {
+    // Hide button initially if side panel is open
+    triggerButton.style.display = 'none';
+  }
 
   document.body.appendChild(triggerButton);
 }

@@ -1,5 +1,8 @@
 console.log('[Ruh] Background service worker initialized');
 
+// Track side panel open state per tab
+const sidePanelOpenState = new Map<number, boolean>();
+
 // Listen for extension installation
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
@@ -25,6 +28,60 @@ chrome.runtime.onInstalled.addListener((details) => {
 // Handle messages from content scripts and side panel
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('[Ruh] Message received:', message);
+
+  if (message.type === 'SIDE_PANEL_OPENED') {
+    const tabId = message.tabId || sender.tab?.id;
+    if (!tabId) return;
+
+    console.log('[Ruh Background] Side panel opened for tab:', tabId);
+    sidePanelOpenState.set(tabId, true);
+
+    // Store in chrome.storage for persistence
+    chrome.storage.local.set({ [`sidePanelOpen_${tabId}`]: true });
+
+    // Notify content script
+    chrome.tabs.sendMessage(tabId, {
+      type: 'SIDE_PANEL_STATE_CHANGED',
+      isOpen: true
+    }).catch(() => {
+      // Content script may not be injected yet
+    });
+
+    return;
+  }
+
+  if (message.type === 'SIDE_PANEL_CLOSED') {
+    const tabId = message.tabId || sender.tab?.id;
+    if (!tabId) return;
+
+    console.log('[Ruh Background] Side panel closed for tab:', tabId);
+    sidePanelOpenState.set(tabId, false);
+
+    // Store in chrome.storage
+    chrome.storage.local.set({ [`sidePanelOpen_${tabId}`]: false });
+
+    // Notify content script
+    chrome.tabs.sendMessage(tabId, {
+      type: 'SIDE_PANEL_STATE_CHANGED',
+      isOpen: false
+    }).catch(() => {
+      // Content script may not be injected
+    });
+
+    return;
+  }
+
+  if (message.type === 'GET_SIDE_PANEL_STATE') {
+    const tabId = sender.tab?.id;
+    if (!tabId) {
+      sendResponse({ isOpen: false });
+      return;
+    }
+
+    const isOpen = sidePanelOpenState.get(tabId) ?? false;
+    sendResponse({ isOpen });
+    return true; // Keep message channel open
+  }
 
   if (message.type === 'GET_USER_ID') {
     chrome.storage.local.get(['userId'], (result) => {
@@ -152,6 +209,10 @@ chrome.action.onClicked.addListener(async (tab) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   console.log('[Ruh] Tab closed, cleaning up:', tabId);
   chrome.storage.local.remove(`analysis_${tabId}`);
+
+  // Clean up side panel state
+  sidePanelOpenState.delete(tabId);
+  chrome.storage.local.remove(`sidePanelOpen_${tabId}`);
 });
 
 export {};

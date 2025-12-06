@@ -1,4 +1,13 @@
 <script lang="ts">
+  /**
+   * AnalysisView - Product Analysis Results Display
+   *
+   * Pure presentation component that renders product safety analysis results.
+   * Displays harm score, allergens, PFAS compounds, and other concerns.
+   *
+   * This component has no Chrome API interactions or state management -
+   * it purely renders the analysis data passed via props.
+   */
   import type { AnalysisResponse } from "@/types";
   import {
     getHarmScore,

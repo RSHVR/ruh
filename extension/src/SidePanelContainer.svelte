@@ -1,9 +1,22 @@
 <script lang="ts">
+  /**
+   * SidePanelContainer - Chrome Side Panel Orchestrator
+   *
+   * Manages the Chrome Side Panel lifecycle, state synchronization,
+   * and event coordination. This container component handles:
+   * - Side panel open/close state tracking
+   * - Tab switching and URL navigation detection
+   * - Analysis data loading from chrome.storage
+   * - Empty states and error handling
+   *
+   * Renders AnalysisView component when data is available.
+   */
   import { onMount, onDestroy } from 'svelte';
-  import Sidebar from './components/Sidebar.svelte';
+  import AnalysisView from './components/AnalysisView.svelte';
   import LoadingScreen from './components/LoadingScreen.svelte';
   import type { TabAnalysisState } from './lib/storage-sync';
   import { getTabStorageKey, getActiveTab } from './lib/storage-sync';
+  import { isAmazonProductPage } from '@/lib/utils';
 
   let currentTabState: TabAnalysisState | null = $state(null);
   let currentTabId: number | null = $state(null);
@@ -12,12 +25,22 @@
 
   let storageListener: ((changes: any, area: string) => void) | null = null;
   let tabActivatedListener: ((activeInfo: chrome.tabs.TabActiveInfo) => void) | null = null;
+  let tabUpdatedListener: ((tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void) | null = null;
 
   onMount(async () => {
-    console.log('[SidePanel] Initializing side panel');
+    console.log('[SidePanelContainer] Initializing side panel');
 
     // Load initial state for active tab
     await loadActiveTabState();
+
+    // Notify background that side panel opened
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tabs[0]?.id) {
+      chrome.runtime.sendMessage({
+        type: 'SIDE_PANEL_OPENED',
+        tabId: tabs[0].id
+      });
+    }
 
     // Listen for storage changes (any tab's analysis updates)
     storageListener = (changes, area) => {
@@ -25,7 +48,7 @@
 
       const key = getTabStorageKey(currentTabId);
       if (changes[key]) {
-        console.log('[SidePanel] Storage updated for current tab:', currentTabId);
+        console.log('[SidePanelContainer] Storage updated for current tab:', currentTabId);
         currentTabState = changes[key].newValue;
         loading = false;
       }
@@ -34,19 +57,49 @@
 
     // Listen for tab activation (user switches tabs)
     tabActivatedListener = async (activeInfo) => {
-      console.log('[SidePanel] Tab activated:', activeInfo.tabId);
+      console.log('[SidePanelContainer] Tab activated:', activeInfo.tabId);
       await loadTabState(activeInfo.tabId);
     };
     chrome.tabs.onActivated.addListener(tabActivatedListener);
+
+    // Listen to tab URL changes
+    tabUpdatedListener = async (tabId, changeInfo, tab) => {
+      if (tabId !== currentTabId || !changeInfo.url) return;
+
+      console.log('[SidePanelContainer] Tab URL changed:', changeInfo.url);
+
+      const isProductPage = isAmazonProductPage(changeInfo.url);
+
+      if (!isProductPage) {
+        console.log('[SidePanelContainer] Navigated away from product page');
+        currentTabState = null;
+        loading = false;
+      } else {
+        console.log('[SidePanelContainer] Navigated to new product page');
+        await loadTabState(tabId);
+      }
+    };
+    chrome.tabs.onUpdated.addListener(tabUpdatedListener);
   });
 
   onDestroy(() => {
+    // Notify background that side panel closed
+    if (currentTabId) {
+      chrome.runtime.sendMessage({
+        type: 'SIDE_PANEL_CLOSED',
+        tabId: currentTabId
+      });
+    }
+
     // Clean up listeners
     if (storageListener) {
       chrome.storage.onChanged.removeListener(storageListener);
     }
     if (tabActivatedListener) {
       chrome.tabs.onActivated.removeListener(tabActivatedListener);
+    }
+    if (tabUpdatedListener) {
+      chrome.tabs.onUpdated.removeListener(tabUpdatedListener);
     }
   });
 
@@ -56,7 +109,7 @@
   async function loadActiveTabState() {
     const tab = await getActiveTab();
     if (!tab?.id) {
-      console.warn('[SidePanel] No active tab found');
+      console.warn('[SidePanelContainer] No active tab found');
       loading = false;
       return;
     }
@@ -76,17 +129,17 @@
       const state = result[key];
 
       if (!state) {
-        console.log('[SidePanel] No analysis data for tab:', tabId);
+        console.log('[SidePanelContainer] No analysis data for tab:', tabId);
         currentTabState = null;
         loading = false;
         return;
       }
 
-      console.log('[SidePanel] Loaded state for tab:', tabId, state.status);
+      console.log('[SidePanelContainer] Loaded state for tab:', tabId, state.status);
       currentTabState = state;
       loading = false;
     } catch (err) {
-      console.error('[SidePanel] Error loading tab state:', err);
+      console.error('[SidePanelContainer] Error loading tab state:', err);
       error = 'Failed to load analysis data';
       loading = false;
     }
@@ -122,7 +175,7 @@
       </button>
     </div>
   {:else if currentTabState.status === 'complete' && currentTabState.data}
-    <Sidebar
+    <AnalysisView
       analysis={currentTabState.data}
       loading={false}
       error={null}
