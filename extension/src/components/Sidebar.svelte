@@ -45,13 +45,6 @@
 </script>
 
 <div class="sidebar">
-  <!-- Header -->
-  <div class="header">
-    <div class="flex items-center">
-      <img src="/ruh_logo_transparent.png" alt="ruh" class="brand-logo" />
-    </div>
-  </div>
-
   <!-- Content -->
   <div class="content">
     {#if loading}
@@ -269,7 +262,7 @@
           <div class="space-y-2">
             {#each productAnalysis.allergens_detected as allergen}
               <div class="item-card">
-                <div class="flex items-start justify-between">
+                <div class="flex items-start justify-between gap-3">
                   <div class="flex-1">
                     <p class="font-medium text-gray-800">{allergen.name}</p>
                     <p class="text-sm text-gray-600 mt-1">{allergen.source}</p>
@@ -312,7 +305,7 @@
           <div class="space-y-2">
             {#each productAnalysis.other_concerns as concern}
               <div class="item-card">
-                <div class="flex items-start justify-between">
+                <div class="flex items-start justify-between gap-3">
                   <div class="flex-1">
                     <p class="font-medium text-gray-800">{concern.name}</p>
                     <p class="text-sm text-gray-600 mt-1">
@@ -375,7 +368,7 @@
   }
 
   .sidebar {
-    @apply fixed top-0 right-0 h-full w-[400px] shadow-2xl z-[999999] flex flex-col;
+    @apply w-full h-full flex flex-col;
     background: var(--color-bg-primary); /* Cream */
     font-family:
       "Inter",
@@ -398,24 +391,6 @@
       transform: translateX(100%);
       opacity: 0;
     }
-  }
-
-  .header {
-    padding: 24px 20px;
-    background: var(--color-bg-primary); /* Same as body - blends in */
-    border-bottom: 1px solid var(--color-bg-secondary); /* Subtle separator */
-  }
-
-  .brand-icon {
-    height: 84px;
-    width: 84px;
-    object-fit: contain;
-  }
-
-  .brand-logo {
-    height: 96px;
-    width: auto;
-    object-fit: contain;
   }
 
   .close-btn {
