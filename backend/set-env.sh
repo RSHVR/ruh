@@ -9,11 +9,12 @@ PROJECT_ID="ruh-backend"
 SERVICE_NAME="ruh-api"
 REGION="us-central1"
 
-# Your environment variables
-ANTHROPIC_API_KEY="***REMOVED***"
-SUPABASE_URL="https://vslnwiugfuvquiaafxgh.supabase.co"
-SUPABASE_KEY="your-supabase-anon-key"
-DATABASE_URL="postgresql://postgres:password@localhost:5432/eject"
+# Your environment variables - REPLACE WITH YOUR ACTUAL VALUES
+# WARNING: Never commit real API keys to the repository!
+ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:?Error: ANTHROPIC_API_KEY must be set}"
+SUPABASE_URL="${SUPABASE_URL:-https://your-project.supabase.co}"
+SUPABASE_KEY="${SUPABASE_KEY:?Error: SUPABASE_KEY must be set}"
+DATABASE_URL="${DATABASE_URL:-postgresql://postgres:password@localhost:5432/eject}"
 
 echo "🔐 Setting environment variables for ${SERVICE_NAME}..."
 
