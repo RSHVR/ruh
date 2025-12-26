@@ -11,9 +11,11 @@
   "host_permissions": [
     "https://*.amazon.com/*",
     "https://*.amazon.ca/*",
-    "http://localhost:8001/*",
     "https://ruh-api-948739110049.us-central1.run.app/*"
   ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://ruh-api-948739110049.us-central1.run.app"
+  },
   "background": {
     "service_worker": "background.js",
     "type": "module"

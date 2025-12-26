@@ -29,7 +29,9 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     debug: bool = False
-    allowed_origins: str = "http://localhost:3000,chrome-extension://*"
+    # CORS: Set your Chrome extension ID after publishing to Web Store
+    # Format: chrome-extension://YOUR_EXTENSION_ID
+    allowed_origins: str = "https://ruh-api-948739110049.us-central1.run.app"
 
     # Logging
     log_level: str = "INFO"
