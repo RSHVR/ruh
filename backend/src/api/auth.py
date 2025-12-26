@@ -1,5 +1,7 @@
 """API authentication using Bearer tokens."""
 
+import secrets
+
 from fastapi import HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -23,7 +25,8 @@ async def verify_api_key(
     Raises:
         HTTPException: If the API key is invalid
     """
-    if credentials.credentials != settings.api_key:
+    # Use constant-time comparison to prevent timing attacks
+    if not secrets.compare_digest(credentials.credentials, settings.api_key):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",

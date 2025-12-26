@@ -1,4 +1,13 @@
 <script lang="ts">
+  /**
+   * AnalysisView - Product Analysis Results Display
+   *
+   * Pure presentation component that renders product safety analysis results.
+   * Displays harm score, allergens, PFAS compounds, and other concerns.
+   *
+   * This component has no Chrome API interactions or state management -
+   * it purely renders the analysis data passed via props.
+   */
   import type { AnalysisResponse } from "@/types";
   import {
     getHarmScore,
@@ -7,24 +16,26 @@
     formatTimeAgo,
   } from "@/lib/utils";
 
-  export let analysis: AnalysisResponse | null = null;
-  export let loading: boolean = false;
-  export let error: string | null = null;
-  export let onClose: () => void;
+  interface Props {
+    analysis: AnalysisResponse | null;
+    loading?: boolean;
+    error?: string | null;
+    visible?: boolean;
+  }
 
-  let isClosing = false;
+  let { analysis, loading = false, error = null, visible = true }: Props = $props();
 
-  $: productAnalysis = analysis?.analysis;
-  $: harmScore = productAnalysis
+  const productAnalysis = $derived(analysis?.analysis);
+  const harmScore = $derived(productAnalysis
     ? getHarmScore(productAnalysis.overall_score)
-    : 0;
-  $: riskLevel = getRiskLevel(harmScore);
-  $: riskClass = getRiskClass(riskLevel);
+    : 0);
+  const riskLevel = $derived(getRiskLevel(harmScore));
+  const riskClass = $derived(getRiskClass(riskLevel));
 
   // Donut chart calculations
   const radius = 54;
   const circumference = 2 * Math.PI * radius;
-  $: strokeDashoffset = circumference - (harmScore / 100) * circumference;
+  const strokeDashoffset = $derived(circumference - (harmScore / 100) * circumference);
 
   // Get color based on risk level (ruh brand guidelines)
   function getScoreColor(score: number): string {
@@ -34,38 +45,15 @@
     return "#C18A72"; // Alert Rust (high)
   }
 
-  $: scoreColor = getScoreColor(harmScore);
+  const scoreColor = $derived(getScoreColor(harmScore));
 
-  function handleClose() {
-    isClosing = true;
-    setTimeout(() => {
-      onClose();
-    }, 300); // Match animation duration
+  function handleRetry() {
+    // Reload the page to trigger a new analysis
+    window.location.reload();
   }
 </script>
 
-<div class="sidebar slide-in" class:slide-out={isClosing}>
-  <!-- Header -->
-  <div class="header">
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <!-- <img
-          src="/ruh_icon_transparent.png"
-          alt="ruh icon"
-          class="brand-icon"
-        /> -->
-        <img src="/ruh_logo_transparent.png" alt="ruh" class="brand-logo" />
-      </div>
-      <button
-        onclick={handleClose}
-        class="close-btn"
-        aria-label="Close sidebar"
-      >
-        ✕
-      </button>
-    </div>
-  </div>
-
+<div class="sidebar">
   <!-- Content -->
   <div class="content">
     {#if loading}
@@ -79,11 +67,7 @@
         <span class="text-4xl">⚠️</span>
         <h3 class="text-lg font-semibold text-red-600 mt-3">Analysis Failed</h3>
         <p class="text-sm text-gray-600 mt-2">{error}</p>
-        <button
-          class="retry-btn"
-          onclick={() =>
-            window.parent.postMessage({ type: "RETRY_ANALYSIS" }, "*")}
-        >
+        <button class="retry-btn" onclick={handleRetry}>
           Try Again
         </button>
       </div>
@@ -287,7 +271,7 @@
           <div class="space-y-2">
             {#each productAnalysis.allergens_detected as allergen}
               <div class="item-card">
-                <div class="flex items-start justify-between">
+                <div class="flex items-start justify-between gap-3">
                   <div class="flex-1">
                     <p class="font-medium text-gray-800">{allergen.name}</p>
                     <p class="text-sm text-gray-600 mt-1">{allergen.source}</p>
@@ -330,7 +314,7 @@
           <div class="space-y-2">
             {#each productAnalysis.other_concerns as concern}
               <div class="item-card">
-                <div class="flex items-start justify-between">
+                <div class="flex items-start justify-between gap-3">
                   <div class="flex-1">
                     <p class="font-medium text-gray-800">{concern.name}</p>
                     <p class="text-sm text-gray-600 mt-1">
@@ -393,7 +377,7 @@
   }
 
   .sidebar {
-    @apply fixed top-0 right-0 h-full w-[400px] shadow-2xl z-[999999] flex flex-col;
+    @apply w-full h-full flex flex-col;
     background: var(--color-bg-primary); /* Cream */
     font-family:
       "Inter",
@@ -416,24 +400,6 @@
       transform: translateX(100%);
       opacity: 0;
     }
-  }
-
-  .header {
-    padding: 24px 20px;
-    background: var(--color-bg-primary); /* Same as body - blends in */
-    border-bottom: 1px solid var(--color-bg-secondary); /* Subtle separator */
-  }
-
-  .brand-icon {
-    height: 84px;
-    width: 84px;
-    object-fit: contain;
-  }
-
-  .brand-logo {
-    height: 96px;
-    width: auto;
-    object-fit: contain;
   }
 
   .close-btn {

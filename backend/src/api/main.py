@@ -47,13 +47,14 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Configure CORS for Chrome extensions and web clients
+# Origins configured via ALLOWED_ORIGINS env var (comma-separated)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins (includes chrome-extension://)
-    allow_credentials=False,  # Must be False when using allow_origins=["*"]
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "Accept"],
-    expose_headers=["*"],
+    expose_headers=["X-Request-ID"],
     max_age=3600,  # Cache preflight requests for 1 hour
 )
 

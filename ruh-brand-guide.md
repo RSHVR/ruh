@@ -44,13 +44,14 @@ This palette prioritizes warmth without overwhelming red tones. Soft Sand and Sa
 ## Typography
 
 ### Logo Font
-**Primary: Cormorant (Google Font)**
-- Weight: Medium (500) or Semi Bold (600)
-- Style: Elegant serif with personality, slightly condensed, stylistic terminals
+**Primary: Cormorant Infant (Google Font)**
+- Weight: Semi Bold (600)
+- Style: Semi Bold Italic (always italicized)
+- Elegant serif with personality, slightly condensed, stylistic terminals
 - Alternative: Spectral Medium (more contemporary feel) or Fraunces (variable font with character)
-- Logo treatment: "ruh" in lowercase, generous letter spacing (+75 to +100 tracking)
+- Logo treatment: "ruh" in lowercase italic, generous letter spacing (+75 to +100 tracking)
 
-**Why this works:** Cormorant is a display serif with beautiful, distinctive letterforms that feel elegant and intentional. The slightly condensed proportions and stylistic details give it personality while remaining readable. It has that sophisticated warmth perfect for a wellness brand without feeling corporate or generic.
+**Why this works:** Cormorant Infant is a display serif with beautiful, distinctive letterforms that feel elegant and intentional. The slightly condensed proportions and stylistic details give it personality while remaining readable. It has that sophisticated warmth perfect for a wellness brand without feeling corporate or generic.
 
 ### Heading Fonts
 **Primary: Inter**
@@ -88,7 +89,8 @@ This palette prioritizes warmth without overwhelming red tones. Soft Sand and Sa
 ```
 ruh
 ```
-- Font: Cormorant Medium (500) or Semi Bold (600)
+- Font: Cormorant Infant Semi Bold (600)
+- Style: Semi Bold Italic (always italicized)
 - All lowercase
 - Color: Soft Sand (#E8DCC8) on dark backgrounds
 - Color: Warm Taupe (#C9B5A0) on light backgrounds
@@ -570,7 +572,7 @@ Maintain consistent padding throughout (32px on all sides). Each screen stands a
   --color-text-secondary: #6B6560;
   
   /* Typography */
-  --font-logo: 'Cormorant', serif;
+  --font-logo: 'Cormorant Infant', serif;
   --font-primary: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-heading: 'Inter', sans-serif;
   
@@ -594,7 +596,7 @@ Maintain consistent padding throughout (32px on all sides). Each screen stands a
 <!-- Google Fonts -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant:wght@500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Infant:ital,wght@0,600;1,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 ```
 
 ---
