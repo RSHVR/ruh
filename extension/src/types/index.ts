@@ -58,6 +58,8 @@ export interface AnalysisResponse {
   alternatives: AlternativeProduct[];
   cached: boolean;
   cache_age_seconds?: number;
+  url_hash?: string;
+  reviews_stored?: number | null;
 }
 
 export interface CachedAnalysis {

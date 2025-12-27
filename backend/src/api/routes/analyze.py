@@ -444,6 +444,7 @@ async def analyze_product(
         )
 
         # Step 7: Store reviews with embeddings (non-blocking, best effort)
+        reviews_stored = None
         if client_reviews_html:
             try:
                 # Count reviews for logging
@@ -457,6 +458,7 @@ async def analyze_product(
                     source="client",
                     pages_fetched=5  # Default assumption from client
                 )
+                reviews_stored = stored
                 logger.info(f"✅ Reviews stored: {stored} success, {failed} failed")
             except Exception as e:
                 logger.warning(f"⚠️  Review storage failed (non-fatal): {e}")
@@ -467,6 +469,7 @@ async def analyze_product(
             cached=False,
             cache_age_seconds=None,
             url_hash=url_hash,  # Include for fetching reviews later
+            reviews_stored=reviews_stored,
         )
 
     except Exception as e:

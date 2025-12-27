@@ -134,6 +134,7 @@ class AnalysisResponse(BaseModel):
     cached: bool = False
     cache_age_seconds: Optional[int] = None
     url_hash: str = ""  # SHA256 hash of product URL for fetching reviews
+    reviews_stored: Optional[int] = None  # Number of reviews stored with embeddings
 
 
 class ScrapedProduct(BaseModel):

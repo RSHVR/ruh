@@ -188,6 +188,9 @@ async function startAnalysis() {
 
     const data = await response.json();
     console.log('[ruh] Analysis complete:', data);
+    if (data.reviews_stored !== null && data.reviews_stored !== undefined) {
+      console.log(`[ruh] Reviews stored: ${data.reviews_stored}`);
+    }
 
     // Notify background worker that analysis is complete
     chrome.runtime.sendMessage({
