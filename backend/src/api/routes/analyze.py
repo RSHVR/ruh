@@ -241,17 +241,15 @@ async def analyze_product(
         # Step 4a: Use client-provided HTML or fall back to scraping
         scraped_html = None
         if client_product_html:
-            # Use client-provided HTML directly (no scraping needed)
-            logger.info("✅ Using client-provided product HTML (skipping scraper)")
-            scraped_html = ScrapedProduct(
+            # Process client HTML using selector-based extraction
+            # This compresses ~2MB raw HTML to ~20KB clean text
+            logger.info("✅ Processing client-provided HTML with selector extraction")
+            from ...infrastructure.scrapers.amazon import AmazonScraper
+            amazon_scraper = AmazonScraper()
+            scraped_html = amazon_scraper.process_client_html(
                 url=analysis_request.product_url,
-                retailer="amazon",
-                raw_html_product=client_product_html,
-                raw_html_reviews=client_reviews_html or "",
-                has_reviews=bool(client_reviews_html),
-                confidence=0.95,  # High confidence since it's from user's session
-                scrape_method="client",
-                scraped_at=datetime.now(timezone.utc),
+                product_html=client_product_html,
+                reviews_html=client_reviews_html or "",
             )
         else:
             # Fall back to scraping (may fail on Cloud Run)

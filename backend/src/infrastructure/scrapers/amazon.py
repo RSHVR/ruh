@@ -156,6 +156,62 @@ class AmazonScraper(BaseScraper):
             logger.error(f"❌ Playwright fetch failed: {e}")
             return None
 
+    def process_client_html(
+        self,
+        url: str,
+        product_html: str,
+        reviews_html: str = ""
+    ) -> ScrapedProduct:
+        """Process client-provided HTML using the same extraction logic.
+
+        This applies selector-based extraction to reduce ~2MB raw HTML to ~20KB
+        clean text that Claude can process efficiently.
+
+        Args:
+            url: Product URL
+            product_html: Raw HTML from client (full DOM)
+            reviews_html: Raw reviews HTML from client (optional)
+
+        Returns:
+            ScrapedProduct with extracted text content
+        """
+        logger.info(f"📦 Processing client HTML: {len(product_html) / 1024:.1f}KB product, {len(reviews_html) / 1024:.1f}KB reviews")
+
+        # Parse product HTML
+        soup = BeautifulSoup(product_html, "html.parser")
+
+        # Remove excluded sections (ads, nav, sidebar)
+        self._remove_excluded_sections(soup)
+
+        # Extract only relevant product sections as plain text
+        extracted_product = self._extract_sections(soup, self.PRODUCT_SECTION_SELECTORS)
+
+        # Process reviews HTML if provided
+        extracted_reviews = ""
+        if reviews_html:
+            reviews_soup = BeautifulSoup(reviews_html, "html.parser")
+            extracted_reviews = self._extract_reviews_structured(reviews_soup)
+
+        # Log compression ratio
+        original_size = len(product_html) + len(reviews_html)
+        extracted_size = len(extracted_product) + len(extracted_reviews)
+        compression_ratio = (1 - extracted_size / original_size) * 100 if original_size > 0 else 0
+
+        logger.info(f"✅ Extracted: {len(extracted_product) / 1024:.1f}KB product, {len(extracted_reviews) / 1024:.1f}KB reviews")
+        logger.info(f"📉 Compression: {original_size / 1024:.1f}KB → {extracted_size / 1024:.1f}KB ({compression_ratio:.1f}% reduction)")
+
+        return ScrapedProduct(
+            url=url,
+            retailer=self._extract_retailer(url),
+            raw_html_product=extracted_product,
+            raw_html_reviews=extracted_reviews,
+            raw_html_snippet=extracted_product[:1000],
+            confidence=0.95,  # High confidence since it's from user's session
+            scrape_method="client",
+            scraped_at=datetime.now(timezone.utc),
+            has_reviews=len(extracted_reviews) > 100,
+        )
+
     async def scrape(self, url: str, include_reviews: bool = False) -> ScrapedProduct:
         """Scrape Amazon product page using Playwright.
 
