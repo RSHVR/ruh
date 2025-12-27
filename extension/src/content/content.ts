@@ -1,3 +1,6 @@
+import { extractASIN, fetchReviews, type ReviewsFetchResult } from '../lib/amazon';
+import type { AnalysisRequest } from '../types';
+
 // Inline utility function to avoid imports
 function isAmazonProductPage(url: string): boolean {
   try {
@@ -133,13 +136,50 @@ async function startAnalysis() {
       });
     }
 
+    // ============================================
+    // CLIENT-SIDE REVIEWS FETCHING
+    // ============================================
+    // Fetch reviews using user's Amazon session (cookies included automatically)
+    // This bypasses login requirements since we're making same-origin requests
+
+    let reviewsHtml: string | undefined;
+    const asin = extractASIN(currentProductUrl);
+
+    if (asin) {
+      console.log('[ruh] Fetching reviews for ASIN:', asin);
+
+      const reviewsResult: ReviewsFetchResult = await fetchReviews(asin, {
+        pages: 5,           // Fetch 5 pages (~50 reviews)
+        filter: 'all',      // All star ratings
+        sortBy: 'helpful',  // Most helpful first
+        delayMs: 300,       // 300ms between pages to avoid rate limiting
+      });
+
+      if (reviewsResult.success) {
+        reviewsHtml = reviewsResult.html;
+        // Count reviews by counting data-hook="review" occurrences
+        const reviewCount = (reviewsHtml.match(/data-hook="review"/g) || []).length;
+        console.log(`[ruh] Reviews fetched: ${reviewCount} reviews from ${reviewsResult.pagesLoaded} pages (${(reviewsHtml.length / 1024).toFixed(1)}KB)`);
+      } else {
+        console.warn('[ruh] Unable to read reviews');
+      }
+    } else {
+      console.warn('[ruh] Could not extract ASIN from URL');
+    }
+
+    // Build request payload
+    const requestBody: AnalysisRequest = {
+      product_url: currentProductUrl,
+      ...(reviewsHtml && { reviews_html: reviewsHtml }),
+    };
+
     console.log('[ruh] Calling API:', API_BASE_URL + '/api/analyze');
 
     // Call API
     const response = await fetch(API_BASE_URL + '/api/analyze', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ product_url: currentProductUrl })
+      body: JSON.stringify(requestBody)
     });
 
     if (!response.ok) {
@@ -164,7 +204,7 @@ async function startAnalysis() {
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Analysis failed';
-    console.error('[ruh] Analysis error:', error);
+    console.error('[ruh] Unable to send reviews to backend:', errorMessage);
 
     // Notify background worker about the error
     chrome.runtime.sendMessage({

@@ -13,6 +13,7 @@ from ...infrastructure.claude_agent import ProductSafetyAgent
 from ...infrastructure.product_scraper import ProductScraperService
 from ...infrastructure.claude_query import ClaudeQueryService
 from ...infrastructure.database import db
+from ...infrastructure.review_vector_service import review_vector_service
 from ...infrastructure.validation_logger import validation_logger
 from ..auth import verify_api_key
 from anthropic import RateLimitError
@@ -228,6 +229,13 @@ async def analyze_product(
         # Step 4: Cache miss - perform new analysis
         logger.info("📝 Cache miss, performing new analysis")
 
+        # Check if client provided reviews (extension fetched using user's Amazon session)
+        client_reviews_html = analysis_request.reviews_html
+        if client_reviews_html:
+            logger.info(f"📦 Client provided reviews: {len(client_reviews_html)} bytes")
+            # Debug: Show first 500 chars to confirm content
+            logger.debug(f"📦 Reviews preview: {client_reviews_html[:500]}...")
+
         # Step 4a: Try scraping HTML first
         logger.info("🕷️  Attempting to scrape product page")
         scraped_html = await scraper_service.try_scrape(analysis_request.product_url)
@@ -255,6 +263,12 @@ async def analyze_product(
         if scraped_html is not None and scraped_html.confidence > 0.3:
             # SUCCESS PATH: Scrape → Query → Agent
             logger.info("✅ Scraping succeeded - using two-step Claude process")
+
+            # Merge client-provided reviews with scraped product data
+            if client_reviews_html:
+                logger.info(f"🔀 Using client-provided reviews instead of scraped ({len(client_reviews_html)} bytes)")
+                scraped_html.raw_html_reviews = client_reviews_html
+                scraped_html.has_reviews = True
 
             # Claude Query: Extract structured data from HTML
             logger.info("📊 Step 1/2: Claude Query - extracting product data from HTML")
@@ -429,6 +443,24 @@ async def analyze_product(
             f"Analysis complete: {analysis.product_name} - Harm score: {harm_score}"
         )
 
+        # Step 7: Store reviews with embeddings (non-blocking, best effort)
+        if client_reviews_html:
+            try:
+                # Count reviews for logging
+                review_count = client_reviews_html.count('data-hook="review"')
+                logger.info(f"💬 Storing {review_count} reviews with embeddings...")
+
+                stored, failed = await review_vector_service.store_reviews(
+                    url_hash=url_hash,
+                    product_url=analysis_request.product_url,
+                    reviews_html=client_reviews_html,
+                    source="client",
+                    pages_fetched=5  # Default assumption from client
+                )
+                logger.info(f"✅ Reviews stored: {stored} success, {failed} failed")
+            except Exception as e:
+                logger.warning(f"⚠️  Review storage failed (non-fatal): {e}")
+
         return AnalysisResponse(
             analysis=analysis,
             alternatives=[],  # TODO: Implement alternatives
@@ -559,4 +591,130 @@ async def get_review_insights(
         raise HTTPException(
             status_code=500,
             detail=f"Review analysis failed: {str(e)}"
+        )
+
+
+# ============================================
+# SEMANTIC REVIEW SEARCH
+# ============================================
+
+from pydantic import BaseModel, Field
+from typing import Optional, List
+
+
+class ReviewSearchRequest(BaseModel):
+    """Request for semantic review search."""
+    query: str = Field(..., description="Search query (e.g., 'skin irritation', 'allergic reaction')")
+    url_hash: Optional[str] = Field(None, description="Filter to specific product")
+    top_k: int = Field(10, ge=1, le=50, description="Number of results to return")
+    min_rating: Optional[int] = Field(None, ge=1, le=5, description="Minimum star rating filter")
+    verified_only: bool = Field(False, description="Only include verified purchases")
+
+
+class ReviewSearchResult(BaseModel):
+    """Individual search result."""
+    id: str
+    url_hash: str
+    review_text: str
+    review_rating: Optional[int]
+    verified_purchase: bool
+    similarity: float
+    rerank_score: Optional[float] = None
+
+
+class ReviewSearchResponse(BaseModel):
+    """Response for semantic review search."""
+    query: str
+    results: List[ReviewSearchResult]
+    total_results: int
+
+
+@router.post("/reviews/search", response_model=ReviewSearchResponse)
+@limiter.limit("60/minute")
+async def search_reviews(
+    request: Request,
+    search_request: ReviewSearchRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    """Search reviews semantically using Cohere embeddings.
+
+    This endpoint allows searching across all stored reviews using
+    natural language queries. Useful for finding health complaints,
+    specific issues, or patterns across products.
+
+    Examples:
+    - "skin rash or irritation"
+    - "allergic reaction"
+    - "breathing problems"
+    - "chemical smell"
+    """
+    try:
+        logger.info(f"🔍 Searching reviews: '{search_request.query}'")
+
+        results = await review_vector_service.search_reviews(
+            query=search_request.query,
+            url_hash=search_request.url_hash,
+            top_k=search_request.top_k * 3,  # Retrieve more for reranking
+            rerank_top_n=search_request.top_k,
+            min_rating=search_request.min_rating,
+            verified_only=search_request.verified_only
+        )
+
+        # Format results
+        formatted_results = []
+        for r in results:
+            formatted_results.append(ReviewSearchResult(
+                id=str(r.get('id', '')),
+                url_hash=r.get('url_hash', ''),
+                review_text=r.get('review_text', '')[:500],  # Truncate for response
+                review_rating=r.get('review_rating'),
+                verified_purchase=r.get('verified_purchase', False),
+                similarity=r.get('similarity', 0.0),
+                rerank_score=r.get('rerank_score')
+            ))
+
+        logger.info(f"✅ Found {len(formatted_results)} matching reviews")
+
+        return ReviewSearchResponse(
+            query=search_request.query,
+            results=formatted_results,
+            total_results=len(formatted_results)
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Review search failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Review search failed: {str(e)}"
+        )
+
+
+@router.get("/reviews/{url_hash}/summary")
+async def get_review_summary(
+    url_hash: str,
+    api_key: str = Depends(verify_api_key)
+):
+    """Get review statistics for a product.
+
+    Returns rating distribution, verified purchase ratio,
+    and total review count.
+    """
+    try:
+        summary = await review_vector_service.get_review_summary(url_hash)
+
+        if not summary:
+            raise HTTPException(
+                status_code=404,
+                detail="No reviews found for this product"
+            )
+
+        return summary
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to get review summary: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get review summary: {str(e)}"
         )

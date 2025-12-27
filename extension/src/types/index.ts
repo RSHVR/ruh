@@ -73,3 +73,21 @@ export interface ProductInfo {
   name?: string;
   asin?: string;
 }
+
+/**
+ * Request payload for product analysis API
+ */
+export interface AnalysisRequest {
+  product_url: string;
+  /** Client-provided reviews HTML (fetched via user's Amazon session) */
+  reviews_html?: string;
+}
+
+/**
+ * Result from client-side reviews fetching
+ */
+export interface ReviewsFetchStatus {
+  success: boolean;
+  pagesLoaded: number;
+  error?: string;
+}

@@ -121,6 +121,10 @@ class AnalysisRequest(BaseModel):
     allergen_profile: list[str] = []  # User's known allergens
     force_refresh: bool = False  # Skip cache and re-analyze
 
+    # Client-side reviews (fetched by extension using user's Amazon session)
+    # This allows us to get paginated reviews without login issues
+    reviews_html: Optional[str] = None
+
 
 class AnalysisResponse(BaseModel):
     """Response containing product analysis and alternatives."""

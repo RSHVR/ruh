@@ -1,14 +1,23 @@
-"""Claude Query service for structured data extraction."""
+"""Claude Query service for structured data extraction.
+
+Uses Anthropic's structured outputs beta to guarantee valid JSON responses.
+No more fragile regex-based JSON parsing!
+"""
 
 import json
 import logging
 from typing import Dict, Any
+
 from anthropic import Anthropic
 
 from .config import settings
 from ..domain.models import ScrapedProduct
+from ..domain.extraction_schemas import ProductExtraction, ReviewInsightsExtraction
 
 logger = logging.getLogger(__name__)
+
+# Structured outputs beta identifier
+STRUCTURED_OUTPUTS_BETA = "structured-outputs-2025-11-13"
 
 
 class ClaudeQueryService:
@@ -16,6 +25,8 @@ class ClaudeQueryService:
 
     This is a separate, lightweight Claude call focused purely on data extraction.
     No web tools, no analysis - just HTML → JSON parsing.
+
+    Uses structured outputs to guarantee valid JSON matching our schemas.
     """
 
     def __init__(self):
@@ -43,33 +54,38 @@ class ClaudeQueryService:
         logger.info(f"   Original HTML size: {len(scraped_html.raw_html_product) / 1024:.1f}KB")
         logger.info(f"   Message size after processing: {len(user_message) / 1024:.1f}KB")
 
-        # Call Claude - NO TOOLS, just extraction
         try:
-            logger.info("📊 CLAUDE QUERY API CALL: Sending request to Anthropic...")
-            response = self.client.messages.create(
+            logger.info("📊 CLAUDE QUERY API CALL: Sending request with structured outputs...")
+
+            # Use structured outputs beta for guaranteed valid JSON
+            response = self.client.beta.messages.create(
                 model=self.model,
-                max_tokens=1024,  # Small - just need structured output
+                max_tokens=2048,  # Increased for larger extractions without truncation
+                betas=[STRUCTURED_OUTPUTS_BETA],
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_message}],
-                # NO TOOLS - pure extraction
+                output_format={
+                    "type": "json_schema",
+                    "schema": ProductExtraction.model_json_schema(),
+                },
             )
-            logger.info("📊 CLAUDE QUERY API SUCCESS: Received response from Anthropic")
 
-            # Log usage
+            logger.info("📊 CLAUDE QUERY API SUCCESS: Received response from Anthropic")
             logger.info(f"📊 CLAUDE QUERY TOKENS: Input={response.usage.input_tokens}, Output={response.usage.output_tokens}")
 
-            # Parse JSON response
-            extracted_data = self._parse_json_response(response)
+            # Handle special stop reasons
+            extracted_data = self._handle_response(response, "product extraction")
 
-            logger.info(f"✅ CLAUDE QUERY COMPLETE: Extracted product '{extracted_data.get('product_name', 'Unknown')}'")
-            logger.info(f"   Ingredients: {len(extracted_data.get('ingredients', []))}")
-            logger.info(f"   Materials: {len(extracted_data.get('materials', []))}")
+            if "error" not in extracted_data:
+                logger.info(f"✅ CLAUDE QUERY COMPLETE: Extracted product '{extracted_data.get('product_name', 'Unknown')}'")
+                logger.info(f"   Ingredients: {len(extracted_data.get('ingredients', []))}")
+                logger.info(f"   Materials: {len(extracted_data.get('materials', []))}")
+
+            return extracted_data
 
         except Exception as e:
             logger.error(f"❌ CLAUDE QUERY FAILED: {type(e).__name__}: {str(e)}")
             raise
-
-        return extracted_data
 
     async def extract_review_insights(self, scraped_html: ScrapedProduct) -> Dict[str, Any]:
         """Extract consumer insights from reviews and Q&A HTML.
@@ -90,131 +106,177 @@ class ClaudeQueryService:
         logger.info("💬 Calling Claude Query to extract consumer insights from reviews/Q&A")
         logger.info(f"   Reviews HTML size: {len(scraped_html.raw_html_reviews) / 1024:.1f}KB")
 
-        # Call Claude - NO TOOLS
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=1536,  # Larger for review analysis
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
-        )
+        try:
+            # Use structured outputs beta for guaranteed valid JSON
+            response = self.client.beta.messages.create(
+                model=self.model,
+                max_tokens=3072,  # Larger for comprehensive review analysis
+                betas=[STRUCTURED_OUTPUTS_BETA],
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+                output_format={
+                    "type": "json_schema",
+                    "schema": ReviewInsightsExtraction.model_json_schema(),
+                },
+            )
 
-        logger.info(f"Claude Query (reviews) usage: {response.usage}")
+            logger.info(f"Claude Query (reviews) usage: Input={response.usage.input_tokens}, Output={response.usage.output_tokens}")
 
-        # Parse response
-        insights = self._parse_json_response(response)
+            # Handle special stop reasons
+            insights = self._handle_response(response, "review extraction")
 
-        logger.info(f"✅ Extracted review insights")
-        logger.info(f"   Common complaints: {len(insights.get('common_complaints', []))}")
-        logger.info(f"   Health concerns: {len(insights.get('health_concerns', []))}")
+            if "error" not in insights:
+                logger.info(f"✅ Extracted review insights")
+                logger.info(f"   Common complaints: {len(insights.get('common_complaints', []))}")
+                logger.info(f"   Health concerns: {len(insights.get('health_concerns', []))}")
 
-        return insights
+            return insights
+
+        except Exception as e:
+            logger.error(f"❌ REVIEW EXTRACTION FAILED: {type(e).__name__}: {str(e)}")
+            raise
+
+    def _handle_response(self, response, context: str) -> Dict[str, Any]:
+        """Handle Claude response, checking for special stop reasons.
+
+        Args:
+            response: Anthropic API response
+            context: Description of what we were extracting (for logging)
+
+        Returns:
+            Parsed JSON dictionary or error dict
+        """
+        # Check for refusal (safety concern)
+        if response.stop_reason == "refusal":
+            logger.warning(f"⚠️  Claude refused {context} - possible safety concern")
+            return {"error": "Extraction refused by model", "confidence": 0.0}
+
+        # Check for truncation
+        if response.stop_reason == "max_tokens":
+            logger.warning(f"⚠️  Response truncated during {context} - consider increasing max_tokens")
+            return {"error": "Response truncated", "confidence": 0.0}
+
+        # With structured outputs, the response is guaranteed valid JSON
+        # No need for fragile regex extraction!
+        if response.content and hasattr(response.content[0], "text"):
+            text = response.content[0].text
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError as e:
+                # This should never happen with structured outputs
+                logger.error(f"❌ Unexpected JSON parse error (structured outputs should prevent this): {e}")
+                logger.debug(f"Raw text: {text[:500]}")
+                return {"error": "JSON parse error", "confidence": 0.0}
+
+        return {"error": "No content in response", "confidence": 0.0}
 
     def _build_extraction_prompt(self) -> str:
-        """Build system prompt for HTML extraction."""
+        """Build system prompt for HTML extraction.
+
+        Note: With structured outputs, we don't need to specify the JSON format
+        in the prompt - the schema handles that. We focus on extraction guidance.
+        """
         return """You are a data extraction expert. Your job is to parse HTML from product pages and extract structured product information.
 
-**Your Task:**
-Parse the provided HTML and extract product details into a clean JSON structure.
-
-**Output Format:**
-Return ONLY a JSON object (no explanation text) with this structure:
-{
-    "product_name": "string",
-    "brand": "string",
-    "price": "string (with currency)",
-    "availability": "string",
-    "ingredients": ["ingredient1", "ingredient2", ...],
-    "materials": ["material1", "material2", ...],
-    "features": ["feature1", "feature2", ...],
-    "description": "string (product description)",
-    "specifications": {
-        "key": "value",
-        ...
-    },
-    "warnings": ["warning1", "warning2", ...],
-    "confidence": 0.0-1.0
-}
-
 **Extraction Guidelines:**
-- For ingredients: Look for "Ingredients:", "Contains:", ingredient lists
-- For materials: Look for material composition, coating info (e.g., "PTFE coating", "100% cotton")
-- For features: Extract bullet points, key features
-- For warnings: Extract any warning text, disclaimers, or safety notices
-- Set confidence based on how complete the extraction is (0.0 = no data, 1.0 = complete)
-- If a field is not found, use empty string "" or empty array []
-- DO NOT include any text outside the JSON object
-"""
+
+1. **Product Name & Brand**: Extract the full product title and brand/manufacturer name.
+
+2. **Ingredients**: Look for:
+   - "Ingredients:" or "Contains:" sections
+   - Ingredient lists (comma-separated or bulleted)
+   - Active ingredients, inactive ingredients
+   - Food ingredients, cosmetic ingredients, etc.
+
+3. **Materials**: Look for:
+   - Material composition (e.g., "100% cotton", "stainless steel")
+   - Coating information (e.g., "PTFE coating", "ceramic non-stick")
+   - Construction materials
+   - "BPA-free", "lead-free", etc.
+
+4. **Features**: Extract bullet points and key product features.
+
+5. **Warnings**: Extract any:
+   - Warning text and disclaimers
+   - Safety notices
+   - Allergy warnings
+   - Age restrictions
+   - Usage precautions
+
+6. **Specifications**: Extract technical specifications as key-value pairs.
+
+7. **Confidence**: Set based on extraction completeness:
+   - 0.0-0.3: Little to no data found
+   - 0.4-0.6: Partial extraction
+   - 0.7-0.9: Good extraction with some gaps
+   - 1.0: Complete extraction of all available data
+
+If a field is not found in the HTML, use empty string or empty array as appropriate."""
 
     def _build_reviews_extraction_prompt(self) -> str:
-        """Build system prompt for reviews extraction."""
+        """Build system prompt for reviews extraction.
+
+        Note: With structured outputs, we don't need to specify the JSON format
+        in the prompt - the schema handles that. We focus on extraction guidance.
+        """
         return """You are a consumer review analysis expert. Your job is to parse HTML from product reviews and Q&A sections and extract key consumer insights, especially health-related complaints.
 
-**Your Task:**
-Parse the provided HTML and extract structured insights about consumer experiences.
+**Extraction Focus:**
 
-**Output Format:**
-Return ONLY a JSON object (no explanation text) with this structure:
-{
-    "overall_sentiment": "positive|mixed|negative",
-    "total_reviews_analyzed": number,
-    "rating_distribution": {
-        "5_star": number,
-        "4_star": number,
-        "3_star": number,
-        "2_star": number,
-        "1_star": number
-    },
-    "common_complaints": [
-        {
-            "complaint": "string (description)",
-            "frequency": "rare|occasional|common|frequent",
-            "severity": "low|moderate|high",
-            "examples": ["quote1", "quote2"]
-        }
-    ],
-    "health_concerns": [
-        {
-            "concern": "string (e.g., 'skin rash', 'allergic reaction', 'irritation')",
-            "frequency": "rare|occasional|common|frequent",
-            "severity": "low|moderate|high|severe",
-            "examples": ["quote1", "quote2"]
-        }
-    ],
-    "positive_feedback": [
-        {
-            "aspect": "string (what people liked)",
-            "frequency": "rare|occasional|common|frequent"
-        }
-    ],
-    "questions_concerns": [
-        {
-            "question": "string (from Q&A)",
-            "category": "safety|ingredients|usage|other",
-            "answered": boolean
-        }
-    ],
-    "verified_purchase_ratio": 0.0-1.0,
-    "confidence": 0.0-1.0
-}
+1. **Health Concerns** (HIGHEST PRIORITY):
+   - Skin reactions: rashes, irritation, burns, redness
+   - Allergic reactions: swelling, hives, breathing issues
+   - Sensitivities: itching, tingling, discomfort
+   - Adverse effects: headaches, nausea, dizziness
+   - Extract actual quotes as examples
 
-**Extraction Guidelines:**
-- FOCUS on health-related complaints: rashes, irritation, allergic reactions, burns, sensitivities
-- Extract actual quotes from reviews as examples
-- Categorize frequency based on how often the issue is mentioned
-- Pay attention to critical (1-2 star) reviews for safety issues
-- Analyze Q&A for safety-related questions
-- Note if complaints come from verified purchases (more trustworthy)
-- Set confidence based on sample size and clarity
-"""
+2. **Common Complaints**:
+   - Quality issues
+   - Performance problems
+   - Durability concerns
+   - Packaging issues
+
+3. **Frequency Classification**:
+   - rare: 1-2 mentions
+   - occasional: 3-5 mentions
+   - common: 6-10 mentions
+   - frequent: 10+ mentions
+
+4. **Severity Classification**:
+   - low: Minor inconvenience
+   - moderate: Significant issue but manageable
+   - high: Serious problem affecting usability
+   - severe: Safety concern or health impact
+
+5. **Positive Feedback**: What do people like about the product?
+
+6. **Q&A Section**: Safety-related questions, ingredient questions.
+
+7. **Verified Purchases**: Note the ratio of verified vs unverified reviews (verified are more trustworthy).
+
+8. **Confidence**: Based on:
+   - Number of reviews analyzed
+   - Clarity of review content
+   - Consistency of complaints
+   - 0.0-0.3: Few reviews or unclear data
+   - 0.4-0.6: Moderate sample
+   - 0.7-1.0: Good sample with clear patterns"""
 
     def _build_html_message(self, scraped: ScrapedProduct) -> str:
-        """Build user message with HTML."""
-        # Limit HTML size to prevent 400 errors (max ~100KB or 25k tokens)
-        max_chars = 10000  # 10-20KB limit
+        """Build user message with HTML.
+
+        Note: We no longer truncate HTML - our scraper already extracts only
+        relevant sections (title, ingredients, materials, etc.) so the content
+        is pre-filtered. Truncation was causing loss of important ingredient data.
+        """
         html_content = scraped.raw_html_product
-        if len(html_content) > max_chars:
-            logger.warning(f"⚠️  HTML too large ({len(html_content)} chars), truncating to {max_chars} chars")
-            html_content = html_content[:max_chars] + "\n\n[... HTML truncated due to size ...]"
+        html_size_kb = len(html_content) / 1024
+
+        # Log size for monitoring but don't truncate
+        if html_size_kb > 50:
+            logger.warning(f"⚠️  Large HTML payload: {html_size_kb:.1f}KB - consider optimizing scraper selectors")
+        else:
+            logger.info(f"📊 HTML payload size: {html_size_kb:.1f}KB")
 
         return f"""Extract product information from this HTML:
 
@@ -222,18 +284,22 @@ URL: {scraped.url}
 Retailer: {scraped.retailer}
 
 HTML Content:
-{html_content}
-
-Return the structured JSON object."""
+{html_content}"""
 
     def _build_reviews_message(self, scraped: ScrapedProduct) -> str:
-        """Build user message with reviews HTML."""
-        # Limit reviews HTML size to prevent 400 errors
-        max_chars = 10000  # 10-20KB limit (reviews need more space)
+        """Build user message with reviews HTML.
+
+        Note: We no longer truncate reviews - our scraper extracts only review
+        sections, and we want to capture all health concerns and complaints.
+        """
         reviews_content = scraped.raw_html_reviews
-        if len(reviews_content) > max_chars:
-            logger.warning(f"⚠️  Reviews HTML too large ({len(reviews_content)} chars), truncating to {max_chars} chars")
-            reviews_content = reviews_content[:max_chars] + "\n\n[... Reviews truncated due to size ...]"
+        reviews_size_kb = len(reviews_content) / 1024
+
+        # Log size for monitoring but don't truncate
+        if reviews_size_kb > 100:
+            logger.warning(f"⚠️  Large reviews payload: {reviews_size_kb:.1f}KB - consider pagination")
+        else:
+            logger.info(f"📊 Reviews payload size: {reviews_size_kb:.1f}KB")
 
         return f"""Extract consumer insights from these product reviews and Q&A:
 
@@ -241,39 +307,4 @@ URL: {scraped.url}
 Retailer: {scraped.retailer}
 
 Reviews & Q&A HTML Content:
-{reviews_content}
-
-Return the structured JSON object with consumer insights."""
-
-    def _parse_json_response(self, response: Any) -> Dict[str, Any]:
-        """Parse Claude's JSON response.
-
-        Args:
-            response: Anthropic API response
-
-        Returns:
-            Parsed JSON dictionary
-        """
-        for block in response.content:
-            if hasattr(block, "text"):
-                text = block.text.strip()
-
-                # Try to extract JSON
-                try:
-                    # Remove markdown if present
-                    if "```json" in text:
-                        text = text.split("```json")[1].split("```")[0].strip()
-                    elif "```" in text:
-                        text = text.split("```")[1].split("```")[0].strip()
-
-                    # Find JSON object
-                    start = text.find("{")
-                    end = text.rfind("}") + 1
-                    if start != -1 and end > start:
-                        json_str = text[start:end]
-                        return json.loads(json_str)
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse JSON: {e}")
-                    logger.debug(f"Raw text: {text[:500]}")
-
-        return {"error": "Failed to extract JSON", "confidence": 0.0}
+{reviews_content}"""
