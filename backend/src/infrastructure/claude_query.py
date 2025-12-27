@@ -8,7 +8,7 @@ import json
 import logging
 from typing import Dict, Any
 
-from anthropic import Anthropic
+from anthropic import Anthropic, transform_schema
 
 from .config import settings
 from ..domain.models import ScrapedProduct
@@ -18,34 +18,6 @@ logger = logging.getLogger(__name__)
 
 # Structured outputs beta identifier
 STRUCTURED_OUTPUTS_BETA = "structured-outputs-2025-11-13"
-
-
-def add_additional_properties_false(schema: Dict[str, Any]) -> Dict[str, Any]:
-    """Recursively add additionalProperties: false to all object types.
-
-    Claude's structured outputs beta requires this on all object schemas.
-    """
-    if isinstance(schema, dict):
-        # If this is an object type, add additionalProperties: false
-        if schema.get("type") == "object":
-            schema["additionalProperties"] = False
-
-        # Process $defs (Pydantic puts nested model definitions here)
-        if "$defs" in schema:
-            for def_name, def_schema in schema["$defs"].items():
-                add_additional_properties_false(def_schema)
-
-        # Recurse into nested schemas
-        for key in ["properties", "items", "allOf", "anyOf", "oneOf"]:
-            if key in schema:
-                if isinstance(schema[key], dict):
-                    for prop_name, prop_schema in schema[key].items():
-                        add_additional_properties_false(prop_schema)
-                elif isinstance(schema[key], list):
-                    for item in schema[key]:
-                        add_additional_properties_false(item)
-
-    return schema
 
 
 class ClaudeQueryService:
@@ -86,16 +58,18 @@ class ClaudeQueryService:
             logger.info("📊 CLAUDE QUERY API CALL: Sending request with structured outputs...")
 
             # Use structured outputs beta for guaranteed valid JSON
-            schema = add_additional_properties_false(ProductExtraction.model_json_schema())
+            # transform_schema() handles all Claude-specific requirements:
+            # - Adds additionalProperties: false to all objects
+            # - Removes unsupported constraints (min/max on numbers)
             response = self.client.beta.messages.create(
                 model=self.model,
-                max_tokens=2048,  # Increased for larger extractions without truncation
+                max_tokens=2048,
                 betas=[STRUCTURED_OUTPUTS_BETA],
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_message}],
                 output_format={
                     "type": "json_schema",
-                    "schema": schema,
+                    "schema": transform_schema(ProductExtraction),
                 },
             )
 
@@ -137,7 +111,6 @@ class ClaudeQueryService:
 
         try:
             # Use structured outputs beta for guaranteed valid JSON
-            schema = add_additional_properties_false(ReviewInsightsExtraction.model_json_schema())
             response = self.client.beta.messages.create(
                 model=self.model,
                 max_tokens=3072,  # Larger for comprehensive review analysis
@@ -146,7 +119,7 @@ class ClaudeQueryService:
                 messages=[{"role": "user", "content": user_message}],
                 output_format={
                     "type": "json_schema",
-                    "schema": schema,
+                    "schema": transform_schema(ReviewInsightsExtraction),
                 },
             )
 
