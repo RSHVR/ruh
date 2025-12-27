@@ -25,3 +25,11 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Development/Preview files
+src/preview.html
+src/preview.ts
+
+# Tool artifacts
+../.bfg-report/
+../.playwright-mcp/
