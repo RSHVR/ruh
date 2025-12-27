@@ -17,6 +17,24 @@ from .database import db
 logger = logging.getLogger(__name__)
 
 
+def clean_text(text: str) -> str:
+    """Clean text before embedding.
+
+    Based on scraper-agent's html_cleaner._clean_text() approach.
+    """
+    if not text:
+        return ""
+    # Remove excessive whitespace (newlines, tabs, multiple spaces)
+    text = re.sub(r'\s+', ' ', text)
+    # Remove repeated punctuation (... → ., !!! → !)
+    text = re.sub(r'([.!?,])\1+', r'\1', text)
+    # Remove standalone special characters
+    text = re.sub(r'\s+[^\w\s]\s+', ' ', text)
+    # Remove zero-width characters
+    text = text.replace('\u200b', '').replace('\ufeff', '').replace('\u00a0', ' ')
+    return text.strip()
+
+
 class ReviewVectorService:
     """Service for storing and searching product reviews with vector embeddings.
 
@@ -211,10 +229,11 @@ class ReviewVectorService:
             try:
                 review = {}
 
-                # Extract review text
+                # Extract review text and clean it
                 text_el = div.find('span', {'data-hook': 'review-body'})
                 if text_el:
-                    review['review_text'] = text_el.get_text(strip=True)
+                    raw_text = text_el.get_text(strip=True)
+                    review['review_text'] = clean_text(raw_text)
                 else:
                     continue  # Skip reviews without text
 
