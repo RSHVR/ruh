@@ -250,6 +250,8 @@ async def analyze_product(
                 raw_html_reviews=client_reviews_html or "",
                 has_reviews=bool(client_reviews_html),
                 confidence=0.95,  # High confidence since it's from user's session
+                scrape_method="client",
+                scraped_at=datetime.now(timezone.utc),
             )
         else:
             # Fall back to scraping (may fail on Cloud Run)
