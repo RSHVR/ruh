@@ -121,9 +121,10 @@ class AnalysisRequest(BaseModel):
     allergen_profile: list[str] = []  # User's known allergens
     force_refresh: bool = False  # Skip cache and re-analyze
 
-    # Client-side reviews (fetched by extension using user's Amazon session)
-    # This allows us to get paginated reviews without login issues
-    reviews_html: Optional[str] = None
+    # Client-side HTML (captured by extension from user's session)
+    # This bypasses bot detection since we're on the actual page
+    product_html: Optional[str] = None  # Product page DOM
+    reviews_html: Optional[str] = None  # Paginated reviews
 
 
 class AnalysisResponse(BaseModel):

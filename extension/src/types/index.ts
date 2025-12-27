@@ -81,6 +81,8 @@ export interface ProductInfo {
  */
 export interface AnalysisRequest {
   product_url: string;
+  /** Client-provided product page HTML (captured from DOM) */
+  product_html?: string;
   /** Client-provided reviews HTML (fetched via user's Amazon session) */
   reviews_html?: string;
 }

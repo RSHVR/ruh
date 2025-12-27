@@ -137,11 +137,16 @@ async function startAnalysis() {
     }
 
     // ============================================
-    // CLIENT-SIDE REVIEWS FETCHING
+    // CLIENT-SIDE DATA EXTRACTION
     // ============================================
-    // Fetch reviews using user's Amazon session (cookies included automatically)
-    // This bypasses login requirements since we're making same-origin requests
+    // Capture product page HTML directly from the DOM (user's session)
+    // This bypasses bot detection since we're on the actual page
 
+    // Capture product page HTML
+    const productHtml = document.documentElement.outerHTML;
+    console.log(`[ruh] Product page captured: ${(productHtml.length / 1024).toFixed(1)}KB`);
+
+    // Fetch reviews using user's Amazon session (cookies included automatically)
     let reviewsHtml: string | undefined;
     const asin = extractASIN(currentProductUrl);
 
@@ -170,6 +175,7 @@ async function startAnalysis() {
     // Build request payload
     const requestBody: AnalysisRequest = {
       product_url: currentProductUrl,
+      product_html: productHtml,
       ...(reviewsHtml && { reviews_html: reviewsHtml }),
     };
 

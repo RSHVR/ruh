@@ -6,7 +6,7 @@ import logging
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from ...domain.models import AnalysisRequest, AnalysisResponse, ProductAnalysis, ReviewInsights
+from ...domain.models import AnalysisRequest, AnalysisResponse, ProductAnalysis, ReviewInsights, ScrapedProduct
 from ...domain.harm_calculator import HarmScoreCalculator
 from ...domain.ingredient_matcher import match_ingredients_to_databases
 from ...infrastructure.claude_agent import ProductSafetyAgent
@@ -229,16 +229,32 @@ async def analyze_product(
         # Step 4: Cache miss - perform new analysis
         logger.info("📝 Cache miss, performing new analysis")
 
-        # Check if client provided reviews (extension fetched using user's Amazon session)
+        # Check if client provided HTML (extension captured from user's session)
+        client_product_html = analysis_request.product_html
         client_reviews_html = analysis_request.reviews_html
+
+        if client_product_html:
+            logger.info(f"📦 Client provided product HTML: {len(client_product_html)} bytes")
         if client_reviews_html:
             logger.info(f"📦 Client provided reviews: {len(client_reviews_html)} bytes")
-            # Debug: Show first 500 chars to confirm content
-            logger.debug(f"📦 Reviews preview: {client_reviews_html[:500]}...")
 
-        # Step 4a: Try scraping HTML first
-        logger.info("🕷️  Attempting to scrape product page")
-        scraped_html = await scraper_service.try_scrape(analysis_request.product_url)
+        # Step 4a: Use client-provided HTML or fall back to scraping
+        scraped_html = None
+        if client_product_html:
+            # Use client-provided HTML directly (no scraping needed)
+            logger.info("✅ Using client-provided product HTML (skipping scraper)")
+            scraped_html = ScrapedProduct(
+                url=analysis_request.product_url,
+                retailer="amazon",
+                raw_html_product=client_product_html,
+                raw_html_reviews=client_reviews_html or "",
+                has_reviews=bool(client_reviews_html),
+                confidence=0.95,  # High confidence since it's from user's session
+            )
+        else:
+            # Fall back to scraping (may fail on Cloud Run)
+            logger.info("🕷️  No client HTML, attempting to scrape product page")
+            scraped_html = await scraper_service.try_scrape(analysis_request.product_url)
 
         # Step 4b: Load knowledge bases from Supabase (with graceful fallback)
         allergen_db = []
@@ -261,14 +277,8 @@ async def analyze_product(
         basic_analysis = None  # Store database-only fallback
 
         if scraped_html is not None and scraped_html.confidence > 0.3:
-            # SUCCESS PATH: Scrape → Query → Agent
-            logger.info("✅ Scraping succeeded - using two-step Claude process")
-
-            # Merge client-provided reviews with scraped product data
-            if client_reviews_html:
-                logger.info(f"🔀 Using client-provided reviews instead of scraped ({len(client_reviews_html)} bytes)")
-                scraped_html.raw_html_reviews = client_reviews_html
-                scraped_html.has_reviews = True
+            # SUCCESS PATH: HTML available → Query → Agent
+            logger.info("✅ HTML available - using two-step Claude process")
 
             # Claude Query: Extract structured data from HTML
             logger.info("📊 Step 1/2: Claude Query - extracting product data from HTML")
