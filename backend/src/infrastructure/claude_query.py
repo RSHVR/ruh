@@ -8,7 +8,7 @@ import json
 import logging
 from typing import Dict, Any
 
-from anthropic import Anthropic, transform_schema
+from anthropic import Anthropic
 
 from .config import settings
 from ..domain.models import ScrapedProduct
@@ -56,28 +56,27 @@ class ClaudeQueryService:
 
         try:
             logger.info("📊 CLAUDE QUERY API CALL: Sending request with structured outputs...")
+            logger.info(f"   Model: {self.model}")
+            logger.info(f"   Beta: {STRUCTURED_OUTPUTS_BETA}")
+            logger.info(f"   System prompt length: {len(system_prompt)} chars")
+            logger.info(f"   User message length: {len(user_message)} chars")
 
-            # Use structured outputs beta for guaranteed valid JSON
-            # transform_schema() handles all Claude-specific requirements:
-            # - Adds additionalProperties: false to all objects
-            # - Removes unsupported constraints (min/max on numbers)
-            response = self.client.beta.messages.create(
+            # Use .parse() which handles schema transformation automatically
+            # and returns parsed_output as a validated Pydantic model
+            response = self.client.beta.messages.parse(
                 model=self.model,
                 max_tokens=2048,
                 betas=[STRUCTURED_OUTPUTS_BETA],
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_message}],
-                output_format={
-                    "type": "json_schema",
-                    "schema": transform_schema(ProductExtraction),
-                },
+                output_format=ProductExtraction,
             )
 
             logger.info("📊 CLAUDE QUERY API SUCCESS: Received response from Anthropic")
             logger.info(f"📊 CLAUDE QUERY TOKENS: Input={response.usage.input_tokens}, Output={response.usage.output_tokens}")
 
             # Handle special stop reasons
-            extracted_data = self._handle_response(response, "product extraction")
+            extracted_data = self._handle_parse_response(response, "product extraction")
 
             if "error" not in extracted_data:
                 logger.info(f"✅ CLAUDE QUERY COMPLETE: Extracted product '{extracted_data.get('product_name', 'Unknown')}'")
@@ -88,6 +87,11 @@ class ClaudeQueryService:
 
         except Exception as e:
             logger.error(f"❌ CLAUDE QUERY FAILED: {type(e).__name__}: {str(e)}")
+            # Log more details for BadRequestError
+            if hasattr(e, 'response'):
+                logger.error(f"   Response body: {getattr(e.response, 'text', 'N/A')}")
+            if hasattr(e, 'body'):
+                logger.error(f"   Error body: {e.body}")
             raise
 
     async def extract_review_insights(self, scraped_html: ScrapedProduct) -> Dict[str, Any]:
@@ -110,23 +114,20 @@ class ClaudeQueryService:
         logger.info(f"   Reviews HTML size: {len(scraped_html.raw_html_reviews) / 1024:.1f}KB")
 
         try:
-            # Use structured outputs beta for guaranteed valid JSON
-            response = self.client.beta.messages.create(
+            # Use .parse() which handles schema transformation automatically
+            response = self.client.beta.messages.parse(
                 model=self.model,
                 max_tokens=3072,  # Larger for comprehensive review analysis
                 betas=[STRUCTURED_OUTPUTS_BETA],
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_message}],
-                output_format={
-                    "type": "json_schema",
-                    "schema": transform_schema(ReviewInsightsExtraction),
-                },
+                output_format=ReviewInsightsExtraction,
             )
 
             logger.info(f"Claude Query (reviews) usage: Input={response.usage.input_tokens}, Output={response.usage.output_tokens}")
 
             # Handle special stop reasons
-            insights = self._handle_response(response, "review extraction")
+            insights = self._handle_parse_response(response, "review extraction")
 
             if "error" not in insights:
                 logger.info(f"✅ Extracted review insights")
@@ -139,15 +140,18 @@ class ClaudeQueryService:
             logger.error(f"❌ REVIEW EXTRACTION FAILED: {type(e).__name__}: {str(e)}")
             raise
 
-    def _handle_response(self, response, context: str) -> Dict[str, Any]:
-        """Handle Claude response, checking for special stop reasons.
+    def _handle_parse_response(self, response, context: str) -> Dict[str, Any]:
+        """Handle response from .parse() method, checking for special stop reasons.
+
+        The .parse() method returns a response with parsed_output that is
+        already a validated Pydantic model.
 
         Args:
-            response: Anthropic API response
+            response: Anthropic API response from .parse()
             context: Description of what we were extracting (for logging)
 
         Returns:
-            Parsed JSON dictionary or error dict
+            Dictionary from the parsed Pydantic model, or error dict
         """
         # Check for refusal (safety concern)
         if response.stop_reason == "refusal":
@@ -159,15 +163,18 @@ class ClaudeQueryService:
             logger.warning(f"⚠️  Response truncated during {context} - consider increasing max_tokens")
             return {"error": "Response truncated", "confidence": 0.0}
 
-        # With structured outputs, the response is guaranteed valid JSON
-        # No need for fragile regex extraction!
+        # .parse() returns parsed_output as a validated Pydantic model
+        if hasattr(response, 'parsed_output') and response.parsed_output is not None:
+            # Convert Pydantic model to dict
+            return response.parsed_output.model_dump()
+
+        # Fallback: try to get text content
         if response.content and hasattr(response.content[0], "text"):
             text = response.content[0].text
             try:
                 return json.loads(text)
             except json.JSONDecodeError as e:
-                # This should never happen with structured outputs
-                logger.error(f"❌ Unexpected JSON parse error (structured outputs should prevent this): {e}")
+                logger.error(f"❌ JSON parse error in fallback: {e}")
                 logger.debug(f"Raw text: {text[:500]}")
                 return {"error": "JSON parse error", "confidence": 0.0}
 
