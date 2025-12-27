@@ -66,7 +66,7 @@ export interface CachedAnalysis {
   url: string;
 }
 
-export type RiskLevel = 'Safe' | 'Low Risk' | 'Moderate Risk' | 'High Risk' | 'Dangerous';
+export type RiskLevel = 'Low Risk' | 'Minor Risk' | 'Moderate Risk' | 'High Risk' | 'Severe Risk';
 
 export interface ProductInfo {
   url: string;

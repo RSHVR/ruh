@@ -11,11 +11,11 @@ export function getHarmScore(overallScore: number): number {
  * Get risk level from harm score
  */
 export function getRiskLevel(harmScore: number): RiskLevel {
-  if (harmScore <= 20) return 'Safe';
-  if (harmScore <= 40) return 'Low Risk';
+  if (harmScore <= 20) return 'Low Risk';
+  if (harmScore <= 40) return 'Minor Risk';
   if (harmScore <= 60) return 'Moderate Risk';
   if (harmScore <= 80) return 'High Risk';
-  return 'Dangerous';
+  return 'Severe Risk';
 }
 
 /**
@@ -23,11 +23,11 @@ export function getRiskLevel(harmScore: number): RiskLevel {
  */
 export function getRiskClass(riskLevel: RiskLevel): string {
   const map: Record<RiskLevel, string> = {
-    'Safe': 'risk-safe',
     'Low Risk': 'risk-low',
+    'Minor Risk': 'risk-minor',
     'Moderate Risk': 'risk-moderate',
     'High Risk': 'risk-high',
-    'Dangerous': 'risk-dangerous'
+    'Severe Risk': 'risk-severe'
   };
   return map[riskLevel];
 }
@@ -37,11 +37,11 @@ export function getRiskClass(riskLevel: RiskLevel): string {
  */
 export function getRiskColor(riskLevel: RiskLevel): string {
   const map: Record<RiskLevel, string> = {
-    'Safe': '#10b981',
-    'Low Risk': '#84cc16',
-    'Moderate Risk': '#f59e0b',
-    'High Risk': '#ef4444',
-    'Dangerous': '#dc2626'
+    'Low Risk': '#9BB88F',
+    'Minor Risk': '#b8c9a8',
+    'Moderate Risk': '#D4A574',
+    'High Risk': '#c45c4a',
+    'Severe Risk': '#a63d2d'
   };
   return map[riskLevel];
 }

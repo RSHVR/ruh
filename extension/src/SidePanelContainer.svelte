@@ -193,7 +193,7 @@
     width: 100%;
     height: 100vh;
     overflow-y: auto;
-    background: var(--color-bg-primary, #FFFCF8);
+    background: var(--color-bg-primary, #fffbf5);
   }
 
   .empty-state {

@@ -73,20 +73,22 @@
   </div>
 
   <div class="message-scroller">
-    {#each messages as message (message.id)}
-      <div
-        class="message-item {message.type === 'progress' ? 'progress-message' : 'witty-message'}"
-        in:fly={{ y: 20, duration: 300 }}
-        out:fade={{ duration: 200 }}
-      >
-        {#if message.type === 'progress'}
-          <span class="message-icon">⚙️</span>
-        {:else}
-          <span class="message-icon">💭</span>
-        {/if}
-        <span class="message-text">{message.text}</span>
-      </div>
-    {/each}
+    <div class="message-list">
+      {#each messages as message (message.id)}
+        <div
+          class="message-item {message.type === 'progress' ? 'progress-message' : 'witty-message'}"
+          in:fly={{ y: -20, duration: 300 }}
+          out:fade={{ duration: 150 }}
+        >
+          {#if message.type === 'progress'}
+            <span class="message-icon">⚙️</span>
+          {:else}
+            <span class="message-icon">💭</span>
+          {/if}
+          <span class="message-text">{message.text}</span>
+        </div>
+      {/each}
+    </div>
   </div>
 </div>
 
@@ -96,8 +98,10 @@
     flex-direction: column;
     align-items: center;
     padding: 48px 20px;
-    height: 100%;
-    background: var(--color-bg-primary, #FFFCF8);
+    height: 100vh;
+    box-sizing: border-box;
+    overflow: hidden;
+    background: var(--color-bg-primary, #fffbf5);
   }
 
   .loading-header {
@@ -142,9 +146,17 @@
     max-width: 360px;
     overflow: hidden;
     display: flex;
-    flex-direction: column-reverse;
-    gap: 8px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     padding: 0 8px;
+  }
+
+  .message-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
   }
 
   .message-item {
@@ -155,18 +167,6 @@
     border-radius: 8px;
     font-size: 14px;
     line-height: 1.5;
-    animation: slideUp 300ms ease-out;
-  }
-
-  @keyframes slideUp {
-    from {
-      transform: translateY(20px);
-      opacity: 0;
-    }
-    to {
-      transform: translateY(0);
-      opacity: 1;
-    }
   }
 
   .witty-message {

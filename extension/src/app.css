@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Infant:wght@400;500;600;700&family=Poppins:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Infant:wght@600;700&family=Work+Sans:wght@400;500;600;700&family=Poppins:wght@300;400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -53,23 +53,28 @@ body {
   }
 }
 
-/* Risk level colors */
-.risk-safe {
-  @apply bg-safe text-white;
+/* Risk level colors - using brand palette */
+.risk-low {
+  background: var(--color-safe);
+  color: white;
 }
 
-.risk-low {
-  @apply bg-lowRisk text-white;
+.risk-minor {
+  background: #b8c9a8;
+  color: #2d3a28;
 }
 
 .risk-moderate {
-  @apply bg-moderate text-white;
+  background: var(--color-caution);
+  color: white;
 }
 
 .risk-high {
-  @apply bg-highRisk text-white;
+  background: #c45c4a;
+  color: white;
 }
 
-.risk-dangerous {
-  @apply bg-dangerous text-white;
+.risk-severe {
+  background: #a63d2d;
+  color: white;
 }
