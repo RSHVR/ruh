@@ -5,14 +5,16 @@ Uses Cohere for embeddings and reranking, Supabase pgvector for storage.
 
 import logging
 import re
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from datetime import datetime, timezone
 
-import cohere
 from bs4 import BeautifulSoup
 
 from .config import settings
 from .database import db
+
+if TYPE_CHECKING:
+    import cohere
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,7 @@ class ReviewVectorService:
             if not settings.cohere_api_key:
                 logger.warning("Cohere API key not configured - embeddings disabled")
                 return False
+            import cohere
             self.co = cohere.Client(settings.cohere_api_key)
             logger.info("Cohere client initialized")
         return True
