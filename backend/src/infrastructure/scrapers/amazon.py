@@ -4,10 +4,11 @@ import re
 import asyncio
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, TYPE_CHECKING
 import logging
 
-from playwright.async_api import async_playwright, Browser
+if TYPE_CHECKING:
+    from playwright.async_api import Browser
 
 from .base import BaseScraper
 from ...domain.models import ScrapedProduct
@@ -112,6 +113,7 @@ class AmazonScraper(BaseScraper):
             HTML content or None if failed
         """
         try:
+            from playwright.async_api import async_playwright
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=True)
                 page = await browser.new_page()
