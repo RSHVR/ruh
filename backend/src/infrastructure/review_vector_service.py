@@ -216,6 +216,10 @@ class ReviewVectorService:
     def parse_reviews_html(self, html: str) -> List[Dict[str, Any]]:
         """Parse reviews from Amazon HTML into structured data.
 
+        Handles both:
+        1. Single page HTML (from product page or single reviews page)
+        2. Concatenated multi-page HTML (marked with <!-- REVIEWS_PAGE_N -->)
+
         Args:
             html: Raw HTML from Amazon reviews pages
 
@@ -223,10 +227,30 @@ class ReviewVectorService:
             List of review dicts with text, rating, reviewer, etc.
         """
         reviews = []
-        soup = BeautifulSoup(html, 'lxml')
 
-        # Find all review containers
-        review_divs = soup.find_all('div', {'data-hook': 'review'})
+        # Debug: Log raw HTML stats
+        html_size_kb = len(html) / 1024
+        string_count = html.count('data-hook="review"') + html.count("data-hook='review'")
+        logger.info(f"📝 Parsing reviews: {html_size_kb:.1f}KB HTML, {string_count} data-hook='review' string matches")
+
+        # Check if this is concatenated multi-page HTML
+        # The extension joins pages with <!-- REVIEWS_PAGE_N --> markers
+        page_marker_pattern = r'<!-- REVIEWS_PAGE_\d+ -->'
+        page_chunks = re.split(page_marker_pattern, html)
+
+        # Filter out empty chunks and parse each page separately
+        page_chunks = [chunk.strip() for chunk in page_chunks if chunk.strip()]
+        logger.info(f"📝 Split into {len(page_chunks)} page chunks for parsing")
+
+        review_divs = []
+        for i, chunk in enumerate(page_chunks):
+            # Use html.parser - more forgiving of Amazon's messy HTML than lxml
+            soup = BeautifulSoup(chunk, 'html.parser')
+            chunk_divs = soup.find_all('div', {'data-hook': 'review'})
+            logger.debug(f"📝 Page chunk {i+1}: found {len(chunk_divs)} review divs")
+            review_divs.extend(chunk_divs)
+
+        logger.info(f"📝 BeautifulSoup found {len(review_divs)} total review divs across all chunks")
 
         for div in review_divs:
             try:
