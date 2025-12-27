@@ -25,25 +25,64 @@ let triggerButton: HTMLDivElement | null = null;
 let currentProductUrl: string | null = null;
 let buttonDismissed: boolean = false;
 
+// ============================================
+// BUTTON VISIBILITY MANAGEMENT
+// ============================================
+
 /**
- * Listen for side panel state changes from background
+ * Query background to check if side panel is open for this tab
+ * and update button visibility accordingly.
+ */
+async function updateButtonVisibility() {
+  if (!triggerButton || buttonDismissed) return;
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'IS_SIDE_PANEL_OPEN'
+    });
+
+    if (response?.isOpen) {
+      triggerButton.style.display = 'none';
+    } else if (currentProductUrl) {
+      triggerButton.style.display = 'block';
+    }
+  } catch (err) {
+    // If query fails, default to showing button (if we have data)
+    if (currentProductUrl) {
+      triggerButton.style.display = 'block';
+    }
+  }
+}
+
+/**
+ * Listen for side panel state changes from background (polling notifications)
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'SIDE_PANEL_STATE_CHANGED') {
     console.log('[Ruh Content] Side panel state changed:', message.isOpen);
 
-    if (message.isOpen) {
-      // Hide trigger button when side panel opens
-      if (triggerButton) {
-        triggerButton.style.display = 'none';
-      }
-    } else {
-      // Show trigger button when side panel closes (if analysis exists)
-      if (triggerButton && currentProductUrl) {
-        triggerButton.style.display = 'block';
-      }
+    if (triggerButton && !buttonDismissed) {
+      triggerButton.style.display = message.isOpen ? 'none' : 'block';
     }
   }
+});
+
+/**
+ * Check state when tab becomes visible (user switches back to this tab)
+ */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    console.log('[Ruh Content] Tab became visible, checking side panel state');
+    updateButtonVisibility();
+  }
+});
+
+/**
+ * Check state when window regains focus
+ */
+window.addEventListener('focus', () => {
+  console.log('[Ruh Content] Window focused, checking side panel state');
+  updateButtonVisibility();
 });
 
 /**
@@ -243,12 +282,16 @@ async function injectTriggerButton(harmScore: number) {
 
   // Add click handler to open side panel
   triggerButton.addEventListener('click', () => {
+    // Hide button immediately (optimistic update)
+    if (triggerButton) {
+      triggerButton.style.display = 'none';
+    }
     chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });
   });
 
-  // Check if side panel is already open
+  // Check if side panel is already open before showing button
   const response = await chrome.runtime.sendMessage({
-    type: 'GET_SIDE_PANEL_STATE'
+    type: 'IS_SIDE_PANEL_OPEN'
   });
 
   if (response?.isOpen) {

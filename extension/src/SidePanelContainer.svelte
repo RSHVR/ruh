@@ -4,10 +4,13 @@
    *
    * Manages the Chrome Side Panel lifecycle, state synchronization,
    * and event coordination. This container component handles:
-   * - Side panel open/close state tracking
    * - Tab switching and URL navigation detection
    * - Analysis data loading from chrome.storage
    * - Empty states and error handling
+   *
+   * Note: Side panel open/close state is now tracked by background.ts
+   * using chrome.runtime.getContexts() polling. This component no longer
+   * sends SIDE_PANEL_OPENED/CLOSED messages.
    *
    * Renders AnalysisView component when data is available.
    */
@@ -17,6 +20,9 @@
   import type { TabAnalysisState } from './lib/storage-sync';
   import { getTabStorageKey, getActiveTab } from './lib/storage-sync';
   import { isAmazonProductPage } from '@/lib/utils';
+
+  // Props: initialTabId is passed from sidepanel.ts (read from URL query params)
+  let { initialTabId = null }: { initialTabId: number | null } = $props();
 
   let currentTabState: TabAnalysisState | null = $state(null);
   let currentTabId: number | null = $state(null);
@@ -28,18 +34,13 @@
   let tabUpdatedListener: ((tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void) | null = null;
 
   onMount(async () => {
-    console.log('[SidePanelContainer] Initializing side panel');
+    console.log('[SidePanelContainer] Initializing with initialTabId:', initialTabId);
 
-    // Load initial state for active tab
-    await loadActiveTabState();
-
-    // Notify background that side panel opened
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tabs[0]?.id) {
-      chrome.runtime.sendMessage({
-        type: 'SIDE_PANEL_OPENED',
-        tabId: tabs[0].id
-      });
+    // Use initialTabId from URL if available, otherwise query active tab
+    if (initialTabId) {
+      await loadTabState(initialTabId);
+    } else {
+      await loadActiveTabState();
     }
 
     // Listen for storage changes (any tab's analysis updates)
@@ -83,15 +84,9 @@
   });
 
   onDestroy(() => {
-    // Notify background that side panel closed
-    if (currentTabId) {
-      chrome.runtime.sendMessage({
-        type: 'SIDE_PANEL_CLOSED',
-        tabId: currentTabId
-      });
-    }
-
     // Clean up listeners
+    // Note: We no longer send SIDE_PANEL_CLOSED message here
+    // Background detects close via getContexts() polling
     if (storageListener) {
       chrome.storage.onChanged.removeListener(storageListener);
     }
