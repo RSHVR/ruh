@@ -180,6 +180,16 @@ class DatabaseService:
                 'analyzed_at': datetime.now(timezone.utc).isoformat()
             }
 
+            # Add token usage data if available
+            token_usage = analysis_data.get('token_usage')
+            if token_usage:
+                db_data['total_input_tokens'] = token_usage.get('total_input_tokens', 0)
+                db_data['total_output_tokens'] = token_usage.get('total_output_tokens', 0)
+                db_data['total_tokens'] = token_usage.get('total_tokens', 0)
+                db_data['total_cost_usd'] = token_usage.get('total_cost_usd', 0)
+                db_data['api_call_count'] = token_usage.get('api_call_count', 0)
+                db_data['token_usage_details'] = token_usage.get('token_usage_details', [])
+
             logger.info(f"About to store analysis with keys: {list(db_data.keys())}")
 
             # Upsert (insert or update if exists)

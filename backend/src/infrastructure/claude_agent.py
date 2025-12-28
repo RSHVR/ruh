@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional
 import httpx
 from anthropic import Anthropic, RateLimitError, APIError
 from ..infrastructure.config import settings
+from ..infrastructure.token_tracker import TokenTracker
 
 logger = logging.getLogger(__name__)
 
@@ -14,11 +15,17 @@ logger = logging.getLogger(__name__)
 class ProductSafetyAgent:
     """Claude Agent that analyzes products for harmful substances."""
 
-    def __init__(self) -> None:
-        """Initialize the Claude Agent."""
+    def __init__(self, token_tracker: Optional[TokenTracker] = None) -> None:
+        """Initialize the Claude Agent.
+
+        Args:
+            token_tracker: Optional TokenTracker instance for usage tracking.
+                          If not provided, a new one will be created.
+        """
         self.client = Anthropic(api_key=settings.anthropic_api_key)
         self.model = "claude-sonnet-4-5-20250929"
         self.http_client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+        self.token_tracker = token_tracker or TokenTracker()
 
     async def analyze_product(
         self,
@@ -66,7 +73,16 @@ class ProductSafetyAgent:
         # Start conversation with Claude
         messages = [{"role": "user", "content": user_message}]
 
-        logger.info(f"Calling Claude with web_search (max 2) and web_fetch (max 1) tools")
+        logger.info(f"Calling Claude with web_search (max 5) and web_fetch (max 3) tools")
+
+        # Pre-request token counting
+        # Note: tools add significant tokens, but count_tokens API handles this
+        estimated_tokens = self.token_tracker.count_tokens(
+            model=self.model,
+            messages=messages,
+            system=system_prompt,
+            tools=tools,
+        )
 
         # Claude handles tool use automatically - we just need to call the API
         # The API will execute web_search and web_fetch internally
@@ -92,9 +108,16 @@ class ProductSafetyAgent:
             # Re-raise to be handled by caller
             raise
 
+        # Record token usage with detailed logging
+        self.token_tracker.record_usage(
+            call_name="agent_fallback_analysis",
+            model=self.model,
+            usage=response.usage,
+            estimated_input=estimated_tokens,
+        )
+
         # Log tool usage information
         logger.info(f"Claude response - Stop reason: {response.stop_reason}")
-        logger.info(f"Claude response - Usage: {response.usage}")
 
         # Check what tools Claude used
         tool_uses = []
@@ -400,6 +423,14 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
         logger.info(f"🔍 Calling Claude Agent for safety analysis with web_search")
         logger.info(f"   Product: {product_data.get('product_name')}")
 
+        # Pre-request token counting
+        estimated_tokens = self.token_tracker.count_tokens(
+            model=self.model,
+            messages=messages,
+            system=system_prompt,
+            tools=tools,
+        )
+
         # tool_choice="auto" lets Claude decide when to use web_search
         try:
             response = self.client.messages.create(
@@ -419,9 +450,13 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
             # Re-raise to be handled by caller
             raise
 
-        logger.info(f"Claude Agent usage: {response.usage}")
-        logger.info(f"   Input tokens: {response.usage.input_tokens}")
-        logger.info(f"   Output tokens: {response.usage.output_tokens}")
+        # Record token usage with detailed logging
+        self.token_tracker.record_usage(
+            call_name="agent_safety_analysis",
+            model=self.model,
+            usage=response.usage,
+            estimated_input=estimated_tokens,
+        )
 
         # Parse analysis
         analysis = self._parse_response(response)

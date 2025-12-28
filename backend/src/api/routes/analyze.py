@@ -15,6 +15,7 @@ from ...infrastructure.claude_query import ClaudeQueryService
 from ...infrastructure.database import db
 from ...infrastructure.review_vector_service import review_vector_service
 from ...infrastructure.validation_logger import validation_logger
+from ...infrastructure.token_tracker import TokenTracker
 from ..auth import verify_api_key
 from anthropic import RateLimitError
 from typing import List, Dict, Any
@@ -44,9 +45,8 @@ except ImportError as e:
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Initialize services
+# Initialize scraper service (stateless, can be reused)
 scraper_service = ProductScraperService()
-query_service = ClaudeQueryService()
 
 
 def validate_and_filter_substances(
@@ -229,6 +229,10 @@ async def analyze_product(
         # Step 4: Cache miss - perform new analysis
         logger.info("📝 Cache miss, performing new analysis")
 
+        # Initialize shared token tracker for this analysis
+        token_tracker = TokenTracker()
+        token_tracker.start_analysis(url_hash)
+
         # Check if client provided HTML (extension captured from user's session)
         client_product_html = analysis_request.product_html
         client_reviews_html = analysis_request.reviews_html
@@ -270,8 +274,9 @@ async def analyze_product(
         else:
             logger.warning("⚠️  Supabase not available - proceeding without knowledge bases")
 
-        # Step 4c: Initialize Claude agent
-        agent = ProductSafetyAgent()
+        # Step 4c: Initialize Claude services with shared token tracker
+        query_service = ClaudeQueryService(token_tracker=token_tracker)
+        agent = ProductSafetyAgent(token_tracker=token_tracker)
 
         # Step 4d: Branch based on scraping success
         basic_analysis = None  # Store database-only fallback
@@ -405,6 +410,9 @@ async def analyze_product(
             analyzed_at=datetime.now(timezone.utc),
         )
 
+        # Finish token tracking and get summary
+        token_summary = token_tracker.finish_analysis()
+
         # Step 5: Store analysis in Supabase (with graceful fallback)
         if db.is_available:
             try:
@@ -424,6 +432,18 @@ async def analyze_product(
                         "confidence": analysis.confidence,
                     }
                 }
+
+                # Add token usage data if available
+                if token_summary:
+                    analysis_response["token_usage"] = {
+                        "total_input_tokens": token_summary.total_input_tokens,
+                        "total_output_tokens": token_summary.total_output_tokens,
+                        "total_tokens": token_summary.total_tokens,
+                        "total_cost_usd": token_summary.total_cost,
+                        "api_call_count": token_summary.call_count,
+                        "token_usage_details": [call.to_dict() for call in token_summary.calls],
+                    }
+
                 store_success = await db.store_analysis(url_hash, analysis_request.product_url, analysis_response)
                 if store_success:
                     logger.info(f"✅ Successfully stored analysis in Supabase (hash: {url_hash[:16]}...)")

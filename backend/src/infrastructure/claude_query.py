@@ -6,11 +6,12 @@ No more fragile regex-based JSON parsing!
 
 import json
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from anthropic import Anthropic
 
 from .config import settings
+from .token_tracker import TokenTracker
 from ..domain.models import ScrapedProduct
 from ..domain.extraction_schemas import ProductExtraction, ReviewInsightsExtraction
 
@@ -29,10 +30,16 @@ class ClaudeQueryService:
     Uses structured outputs to guarantee valid JSON matching our schemas.
     """
 
-    def __init__(self):
-        """Initialize Claude Query service."""
+    def __init__(self, token_tracker: Optional[TokenTracker] = None):
+        """Initialize Claude Query service.
+
+        Args:
+            token_tracker: Optional TokenTracker instance for usage tracking.
+                          If not provided, a new one will be created.
+        """
         self.client = Anthropic(api_key=settings.anthropic_api_key)
         self.model = "claude-sonnet-4-5-20250929"
+        self.token_tracker = token_tracker or TokenTracker()
 
     async def extract_product_data(self, scraped_html: ScrapedProduct) -> Dict[str, Any]:
         """Extract structured product data from raw HTML.
@@ -49,17 +56,23 @@ class ClaudeQueryService:
 
         system_prompt = self._build_extraction_prompt()
         user_message = self._build_html_message(scraped_html)
+        messages = [{"role": "user", "content": user_message}]
 
         logger.info("📊 CLAUDE QUERY START: Calling Claude to extract product data from HTML")
         logger.info(f"   Original HTML size: {len(scraped_html.raw_html_product) / 1024:.1f}KB")
         logger.info(f"   Message size after processing: {len(user_message) / 1024:.1f}KB")
 
+        # Pre-request token counting
+        estimated_tokens = self.token_tracker.count_tokens(
+            model=self.model,
+            messages=messages,
+            system=system_prompt,
+        )
+
         try:
             logger.info("📊 CLAUDE QUERY API CALL: Sending request with structured outputs...")
             logger.info(f"   Model: {self.model}")
             logger.info(f"   Beta: {STRUCTURED_OUTPUTS_BETA}")
-            logger.info(f"   System prompt length: {len(system_prompt)} chars")
-            logger.info(f"   User message length: {len(user_message)} chars")
 
             # Use .parse() which handles schema transformation automatically
             # and returns parsed_output as a validated Pydantic model
@@ -68,12 +81,17 @@ class ClaudeQueryService:
                 max_tokens=2048,
                 betas=[STRUCTURED_OUTPUTS_BETA],
                 system=system_prompt,
-                messages=[{"role": "user", "content": user_message}],
+                messages=messages,
                 output_format=ProductExtraction,
             )
 
-            logger.info("📊 CLAUDE QUERY API SUCCESS: Received response from Anthropic")
-            logger.info(f"📊 CLAUDE QUERY TOKENS: Input={response.usage.input_tokens}, Output={response.usage.output_tokens}")
+            # Record token usage with detailed logging
+            self.token_tracker.record_usage(
+                call_name="product_extraction",
+                model=self.model,
+                usage=response.usage,
+                estimated_input=estimated_tokens,
+            )
 
             # Handle special stop reasons
             extracted_data = self._handle_parse_response(response, "product extraction")
@@ -109,9 +127,17 @@ class ClaudeQueryService:
 
         system_prompt = self._build_reviews_extraction_prompt()
         user_message = self._build_reviews_message(scraped_html)
+        messages = [{"role": "user", "content": user_message}]
 
         logger.info("💬 Calling Claude Query to extract consumer insights from reviews/Q&A")
         logger.info(f"   Reviews HTML size: {len(scraped_html.raw_html_reviews) / 1024:.1f}KB")
+
+        # Pre-request token counting
+        estimated_tokens = self.token_tracker.count_tokens(
+            model=self.model,
+            messages=messages,
+            system=system_prompt,
+        )
 
         try:
             # Use .parse() which handles schema transformation automatically
@@ -120,11 +146,17 @@ class ClaudeQueryService:
                 max_tokens=3072,  # Larger for comprehensive review analysis
                 betas=[STRUCTURED_OUTPUTS_BETA],
                 system=system_prompt,
-                messages=[{"role": "user", "content": user_message}],
+                messages=messages,
                 output_format=ReviewInsightsExtraction,
             )
 
-            logger.info(f"Claude Query (reviews) usage: Input={response.usage.input_tokens}, Output={response.usage.output_tokens}")
+            # Record token usage with detailed logging
+            self.token_tracker.record_usage(
+                call_name="review_insights_extraction",
+                model=self.model,
+                usage=response.usage,
+                estimated_input=estimated_tokens,
+            )
 
             # Handle special stop reasons
             insights = self._handle_parse_response(response, "review extraction")
