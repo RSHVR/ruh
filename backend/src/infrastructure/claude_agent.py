@@ -1,31 +1,93 @@
 """Claude Agent for product safety analysis."""
 
+import asyncio
 import json
 import logging
 import time
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 import httpx
 from anthropic import Anthropic, RateLimitError, APIError
 from ..infrastructure.config import settings
 from ..infrastructure.token_tracker import TokenTracker
+from ..infrastructure.search_tool_service import SearchToolService
 
 logger = logging.getLogger(__name__)
+
+# Custom web_search tool definition (replaces Anthropic's native web_search_20250305)
+CUSTOM_WEB_SEARCH_TOOL = {
+    "name": "web_search",
+    "description": """Search the web for product safety information.
+
+Use this tool to find:
+- Manufacturer official ingredient/material lists and MSDS sheets
+- FDA/EPA/CPSC recalls and safety alerts
+- Per-ingredient scientific studies, IARC classifications, and toxicity data
+- Class action lawsuits and consumer complaints
+
+SEARCH TYPES:
+- "manufacturer": Official product pages, MSDS, ingredient lists
+- "regulatory": FDA.gov, Health Canada, EPA recalls and warnings
+- "ingredient": Per-ingredient safety research (PubMed, NIH, IARC, EPA, EWG)
+- "scientific": General scientific studies and research papers
+- "legal": Class action lawsuits, court records, settlements
+- "consumer": Reddit user experiences and reactions
+- "general": No domain filter
+
+IMPORTANT: For products with multiple ingredients, use search_type="ingredient" to research
+individual ingredients like "[ingredient name] toxicity" or "[ingredient name] IARC classification".
+
+Results are filtered to credible sources based on search_type.""",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Search query (keep under 400 characters)",
+            },
+            "search_type": {
+                "type": "string",
+                "enum": ["manufacturer", "regulatory", "ingredient", "scientific", "legal", "consumer", "general"],
+                "description": "Type of search. Use 'ingredient' for per-ingredient safety research.",
+            },
+        },
+        "required": ["query"],
+    },
+}
 
 
 class ProductSafetyAgent:
     """Claude Agent that analyzes products for harmful substances."""
 
-    def __init__(self, token_tracker: Optional[TokenTracker] = None) -> None:
+    def __init__(
+        self,
+        token_tracker: Optional[TokenTracker] = None,
+        search_service: Optional[SearchToolService] = None,
+        supabase_client: Optional[Any] = None,
+    ) -> None:
         """Initialize the Claude Agent.
 
         Args:
             token_tracker: Optional TokenTracker instance for usage tracking.
                           If not provided, a new one will be created.
+            search_service: Optional SearchToolService for custom web search.
+                           If not provided and use_custom_search is True, one will be created.
+            supabase_client: Optional Supabase client for search cache.
         """
         self.client = Anthropic(api_key=settings.anthropic_api_key)
         self.model = "claude-sonnet-4-5-20250929"
         self.http_client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
         self.token_tracker = token_tracker or TokenTracker()
+
+        # Initialize search service if custom search is enabled
+        self.use_custom_search = settings.use_custom_search
+        if self.use_custom_search:
+            self.search_service = search_service or SearchToolService(
+                supabase_client=supabase_client,
+            )
+            logger.info("Custom search enabled (Tavily/Serper)")
+        else:
+            self.search_service = None
+            logger.info("Using Anthropic native web_search")
 
     async def analyze_product(
         self,
@@ -55,28 +117,46 @@ class ProductSafetyAgent:
         )
         user_message = self._build_user_message(product_url)
 
-        # Enable Claude's built-in web search and web fetch tools in parallel
-        # Limit uses to prevent token overflow
-        tools = [
-            {
-                "type": "web_search_20250305",
-                "name": "web_search",
-                "max_uses": 5,  # Limit searches to prevent token overuse
-            },
-            {
-                "type": "web_fetch_20250910",
-                "name": "web_fetch",
-                "max_uses": 3,  # Limit fetches to prevent token overuse
-            },
-        ]
+        # Enable web search and web fetch tools
+        # For fallback mode, we always use native web_fetch (need to fetch the page)
+        # but can use custom search if enabled
+        if self.use_custom_search and self.search_service:
+            tools = [
+                CUSTOM_WEB_SEARCH_TOOL,
+                {
+                    "type": "web_fetch_20250910",
+                    "name": "web_fetch",
+                    "max_uses": 3,
+                },
+            ]
+        else:
+            tools = [
+                {
+                    "type": "web_search_20250305",
+                    "name": "web_search",
+                    "max_uses": 5,
+                },
+                {
+                    "type": "web_fetch_20250910",
+                    "name": "web_fetch",
+                    "max_uses": 3,
+                },
+            ]
 
         # Start conversation with Claude
         messages = [{"role": "user", "content": user_message}]
 
-        logger.info(f"Calling Claude with web_search (max 5) and web_fetch (max 3) tools")
+        # For fallback mode with custom search, we need a manual tool loop
+        # to handle custom web_search while letting Anthropic handle web_fetch
+        if self.use_custom_search and self.search_service:
+            logger.info("Calling Claude with CUSTOM web_search + native web_fetch")
+            return await self._analyze_product_with_custom_search(
+                system_prompt, messages, tools
+            )
+
+        logger.info("Calling Claude with NATIVE web_search (max 5) and web_fetch (max 3) tools")
 
         # Pre-request token counting
-        # Note: tools add significant tokens, but count_tokens API handles this
         estimated_tokens = self.token_tracker.count_tokens(
             model=self.model,
             messages=messages,
@@ -84,9 +164,7 @@ class ProductSafetyAgent:
             tools=tools,
         )
 
-        # Claude handles tool use automatically - we just need to call the API
-        # The API will execute web_search and web_fetch internally
-        # tool_choice="auto" lets Claude decide when to use tools
+        # Claude handles tool use automatically for native tools
         try:
             response = self.client.messages.create(
                 model=self.model,
@@ -94,14 +172,13 @@ class ProductSafetyAgent:
                 system=system_prompt,
                 messages=messages,
                 tools=tools,
-                tool_choice={"type": "auto"},  # Claude decides when to use tools
+                tool_choice={"type": "auto"},
                 extra_headers={
                     "anthropic-beta": "web-fetch-2025-09-10"
                 }
             )
         except RateLimitError as e:
             logger.error(f"❌ Rate limit exceeded in analyze_product: {e}")
-            # Re-raise to be handled by caller
             raise
         except APIError as e:
             logger.error(f"❌ Claude API error in analyze_product: {e}")
@@ -145,6 +222,156 @@ class ProductSafetyAgent:
         # Claude is done, parse final response
         analysis = self._parse_response(response)
         return analysis
+
+    async def _analyze_product_with_custom_search(
+        self,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Analyze product using custom search with native web_fetch.
+
+        This is a hybrid approach for the fallback path (when scraping fails):
+        - web_fetch: Native Anthropic tool (executed automatically by API)
+        - web_search: Custom tool (executed via SearchToolService)
+
+        The API handles native tools inline, so we only loop when Claude
+        requests our custom web_search tool.
+        """
+        max_iterations = 8  # Higher limit since we also have web_fetch
+        iteration = 0
+        response = None
+
+        logger.info("🔄 Starting hybrid tool loop (custom search + native web_fetch)")
+
+        while iteration < max_iterations:
+            iteration += 1
+
+            # Pre-request token counting
+            estimated_tokens = self.token_tracker.count_tokens(
+                model=self.model,
+                messages=messages,
+                system=system_prompt,
+                tools=tools,
+            )
+
+            try:
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=4096,
+                    system=system_prompt,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice={"type": "auto"},
+                    extra_headers={
+                        "anthropic-beta": "web-fetch-2025-09-10"
+                    }
+                )
+            except RateLimitError as e:
+                logger.error(f"❌ Rate limit exceeded: {e}")
+                raise
+            except APIError as e:
+                logger.error(f"❌ Claude API error: {e}")
+                raise
+
+            # Record token usage
+            self.token_tracker.record_usage(
+                call_name=f"agent_fallback_custom_iter{iteration}",
+                model=self.model,
+                usage=response.usage,
+                estimated_input=estimated_tokens,
+            )
+
+            # Log what tools Claude used (native tools show up in content)
+            for block in response.content:
+                if hasattr(block, 'type'):
+                    if block.type == "tool_use":
+                        tool_name = getattr(block, 'name', 'unknown')
+                        tool_input = getattr(block, 'input', {})
+                        logger.info(f"🔧 Claude used tool: {tool_name}")
+                        if tool_name == "web_fetch":
+                            logger.info(f"   Fetch URL: {tool_input.get('url', 'N/A')}")
+                        elif tool_name == "web_search":
+                            logger.info(f"   Search: {tool_input.get('query', 'N/A')[:60]}...")
+                    elif block.type == "server_tool_use":
+                        # Native tools like web_fetch appear as server_tool_use
+                        tool_name = getattr(block, 'name', 'unknown')
+                        logger.info(f"🌐 Anthropic executed native tool: {tool_name}")
+
+            # Check if Claude wants to use our custom tool
+            if response.stop_reason == "tool_use":
+                # Find custom web_search tool uses (not native tools)
+                custom_tool_uses = [
+                    b for b in response.content
+                    if hasattr(b, "type") and b.type == "tool_use" and b.name == "web_search"
+                ]
+
+                if not custom_tool_uses:
+                    # No custom tools - might be waiting for something else
+                    logger.warning("stop_reason=tool_use but no custom web_search blocks")
+                    break
+
+                logger.info(f"🔍 Executing {len(custom_tool_uses)} custom search(es) via Tavily/Serper")
+
+                # Execute searches in parallel
+                search_tasks = []
+                for tool_use in custom_tool_uses:
+                    query = tool_use.input.get("query", "")
+                    search_type = tool_use.input.get("search_type", "general")
+                    logger.info(f"   → {search_type}: {query[:60]}...")
+                    search_tasks.append(
+                        self.search_service.search(query, search_type)
+                    )
+
+                results = await asyncio.gather(*search_tasks, return_exceptions=True)
+
+                # Build tool results and continue conversation
+                messages.append({"role": "assistant", "content": response.content})
+                tool_results = []
+                for tool_use, result in zip(custom_tool_uses, results):
+                    if isinstance(result, Exception):
+                        content = f"Search failed: {result}"
+                        logger.warning(f"   ✗ Search failed: {result}")
+                    else:
+                        content = result
+                        logger.info(f"   ✓ Got results for: {tool_use.input.get('query', '')[:40]}...")
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": tool_use.id,
+                        "content": content,
+                    })
+                messages.append({"role": "user", "content": tool_results})
+
+            else:
+                # Claude is done (end_turn or max_tokens)
+                logger.info(f"✅ Hybrid analysis finished after {iteration} iteration(s)")
+                break
+
+        # Log search usage summary
+        if self.search_service:
+            usage = self.search_service.get_usage_summary()
+            if usage['total_searches'] > 0:
+                logger.info(
+                    f"📊 Search summary: {usage['total_searches']} searches, "
+                    f"{usage['cache_hits']} cache hits ({usage['cache_hit_rate']:.0%}), "
+                    f"${usage['total_cost']:.4f}"
+                )
+
+        if response is None:
+            logger.error("❌ No response received after max iterations")
+            return {
+                "product_name": "Unknown",
+                "brand": "Unknown",
+                "retailer": "Unknown",
+                "ingredients": [],
+                "allergens_detected": [],
+                "pfas_detected": [],
+                "other_concerns": [],
+                "confidence": 0.0,
+                "error": "Max iterations reached without response",
+            }
+
+        return self._parse_response(response)
 
     def _build_system_prompt(
         self,
@@ -409,6 +636,23 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
         # Build user message from extracted data
         user_message = self._build_user_message_from_extracted_data(product_data, product_url)
 
+        # Choose between custom search (Tavily/Serper) or Anthropic native
+        if self.use_custom_search and self.search_service:
+            return await self._analyze_with_custom_search(
+                system_prompt, user_message, product_data
+            )
+        else:
+            return await self._analyze_with_native_search(
+                system_prompt, user_message, product_data
+            )
+
+    async def _analyze_with_native_search(
+        self,
+        system_prompt: str,
+        user_message: str,
+        product_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Analyze using Anthropic's native web_search_20250305 tool."""
         # Enable ONLY web_search (not web_fetch - we already have the product data!)
         tools = [
             {
@@ -420,7 +664,7 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
 
         messages = [{"role": "user", "content": user_message}]
 
-        logger.info(f"🔍 Calling Claude Agent for safety analysis with web_search")
+        logger.info(f"🔍 Calling Claude Agent with NATIVE web_search")
         logger.info(f"   Product: {product_data.get('product_name')}")
 
         # Pre-request token counting
@@ -435,32 +679,147 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
         try:
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=2048,  # Reduced from 4096
+                max_tokens=2048,
                 system=system_prompt,
                 messages=messages,
                 tools=tools,
-                tool_choice={"type": "auto"},  # Claude decides when to search
+                tool_choice={"type": "auto"},
             )
         except RateLimitError as e:
             logger.error(f"❌ Rate limit exceeded in analyze_extracted_product: {e}")
-            # Re-raise to be handled by caller (will fallback to database-only results)
             raise
         except APIError as e:
             logger.error(f"❌ Claude API error in analyze_extracted_product: {e}")
-            # Re-raise to be handled by caller
             raise
 
-        # Record token usage with detailed logging
+        # Record token usage
         self.token_tracker.record_usage(
-            call_name="agent_safety_analysis",
+            call_name="agent_safety_analysis_native",
             model=self.model,
             usage=response.usage,
             estimated_input=estimated_tokens,
         )
 
-        # Parse analysis
-        analysis = self._parse_response(response)
-        return analysis
+        return self._parse_response(response)
+
+    async def _analyze_with_custom_search(
+        self,
+        system_prompt: str,
+        user_message: str,
+        product_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Analyze using custom Tavily/Serper search with manual tool execution loop.
+
+        This implements the manual tool loop pattern:
+        1. Call Claude with custom tool definition
+        2. If stop_reason="tool_use", execute search locally via SearchToolService
+        3. Send tool_result back to Claude
+        4. Repeat until stop_reason="end_turn"
+        """
+        tools = [CUSTOM_WEB_SEARCH_TOOL]
+        messages = [{"role": "user", "content": user_message}]
+
+        logger.info(f"🔍 Calling Claude Agent with CUSTOM search (Tavily/Serper)")
+        logger.info(f"   Product: {product_data.get('product_name')}")
+
+        # Higher limit for comprehensive analysis:
+        # - 1 manufacturer search
+        # - 1 regulatory search
+        # - 3-5 per-ingredient searches
+        # - 1 legal search
+        # - 1 consumer search
+        max_iterations = 10
+        iteration = 0
+
+        while iteration < max_iterations:
+            iteration += 1
+
+            # Pre-request token counting
+            estimated_tokens = self.token_tracker.count_tokens(
+                model=self.model,
+                messages=messages,
+                system=system_prompt,
+                tools=tools,
+            )
+
+            try:
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=4096,  # Increased for comprehensive analysis with research_sources
+                    system=system_prompt,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice={"type": "auto"},
+                )
+            except RateLimitError as e:
+                logger.error(f"❌ Rate limit exceeded: {e}")
+                raise
+            except APIError as e:
+                logger.error(f"❌ Claude API error: {e}")
+                raise
+
+            # Record token usage
+            self.token_tracker.record_usage(
+                call_name=f"agent_safety_analysis_custom_iter{iteration}",
+                model=self.model,
+                usage=response.usage,
+                estimated_input=estimated_tokens,
+            )
+
+            # Check if Claude wants to use tools
+            if response.stop_reason == "tool_use":
+                # Collect all tool_use blocks
+                tool_uses = [b for b in response.content if hasattr(b, "type") and b.type == "tool_use"]
+
+                if not tool_uses:
+                    logger.warning("stop_reason=tool_use but no tool_use blocks found")
+                    break
+
+                logger.info(f"🔧 Claude requested {len(tool_uses)} search(es)")
+
+                # Execute searches IN PARALLEL (Tavily best practice)
+                search_tasks = []
+                for tool_use in tool_uses:
+                    query = tool_use.input.get("query", "")
+                    search_type = tool_use.input.get("search_type", "general")
+                    logger.info(f"   Search: {query[:60]}... (type={search_type})")
+                    search_tasks.append(
+                        self.search_service.search(query, search_type)
+                    )
+
+                # Run all searches in parallel
+                results = await asyncio.gather(*search_tasks, return_exceptions=True)
+
+                # Build tool results
+                messages.append({"role": "assistant", "content": response.content})
+                tool_results = []
+                for tool_use, result in zip(tool_uses, results):
+                    if isinstance(result, Exception):
+                        content = f"Search failed: {result}"
+                        logger.warning(f"Search failed: {result}")
+                    else:
+                        content = result
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": tool_use.id,
+                        "content": content,
+                    })
+                messages.append({"role": "user", "content": tool_results})
+
+            else:
+                # Claude is done (stop_reason = "end_turn" or "max_tokens")
+                logger.info(f"✅ Claude finished after {iteration} iteration(s)")
+                break
+
+        # Log search usage summary
+        if self.search_service:
+            usage = self.search_service.get_usage_summary()
+            logger.info(
+                f"Search summary: {usage['total_searches']} searches, "
+                f"{usage['cache_hits']} cache hits, ${usage['total_cost']:.4f}"
+            )
+
+        return self._parse_response(response)
 
     def _build_analysis_prompt_for_extracted_data(
         self,
@@ -480,21 +839,45 @@ CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
 
 **Your Analysis Process:**
 1. Review the provided product details (already extracted from the product page)
-2. Use web_search strategically (max 3 searches) to find:
-   a) **SEARCH 1 (IF INGREDIENTS/MATERIALS MISSING):** Manufacturer's official website for complete ingredient/material lists
-      - Search: "[brand] [product name] official ingredients" OR "[brand] official MSDS"
-      - ONLY use: manufacturer.com, official MSDS, .gov sites
-      - Look for manufacturer's product page, ingredient disclosure, or safety data
+2. Use web_search strategically to research safety concerns:
 
-   b) **SEARCH 2:** Regulatory actions and safety recalls
-      - Search: "[product] recall FDA warning" OR "[product] safety alert CPSC"
-      - ONLY use: FDA.gov, HealthCanada.gc.ca, CPSC.gov, EPA.gov, EU REACH
-      - Look for regulatory actions, recalls, safety warnings
+   a) **MANUFACTURER SEARCH (IF INGREDIENTS/MATERIALS INCOMPLETE):**
+      - Search: "[brand] [product name] official ingredients" OR "[brand] MSDS"
+      - search_type: "manufacturer"
+      - Goal: Find complete ingredient/material lists from official sources
 
-   c) **SEARCH 3:** Scientific studies, carcinogen classifications, or class action lawsuits
-      - Search: "[ingredient] IARC classification" OR "[product] class action lawsuit"
-      - ONLY use: PubMed, peer-reviewed journals, IARC, EPA, court records, major news outlets
-      - Look for scientific research, carcinogen status, documented health impacts
+   b) **REGULATORY SEARCH:**
+      - Search: "[product name] recall FDA warning" OR "[brand] safety alert"
+      - search_type: "regulatory"
+      - Goal: Find recalls, FDA/EPA warnings, Health Canada advisories
+
+   c) **PER-INGREDIENT RESEARCH (CRITICAL - DO THIS FOR CONCERNING INGREDIENTS):**
+      - For EACH potentially concerning ingredient, search for its safety profile:
+        - "[ingredient name] toxicity studies"
+        - "[ingredient name] IARC classification carcinogen"
+        - "[ingredient name] endocrine disruptor research"
+        - "[ingredient name] EWG safety rating"
+      - search_type: "ingredient"
+      - Goal: Find scientific safety data for individual chemicals
+      - PRIORITY ingredients to research:
+        - Preservatives (phenoxyethanol, parabens, formaldehyde releasers)
+        - Antioxidants (BHT, BHA)
+        - Fragrance/parfum (phthalates concern)
+        - Surfactants with "PEG" or "-eth" (contamination concerns)
+        - Colorants/dyes (especially FD&C, CI numbers)
+        - Any ingredient you don't recognize
+
+   d) **LEGAL SEARCH (REQUIRED):**
+      - Search: "[brand] [product] class action lawsuit" OR "[brand] settlement"
+      - search_type: "legal"
+      - Goal: Find documented lawsuits, settlements, regulatory fines
+      - Lawsuits often reveal safety issues before official recalls
+
+   e) **CONSUMER SEARCH (REQUIRED - real user experiences are critical):**
+      - Search: "[brand] [product] reaction allergy breakout reddit"
+      - search_type: "consumer"
+      - Goal: Find real user reports of adverse reactions, skin issues, allergies
+      - This data reveals problems that don't show up in official testing
 
 **CRITICAL WEBSEARCH RESTRICTIONS:**
 - DO NOT use consumer blogs, forums, review sites, or non-scientific health websites
@@ -623,11 +1006,16 @@ CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
 **Your Analysis Task:**
 **DO NOT use web_fetch** - Product information has already been extracted above.
 
-1. Use web_search to find the manufacturer's official website for complete ingredient/material lists
-2. Use web_search to find safety warnings, recalls, regulatory actions for this product
-3. Use web_search to find consumer reviews mentioning health concerns or complaints (skin reactions, allergies, etc.)
-4. Cross-reference all findings with the provided knowledge bases
-5. Return your analysis as the JSON object specified in the system prompt
+**REQUIRED SEARCHES (do ALL of these):**
+1. **Manufacturer search** (search_type="manufacturer"): Find official ingredient lists if incomplete above
+2. **Regulatory search** (search_type="regulatory"): Find FDA/EPA/Health Canada recalls, warnings
+3. **Per-ingredient searches** (search_type="ingredient"): Research 3-5 concerning ingredients individually
+   - Focus on: preservatives, fragrance, BHT/BHA, PEG compounds, dyes
+   - Search: "[ingredient] toxicity" or "[ingredient] IARC classification"
+4. **Legal search** (search_type="legal"): Find class action lawsuits, settlements against this brand/product
+5. **Consumer search** (search_type="consumer"): Find Reddit user reports of reactions, allergies, breakouts
+
+After completing ALL searches, cross-reference findings with the knowledge bases and return the JSON analysis.
 
 **CRITICAL:** Your response must be ONLY the JSON object. No text before it, no text after it."""
         return message
@@ -646,5 +1034,7 @@ CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
         return []
 
     async def close(self) -> None:
-        """Close HTTP client."""
+        """Close HTTP client and search service."""
         await self.http_client.aclose()
+        if self.search_service:
+            await self.search_service.close()

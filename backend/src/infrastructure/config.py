@@ -10,6 +10,16 @@ class Settings(BaseSettings):
     # Anthropic API
     anthropic_api_key: str
 
+    # Tavily API (for web search - primary)
+    tavily_api_key: str = ""
+
+    # Serper API (for web search - fallback)
+    serper_api_key: str = ""
+
+    # Custom search configuration
+    use_custom_search: bool = True  # Feature flag for gradual rollout
+    search_cache_ttl_hours: int = 24
+
     # Cohere API (for embeddings and reranking)
     cohere_api_key: str = ""
 
