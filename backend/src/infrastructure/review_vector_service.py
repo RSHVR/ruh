@@ -18,6 +18,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Health-focused search queries for finding relevant reviews
+HEALTH_QUERIES = [
+    "allergic reaction skin rash irritation burning",
+    "headache nausea dizziness sick feeling unwell",
+    "breathing problems respiratory issues coughing",
+    "chemical smell toxic fumes strong odor",
+    "burn injury hurt dangerous unsafe",
+]
+
 
 def clean_text(text: str) -> str:
     """Clean text before embedding.
@@ -524,6 +533,60 @@ class ReviewVectorService:
         except Exception as e:
             logger.error(f"Failed to get review summary: {e}")
             return None
+
+    async def get_health_relevant_reviews(
+        self,
+        url_hash: str,
+        max_reviews: int = 15
+    ) -> List[Dict[str, Any]]:
+        """Get reviews most likely to contain health concerns.
+
+        Uses multiple health-focused semantic queries to find relevant reviews,
+        then deduplicates and returns top results. This is more token-efficient
+        than sending all reviews to Claude.
+
+        Args:
+            url_hash: Product URL hash
+            max_reviews: Maximum number of reviews to return
+
+        Returns:
+            List of health-relevant review dicts sorted by relevance
+        """
+        if not db.is_available:
+            return []
+
+        all_results: List[Dict[str, Any]] = []
+        seen_texts: set = set()
+
+        logger.info(f"🔍 Searching for health-relevant reviews with {len(HEALTH_QUERIES)} queries...")
+
+        for query in HEALTH_QUERIES:
+            try:
+                results = await self.search_reviews(
+                    query=query,
+                    url_hash=url_hash,
+                    top_k=10,
+                    rerank_top_n=5,
+                )
+
+                for r in results:
+                    # Deduplicate by first 100 chars of review text
+                    text_key = r.get('review_text', '')[:100]
+                    if text_key and text_key not in seen_texts:
+                        seen_texts.add(text_key)
+                        all_results.append(r)
+
+            except Exception as e:
+                logger.warning(f"Search failed for query '{query[:30]}...': {e}")
+                continue
+
+        # Sort by rerank score (higher = more relevant) and return top N
+        all_results.sort(key=lambda x: x.get('rerank_score', x.get('similarity', 0)), reverse=True)
+
+        final_results = all_results[:max_reviews]
+        logger.info(f"✅ Found {len(final_results)} health-relevant reviews (from {len(seen_texts)} unique matches)")
+
+        return final_results
 
 
 # Global service instance

@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Optional, Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -136,6 +136,7 @@ class AnalysisResponse(BaseModel):
     cache_age_seconds: Optional[int] = None
     url_hash: str = ""  # SHA256 hash of product URL for fetching reviews
     reviews_stored: Optional[int] = None  # Number of reviews stored with embeddings
+    review_insights: Optional[dict[str, Any]] = None  # Health concerns extracted from reviews
 
 
 class ScrapedProduct(BaseModel):

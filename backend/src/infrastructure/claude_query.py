@@ -6,7 +6,7 @@ No more fragile regex-based JSON parsing!
 
 import json
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from anthropic import Anthropic
 
@@ -350,3 +350,103 @@ Retailer: {scraped.retailer}
 
 Reviews & Q&A HTML Content:
 {reviews_content}"""
+
+    async def extract_review_insights_from_list(
+        self,
+        reviews: List[Dict[str, Any]],
+        product_url: str
+    ) -> Dict[str, Any]:
+        """Extract health insights from a pre-filtered list of reviews.
+
+        This is more token-efficient than sending all reviews - we use semantic
+        search to find health-relevant reviews first, then only analyze those.
+
+        Args:
+            reviews: List of review dicts with review_text, review_rating, etc.
+            product_url: Product URL for context
+
+        Returns:
+            Structured review insights dictionary
+        """
+        if not reviews:
+            logger.info("No reviews to analyze")
+            return {"error": "No reviews", "confidence": 0.0}
+
+        # Format reviews compactly for Claude
+        review_text = self._format_reviews_for_analysis(reviews)
+        review_size_kb = len(review_text) / 1024
+
+        logger.info(f"💬 Analyzing {len(reviews)} health-relevant reviews ({review_size_kb:.1f}KB)")
+
+        system_prompt = self._build_reviews_extraction_prompt()
+        user_message = f"""Analyze these customer reviews for health and safety concerns.
+
+These reviews were pre-filtered using semantic search to find health-relevant content.
+Focus on identifying patterns in health complaints, allergic reactions, and safety issues.
+
+Product URL: {product_url}
+Reviews ({len(reviews)} health-relevant reviews):
+
+{review_text}"""
+
+        messages = [{"role": "user", "content": user_message}]
+
+        # Pre-request token counting
+        estimated_tokens = self.token_tracker.count_tokens(
+            model=self.model,
+            messages=messages,
+            system=system_prompt,
+        )
+
+        try:
+            response = self.client.beta.messages.parse(
+                model=self.model,
+                max_tokens=2048,
+                betas=[STRUCTURED_OUTPUTS_BETA],
+                system=system_prompt,
+                messages=messages,
+                output_format=ReviewInsightsExtraction,
+            )
+
+            # Record token usage
+            self.token_tracker.record_usage(
+                call_name="review_insights_from_list",
+                model=self.model,
+                usage=response.usage,
+                estimated_input=estimated_tokens,
+            )
+
+            insights = self._handle_parse_response(response, "review insights")
+
+            if "error" not in insights:
+                logger.info(f"✅ Extracted insights: {len(insights.get('health_concerns', []))} health concerns")
+
+            return insights
+
+        except Exception as e:
+            logger.error(f"❌ Review insights extraction failed: {e}")
+            raise
+
+    def _format_reviews_for_analysis(self, reviews: List[Dict[str, Any]]) -> str:
+        """Format reviews compactly for Claude analysis.
+
+        Uses a compact format to minimize tokens while preserving key info.
+
+        Args:
+            reviews: List of review dicts
+
+        Returns:
+            Formatted review text
+        """
+        lines = []
+        for i, r in enumerate(reviews, 1):
+            rating = r.get('review_rating', '?')
+            verified = "✓" if r.get('verified_purchase') else ""
+            text = r.get('review_text', '')[:500]  # Truncate long reviews
+            helpful = r.get('helpful_votes', 0)
+
+            # Compact format: [4★✓ 5👍] Review text...
+            helpful_str = f" {helpful}👍" if helpful > 0 else ""
+            lines.append(f"[{rating}★{verified}{helpful_str}] {text}")
+
+        return "\n\n".join(lines)
