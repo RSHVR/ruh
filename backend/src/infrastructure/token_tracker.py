@@ -39,9 +39,13 @@ PRICING = {
         "output": 4.00,
     },
     # Cohere models
-    "command-r-plus": {
+    "command-a-03-2025": {
         "input": 2.50,   # $2.50 per 1M input tokens
         "output": 10.00,  # $10 per 1M output tokens
+    },
+    "command-r-plus": {
+        "input": 2.50,
+        "output": 10.00,
     },
     "command-r-plus-08-2024": {
         "input": 2.50,
