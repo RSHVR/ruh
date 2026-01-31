@@ -20,8 +20,12 @@ class Settings(BaseSettings):
     use_custom_search: bool = True  # Feature flag for gradual rollout
     search_cache_ttl_hours: int = 24
 
-    # Cohere API (for embeddings and reranking)
+    # Cohere API (for embeddings, reranking, and LangGraph agent)
     cohere_api_key: str = ""
+
+    # LangGraph Agent Configuration
+    use_langgraph_agent: bool = False  # Feature flag for gradual rollout
+    verification_model: str = "claude-haiku"  # "claude-haiku" or "cohere" for full Cohere
 
     # API Authentication
     api_key: str

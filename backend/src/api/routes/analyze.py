@@ -9,9 +9,10 @@ from slowapi.util import get_remote_address
 from ...domain.models import AnalysisRequest, AnalysisResponse, ProductAnalysis, ReviewInsights, ScrapedProduct
 from ...domain.harm_calculator import HarmScoreCalculator
 from ...domain.ingredient_matcher import match_ingredients_to_databases
-from ...infrastructure.claude_agent import ProductSafetyAgent
+from ...infrastructure.safety_agent import ProductSafetyAgentWrapper as ProductSafetyAgent
 from ...infrastructure.product_scraper import ProductScraperService
 from ...infrastructure.claude_query import ClaudeQueryService
+from ...infrastructure.trafilatura_extractor import extract_product_data as trafilatura_extract, preprocess_ingredients
 from ...infrastructure.database import db
 from ...infrastructure.review_vector_service import review_vector_service
 from ...infrastructure.validation_logger import validation_logger
@@ -213,6 +214,16 @@ async def analyze_product(
                 analyzed_at=analyzed_at,
             )
 
+            # Get cached review insights if available
+            cached_review_insights = None
+            if db.is_available:
+                try:
+                    cached_review_insights = await db.get_cached_reviews(url_hash)
+                    if cached_review_insights:
+                        logger.info("✅ Returning cached review insights")
+                except Exception as e:
+                    logger.warning(f"⚠️  Failed to get cached reviews (non-fatal): {e}")
+
             # Log search
             if db.is_available:
                 user_id = await db.get_or_create_anonymous_user()
@@ -224,6 +235,7 @@ async def analyze_product(
                 cached=True,
                 cache_age_seconds=int(cache_age),
                 url_hash=url_hash,  # Include for fetching reviews later
+                review_insights=cached_review_insights,
             )
 
         # Step 4: Cache miss - perform new analysis
@@ -276,18 +288,39 @@ async def analyze_product(
 
         # Step 4c: Initialize Claude services with shared token tracker
         query_service = ClaudeQueryService(token_tracker=token_tracker)
-        agent = ProductSafetyAgent(token_tracker=token_tracker)
+        # Pass supabase client for LangGraph ingredient lookups
+        supabase_client = db.client if db.is_available else None
+        agent = ProductSafetyAgent(
+            token_tracker=token_tracker,
+            supabase_client=supabase_client,
+        )
 
         # Step 4d: Branch based on scraping success
         basic_analysis = None  # Store database-only fallback
 
         if scraped_html is not None and scraped_html.confidence > 0.3:
-            # SUCCESS PATH: HTML available → Query → Agent
-            logger.info("✅ HTML available - using two-step Claude process")
+            # SUCCESS PATH: HTML available → Extract → Agent
+            logger.info("✅ HTML available - using optimized extraction pipeline")
 
-            # Claude Query: Extract structured data from HTML
-            logger.info("📊 Step 1/2: Claude Query - extracting product data from HTML")
-            product_data = await query_service.extract_product_data(scraped_html)
+            # Step 1: Try Trafilatura extraction first (FREE - no LLM call)
+            logger.info("📊 Step 1a: Trafilatura - attempting rule-based extraction")
+            trafilatura_result, needs_llm_fallback = trafilatura_extract(
+                html=scraped_html.raw_html_product,
+                url=analysis_request.product_url,
+                min_confidence=0.5
+            )
+
+            if not needs_llm_fallback:
+                # Trafilatura succeeded - save ~$0.01 Claude Query call
+                logger.info(f"✅ Trafilatura extraction succeeded ({trafilatura_result.confidence:.0%} confidence)")
+                logger.info(f"   Method: {trafilatura_result.extraction_method}, {len(trafilatura_result.ingredients)} ingredients")
+                product_data = trafilatura_result.to_dict()
+                # Add product URL for downstream use
+                product_data["product_url"] = analysis_request.product_url
+            else:
+                # Trafilatura low confidence - fall back to Claude Query
+                logger.info(f"⚠️  Trafilatura low confidence ({trafilatura_result.confidence:.0%}), falling back to Claude Query")
+                product_data = await query_service.extract_product_data(scraped_html)
 
             if product_data.get("confidence", 0) < 0.3:
                 logger.warning("⚠️  Claude extraction failed, falling back to web_fetch")
@@ -307,18 +340,72 @@ async def analyze_product(
                         headers={"Retry-After": "60"}
                     )
             else:
-                # NEW: Step 1 - Python-level database comparison (fast, always works)
-                logger.info("🔍 Step 1/3: Database matching - comparing ingredients against databases")
+                # Step 1/3 - Database matching (fast, uses Supabase knowledge bases)
+                logger.info("🔍 Step 1/3: Database matching - comparing ingredients against knowledge bases")
                 basic_analysis = match_ingredients_to_databases(
                     ingredients=product_data.get('ingredients', []),
                     materials=product_data.get('materials', []),
                     allergen_database=allergen_db,
                     pfas_database=pfas_db
                 )
-                logger.info(f"✅ Database matching complete: {len(basic_analysis['allergens_detected'])} allergens, {len(basic_analysis['pfas_detected'])} PFAS")
+                logger.info(f"✅ Database matching: {len(basic_analysis['allergens_detected'])} allergens, {len(basic_analysis['pfas_detected'])} PFAS")
 
-                # Step 2/3 - Try Claude Agent enhancement with web_search
-                logger.info("🤖 Step 2/3: Claude Agent - enriching with AI analysis and web_search")
+                # Step 2/3 - Classify ingredients based on database results
+                logger.info("🔍 Step 2/3: Classifying ingredients to reduce LLM research")
+                all_ingredients = product_data.get('ingredients', []) + product_data.get('materials', [])
+
+                # Get names of ingredients that matched the database
+                db_matched_names = set()
+                for a in basic_analysis.get('allergens_detected', []):
+                    db_matched_names.add(a.get('name', '').lower())
+                    # Also add the source ingredient
+                    source = a.get('source', '')
+                    if 'Found in:' in source:
+                        db_matched_names.add(source.replace('Found in:', '').strip().lower())
+                for p in basic_analysis.get('pfas_detected', []):
+                    db_matched_names.add(p.get('name', '').lower())
+                    source = p.get('source', '')
+                    if 'Found in:' in source:
+                        db_matched_names.add(source.replace('Found in:', '').strip().lower())
+
+                # Classify: use trafilatura's safe list + database matches as "known"
+                safe_ingredients, hardcoded_concerns, _ = preprocess_ingredients(all_ingredients)
+
+                # Combine database matches + hardcoded concerns
+                known_concerns = []
+                for a in basic_analysis.get('allergens_detected', []):
+                    known_concerns.append({
+                        'name': a.get('name'),
+                        'category': 'allergen',
+                        'description': a.get('health_effects', 'Potential allergen'),
+                    })
+                for p in basic_analysis.get('pfas_detected', []):
+                    known_concerns.append({
+                        'name': p.get('name'),
+                        'category': 'pfas',
+                        'description': p.get('health_effects', 'Forever chemical'),
+                    })
+                known_concerns.extend(hardcoded_concerns)  # Add fragrance, formaldehyde, etc.
+
+                # Ingredients needing research = not safe AND not already matched
+                known_concern_names = {c['name'].lower() for c in known_concerns}
+                safe_names = {s.lower() for s in safe_ingredients}
+                needs_research = [
+                    ing for ing in all_ingredients
+                    if ing.lower() not in safe_names
+                    and ing.lower() not in db_matched_names
+                    and ing.lower() not in known_concern_names
+                ]
+
+                logger.info(f"   Classification: {len(safe_ingredients)} safe, {len(known_concerns)} known concerns, {len(needs_research)} need research")
+
+                # Add to product_data for the agent
+                product_data['_known_safe'] = safe_ingredients
+                product_data['_known_concerns'] = known_concerns
+                product_data['_needs_research'] = needs_research
+
+                # Step 3/3 - Try Claude Agent enhancement with web_search
+                logger.info("🤖 Step 3/3: Claude Agent - enriching with AI analysis and web_search")
                 try:
                     analysis_data = await agent.analyze_extracted_product(
                         product_data=product_data,
@@ -474,17 +561,28 @@ async def analyze_product(
         )
 
         # Step 7: Store reviews with embeddings (non-blocking, best effort)
+        # Merge product page reviews + fetched reviews for comprehensive storage
         reviews_stored = None
-        if client_reviews_html:
+        combined_reviews_html = ""
+        if client_product_html or client_reviews_html:
             try:
-                # Count reviews for logging
-                review_count = client_reviews_html.count('data-hook="review"')
-                logger.info(f"💬 Storing {review_count} reviews with embeddings...")
+                # Combine both HTML sources - both contain review divs with data-hook="review"
+                # Product page has ~8-10 embedded reviews, fetched has ~50 reviews
+                if client_product_html and client_reviews_html:
+                    combined_reviews_html = client_product_html + "\n<!-- FETCHED_REVIEWS -->\n" + client_reviews_html
+                elif client_product_html:
+                    combined_reviews_html = client_product_html
+                else:
+                    combined_reviews_html = client_reviews_html
+
+                # Count total reviews for logging
+                review_count = combined_reviews_html.count('data-hook="review"')
+                logger.info(f"💬 Storing {review_count} reviews with embeddings (product page + fetched)...")
 
                 stored, failed = await review_vector_service.store_reviews(
                     url_hash=url_hash,
                     product_url=analysis_request.product_url,
-                    reviews_html=client_reviews_html,
+                    reviews_html=combined_reviews_html,
                     source="client",
                     pages_fetched=5  # Default assumption from client
                 )
@@ -493,6 +591,57 @@ async def analyze_product(
             except Exception as e:
                 logger.warning(f"⚠️  Review storage failed (non-fatal): {e}")
 
+        # Step 8: Analyze reviews for health concerns (TOKEN-EFFICIENT)
+        # Uses semantic search to find health-relevant reviews first,
+        # then only sends those to Claude (saves ~80% tokens)
+        logger.info("=" * 60)
+        logger.info("📊 STEP 8: REVIEW HEALTH ANALYSIS")
+        logger.info(f"   reviews_stored = {reviews_stored}")
+
+        review_insights = None
+        if reviews_stored and reviews_stored > 0:
+            try:
+                logger.info("   🔍 Running semantic search for health-relevant reviews...")
+
+                # Get only health-relevant reviews via semantic search
+                relevant_reviews = await review_vector_service.get_health_relevant_reviews(
+                    url_hash=url_hash,
+                    max_reviews=15
+                )
+
+                logger.info(f"   📋 Semantic search returned {len(relevant_reviews)} health-relevant reviews")
+
+                if relevant_reviews:
+                    logger.info("   🤖 CALLING CLAUDE FOR REVIEW ANALYSIS...")
+
+                    # Analyze only the relevant subset (saves tokens!)
+                    review_insights = await query_service.extract_review_insights_from_list(
+                        reviews=relevant_reviews,
+                        product_url=analysis_request.product_url
+                    )
+
+                    # Log what we found
+                    health_concerns = review_insights.get('health_concerns', [])
+                    common_complaints = review_insights.get('common_complaints', [])
+                    logger.info(f"   ✅ CLAUDE RETURNED: {len(health_concerns)} health concerns, {len(common_complaints)} complaints")
+
+                    # Cache insights if database is available and confidence is good
+                    if db.is_available and review_insights.get("confidence", 0) > 0.3:
+                        try:
+                            await db.cache_review_insights(url_hash, review_insights)
+                            logger.info("   ✅ Cached review insights to database")
+                        except Exception as e:
+                            logger.warning(f"   ⚠️  Failed to cache review insights (non-fatal): {e}")
+                else:
+                    logger.info("   ⏭️  SKIP CLAUDE: No health-relevant reviews found (semantic search empty)")
+
+            except Exception as e:
+                logger.warning(f"   ⚠️  Review analysis failed (non-fatal): {e}")
+        else:
+            logger.info("   ⏭️  SKIP STEP 8: No reviews stored (reviews_stored=0 or None)")
+
+        logger.info("=" * 60)
+
         return AnalysisResponse(
             analysis=analysis,
             alternatives=[],  # TODO: Implement alternatives
@@ -500,6 +649,7 @@ async def analyze_product(
             cache_age_seconds=None,
             url_hash=url_hash,  # Include for fetching reviews later
             reviews_stored=reviews_stored,
+            review_insights=review_insights,
         )
 
     except Exception as e:

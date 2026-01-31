@@ -19,20 +19,45 @@ from .config import settings
 logger = logging.getLogger(__name__)
 
 
-# Claude Sonnet 4.5 pricing (per 1M tokens)
+# Model pricing (per 1M tokens)
 PRICING = {
+    # Claude models
     "claude-sonnet-4-5-20250929": {
         "input": 3.00,   # $3 per 1M input tokens
         "output": 15.00,  # $15 per 1M output tokens
     },
-    # Add other models as needed
     "claude-sonnet-4-20250514": {
         "input": 3.00,
         "output": 15.00,
     },
+    "claude-haiku-3": {
+        "input": 0.80,   # $0.80 per 1M input tokens
+        "output": 4.00,  # $4 per 1M output tokens
+    },
+    "claude-3-5-haiku-20241022": {
+        "input": 0.80,
+        "output": 4.00,
+    },
+    # Cohere models
+    "command-r-plus": {
+        "input": 2.50,   # $2.50 per 1M input tokens
+        "output": 10.00,  # $10 per 1M output tokens
+    },
+    "command-r-plus-08-2024": {
+        "input": 2.50,
+        "output": 10.00,
+    },
+    "command-r": {
+        "input": 0.15,   # $0.15 per 1M input tokens
+        "output": 0.60,  # $0.60 per 1M output tokens
+    },
+    "command-r-08-2024": {
+        "input": 0.15,
+        "output": 0.60,
+    },
 }
 
-# Default pricing for unknown models
+# Default pricing for unknown models (Sonnet pricing as default)
 DEFAULT_PRICING = {"input": 3.00, "output": 15.00}
 
 # Web search pricing (per search)
