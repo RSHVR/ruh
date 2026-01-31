@@ -99,30 +99,66 @@ RESEARCH_SYSTEM_PROMPT = """You are a product safety research agent. Your job is
 
 Available tools:
 - lookup_ingredient_research: Get pre-computed research for known ingredients from our database (FAST, FREE - USE FIRST!)
-- web_search: Search the web for safety information (SLOWER, COSTS MONEY - USE SPARINGLY)
+- web_search: Search the web for safety information
 
-RESEARCH STRATEGY (PRIORITIZE DATABASE LOOKUPS TO SAVE COST):
+SEARCH TYPES for web_search:
+- "manufacturer": Official product pages, MSDS, ingredient lists
+- "regulatory": FDA.gov, Health Canada, EPA recalls and warnings
+- "ingredient": Per-ingredient safety research (PubMed, NIH, IARC, EPA, EWG)
+- "scientific": Scientific studies and research papers
+- "legal": Class action lawsuits, court records, settlements
+- "consumer": Reddit user experiences and reactions
+- "general": No domain filter
 
-1. **FIRST - Database Lookups (FREE):**
-   - Call lookup_ingredient_research for EACH concerning ingredient
-   - Skip well-known safe ingredients: water, glycerin, tocopherol, citric acid, sodium chloride
+**RESEARCH STRATEGY:**
+
+1. **FIRST - Database Lookups (FREE, do these first):**
+   - Call lookup_ingredient_research for concerning ingredients
+   - Skip well-known safe ingredients: water, glycerin, tocopherol, citric acid
    - Focus on: preservatives, fragrances, surfactants, dyes, sunscreen agents
 
-2. **THEN - Targeted Web Searches (ONLY IF NEEDED):**
-   - search_type="manufacturer": Only if ingredients list was incomplete
-   - search_type="regulatory": For products in categories with known recalls
-   - search_type="legal": Only for brands with rumored lawsuits
-   - DO NOT search for: well-known safe ingredients, ingredients already in our database
+2. **REQUIRED WEB SEARCHES (do ALL of these):**
 
-3. **SKIP web_search FOR:**
-   - Ingredients where lookup_ingredient_research returned good data
-   - Well-known safe ingredients (water, glycerin, aloe vera, etc.)
-   - Generic vitamin names (Vitamin E, Vitamin C, etc.)
+   a) **MANUFACTURER SEARCH:**
+      - Search: "[brand] [product] official ingredients MSDS"
+      - search_type: "manufacturer"
+      - Goal: Get complete official ingredient list
 
-COST AWARENESS:
-- Each web_search costs ~$0.008. Each database lookup costs $0.
-- A typical analysis should use 3-10 database lookups and 2-4 web searches MAX.
-- If lookup_ingredient_research returns data, DO NOT search for that ingredient again.
+   b) **REGULATORY SEARCH:**
+      - Search: "[brand] [product] FDA recall warning Health Canada"
+      - search_type: "regulatory"
+      - Goal: Find any recalls, warnings, regulatory actions
+
+   c) **PER-INGREDIENT RESEARCH (CRITICAL - do for 3-5 concerning ingredients):**
+      - Search: "[ingredient name] toxicity IARC classification health effects"
+      - search_type: "ingredient"
+      - Focus on: preservatives, fragrances, surfactants, parabens, sulfates
+
+   d) **LEGAL SEARCH:**
+      - Search: "[brand] [product] lawsuit class action settlement"
+      - search_type: "legal"
+      - Goal: Find lawsuits, settlements, legal actions
+
+   e) **CONSUMER SEARCH (real user experiences are critical):**
+      - Search: "[brand] [product] reaction allergy breakout reddit"
+      - search_type: "consumer"
+      - Goal: Find real user reports of adverse reactions, skin issues, allergies
+
+**CRITICAL WEBSEARCH RESTRICTIONS:**
+- DO NOT use consumer blogs, forums, or non-scientific health websites for safety claims
+- DO NOT use marketing materials or unverified product review sites
+- ONLY use credible sources: .gov, .edu, manufacturer official sites, peer-reviewed journals, court records
+- Reddit/consumer sources are ONLY for discovering user-reported reactions, not for safety claims
+
+**PFAS Detection Guidelines:**
+- Non-stick cookware often contains PTFE (Teflon)
+- "Water-resistant", "stain-resistant" products may have PFAS coatings
+- Match against knowledge base by CAS number or exact name
+
+**Allergen Detection:**
+- Check ingredient lists carefully against knowledge base
+- Look for synonyms listed in knowledge base
+- Fragrance/Parfum often contains undisclosed allergens
 
 When you have gathered sufficient information, respond with a summary of your findings WITHOUT using any tools."""
 
@@ -132,51 +168,82 @@ ANALYSIS_SYSTEM_PROMPT = """You are a product safety analyst. Based on research 
 CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
 - NO explanatory text before the JSON
 - NO explanatory text after the JSON
-- Start immediately with {{ and end with }}
+- Start immediately with { and end with }
 
 Output JSON format:
-{{
+{
     "product_name": "string",
     "brand": "string",
     "retailer": "string",
     "ingredients": ["list", "of", "ingredients"],
     "allergens_detected": [
-        {{
+        {
             "name": "allergen name (MUST match knowledge base)",
             "severity": "low|moderate|high|severe",
             "source": "where found in product",
             "confidence": 0.0-1.0
-        }}
+        }
     ],
     "pfas_detected": [
-        {{
+        {
             "name": "PFAS compound name (MUST match knowledge base)",
             "cas_number": "CAS number if known",
             "body_effects": "effects on human body",
             "source": "where found",
             "confidence": 0.0-1.0
-        }}
+        }
     ],
     "other_concerns": [
-        {{
+        {
             "name": "concern name",
             "category": "under_investigation|carcinogen|regulatory_action|heavy_metal|endocrine_disruptor|other",
             "severity": "low|moderate|high|severe",
             "description": "brief description with source citation",
             "confidence": 0.0-1.0
-        }}
+        }
     ],
     "research_sources": [
-        {{"type": "manufacturer|regulatory|scientific|legal|consumer", "url": "...", "finding": "..."}}
+        {"type": "manufacturer|regulatory|scientific|legal|consumer", "url": "...", "finding": "..."}
     ],
     "confidence": 0.0-1.0
-}}
+}
 
-CRITICAL CLASSIFICATION RULES:
-1. ALLERGENS - ONLY substances in the provided Allergen Knowledge Base can go in allergens_detected
-2. PFAS - ONLY substances in the provided PFAS Knowledge Base can go in pfas_detected
-3. Unknown substances go in other_concerns with category="under_investigation"
-4. Every claim must have a source citation"""
+**CRITICAL CLASSIFICATION RULES - READ CAREFULLY:**
+
+1. **ALLERGENS** - ONLY substances that EXACTLY match the Allergen Knowledge Base:
+   - Must match by name or synonym from the database
+   - If not in database, it goes in other_concerns instead
+   - Severity based on database classification
+
+2. **PFAS** - ONLY substances that EXACTLY match the PFAS Knowledge Base:
+   - Match by exact name OR CAS number
+   - If not in database, it goes in other_concerns instead
+
+3. **other_concerns** - For everything else with credible evidence:
+   - category="carcinogen": IARC Group 1, 2A, or 2B classification
+   - category="regulatory_action": FDA/EPA/Health Canada action exists
+   - category="endocrine_disruptor": Scientific evidence of hormone disruption
+   - category="heavy_metal": Lead, mercury, arsenic, cadmium detected
+   - category="under_investigation": Credible evidence but not in our database (MUST have severity="low" max)
+   - MUST have credible source (.gov, .edu, peer-reviewed journal, court record)
+   - MUST NOT include unverified consumer complaints or blog posts
+   - MUST include description with source citation (e.g., "IARC Group 2A carcinogen per iarc.who.int")
+
+4. **Source Requirements:**
+   - Every allergen/PFAS/concern MUST have a source field
+   - Sources must be credible: .gov, .edu, manufacturer, peer-reviewed, court records
+   - Consumer reports (Reddit) can inform research but are NOT sources for safety claims
+
+**PFAS Detection Guidelines:**
+- Non-stick cookware often contains PTFE (Teflon) - check knowledge base
+- "Water-resistant", "stain-resistant" products may have PFAS coatings
+- Match against knowledge base by CAS number or exact name
+- If ingredients aren't fully listed, note lower confidence
+
+**Allergen Detection:**
+- Check ingredient lists carefully against knowledge base
+- Look for synonyms listed in knowledge base
+- Fragrance/Parfum often contains undisclosed allergens - flag with moderate confidence"""
 
 
 VERIFICATION_PROMPT_TEMPLATE = """You are an adversarial reviewer checking product safety analysis quality.
@@ -330,7 +397,7 @@ async def research_node(state: SafetyAgentState) -> Dict[str, Any]:
 
     # Initialize Cohere model with tools
     model = ChatCohere(
-        model="command-r-plus",
+        model="command-a-03-2025",
         temperature=0.3,
         cohere_api_key=settings.cohere_api_key,
     )
@@ -406,7 +473,7 @@ async def analyze_node(state: SafetyAgentState) -> Dict[str, Any]:
     logger.info("📊 Analyze node - synthesizing research into harm assessment")
 
     model = ChatCohere(
-        model="command-r-plus",
+        model="command-a-03-2025",
         temperature=0.2,  # Lower temperature for consistent output
         cohere_api_key=settings.cohere_api_key,
     )
@@ -535,6 +602,22 @@ async def verify_node(state: SafetyAgentState) -> Dict[str, Any]:
             "messages": [AIMessage(content=verification_text)],
             "verification_status": status,
             "analysis_result": analysis,
+        }
+
+    # If needs_research, add a HumanMessage with feedback so Cohere can continue
+    # (Cohere requires last message to be HumanMessage or ToolMessage)
+    if status == "needs_research":
+        issues_summary = "\n".join([f"- {i.get('type', 'issue')}: {i.get('details', '')}" for i in issues[:5]])
+        research_prompt = f"""Based on verification feedback, please conduct additional research:
+
+ISSUES FOUND:
+{issues_summary}
+
+Please use the available tools to gather more information about these issues, then provide an updated analysis."""
+
+        return {
+            "messages": [HumanMessage(content=research_prompt)],
+            "verification_status": status,
         }
 
     return {
