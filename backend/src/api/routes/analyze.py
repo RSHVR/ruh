@@ -221,8 +221,9 @@ async def analyze_product(
     try:
         logger.info(f"Analyzing product: {analysis_request.product_url}")
 
-        # Step 1: Generate URL hash for caching
+        # Step 1: Generate URL hash for caching (URL is normalized before hashing)
         url_hash = db.generate_url_hash(analysis_request.product_url)
+        logger.info(f"Normalized URL hash: {url_hash[:16]}...")
 
         # Step 2: Check cache (unless force_refresh is requested)
         cached_analysis = None

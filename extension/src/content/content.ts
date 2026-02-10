@@ -27,6 +27,7 @@ console.log('[ruh] Content script loaded');
 let triggerButton: HTMLDivElement | null = null;
 let currentProductUrl: string | null = null;
 let buttonDismissed: boolean = false;
+let analysisInFlight: boolean = false;
 
 // ============================================
 // BUTTON VISIBILITY MANAGEMENT
@@ -105,64 +106,53 @@ function init() {
 }
 
 /**
- * Start product analysis in background
+ * Start product analysis — captures page data here (same-origin with Amazon),
+ * then delegates the API call to the background service worker (which runs in
+ * chrome-extension:// origin and is exempt from Private Network Access restrictions).
  */
 async function startAnalysis() {
-  if (!currentProductUrl) return;
+  if (!currentProductUrl || analysisInFlight) return;
+  analysisInFlight = true;
 
   console.log('[ruh] Starting analysis for:', currentProductUrl);
+
+  // Normalize URL to canonical form (strip Amazon tracking params)
+  const asin = extractASIN(currentProductUrl);
+  const canonicalUrl = asin
+    ? `${new URL(currentProductUrl).origin}/dp/${asin}`
+    : currentProductUrl;
 
   // Notify background worker that analysis started
   chrome.runtime.sendMessage({
     type: 'ANALYSIS_STARTED',
-    productUrl: currentProductUrl
+    productUrl: canonicalUrl
   });
 
   try {
-    // Get API config from environment
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001';
-    const API_KEY = import.meta.env.VITE_API_KEY;
-
-    const headers: HeadersInit = { 'Content-Type': 'application/json' };
-    if (API_KEY) {
-      headers['Authorization'] = `Bearer ${API_KEY}`;
-    }
-
-    if (import.meta.env.VITE_DEBUG === 'true') {
-      console.log('[ruh] API Config:', {
-        baseUrl: API_BASE_URL,
-        hasAuth: !!API_KEY,
-        apiKeyPrefix: API_KEY?.substring(0, 8) + '...'
-      });
-    }
-
     // ============================================
     // CLIENT-SIDE DATA EXTRACTION
     // ============================================
     // Capture product page HTML directly from the DOM (user's session)
     // This bypasses bot detection since we're on the actual page
 
-    // Capture product page HTML
     const productHtml = document.documentElement.outerHTML;
     console.log(`[ruh] Product page captured: ${(productHtml.length / 1024).toFixed(1)}KB`);
 
     // Fetch reviews using user's Amazon session (cookies included automatically)
     let reviewsHtml: string | undefined;
-    const asin = extractASIN(currentProductUrl);
 
     if (asin) {
       console.log('[ruh] Fetching reviews for ASIN:', asin);
 
       const reviewsResult: ReviewsFetchResult = await fetchReviews(asin, {
-        pages: 5,           // Fetch 5 pages (~50 reviews)
-        filter: 'all',      // All star ratings
-        sortBy: 'helpful',  // Most helpful first
-        delayMs: 300,       // 300ms between pages to avoid rate limiting
+        pages: 5,
+        filter: 'all',
+        sortBy: 'helpful',
+        delayMs: 300,
       });
 
       if (reviewsResult.success) {
         reviewsHtml = reviewsResult.html;
-        // Count reviews by counting data-hook="review" occurrences
         const reviewCount = (reviewsHtml.match(/data-hook="review"/g) || []).length;
         console.log(`[ruh] Reviews fetched: ${reviewCount} reviews from ${reviewsResult.pagesLoaded} pages (${(reviewsHtml.length / 1024).toFixed(1)}KB)`);
       } else {
@@ -172,57 +162,52 @@ async function startAnalysis() {
       console.warn('[ruh] Could not extract ASIN from URL');
     }
 
-    // Build request payload
+    // Build request payload with canonical URL
     const requestBody: AnalysisRequest = {
-      product_url: currentProductUrl,
+      product_url: canonicalUrl,
       product_html: productHtml,
       ...(reviewsHtml && { reviews_html: reviewsHtml }),
     };
 
-    console.log('[ruh] Calling API:', API_BASE_URL + '/api/analyze');
+    // Delegate the API call to the background service worker.
+    // Content scripts run in the web page origin (amazon.ca) which Chrome's
+    // Private Network Access policy blocks from reaching localhost.
+    // The background worker runs in chrome-extension:// and is exempt.
+    console.log('[ruh] Sending analysis request to background worker');
 
-    // Call API
-    const response = await fetch(API_BASE_URL + '/api/analyze', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(requestBody)
+    const result = await chrome.runtime.sendMessage({
+      type: 'ANALYZE_PRODUCT',
+      productUrl: canonicalUrl,
+      requestBody
     });
 
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
+    if (!result?.success) {
+      throw new Error(result?.error || 'Background analysis failed');
     }
 
-    const data = await response.json();
+    const data = result.data;
     console.log('[ruh] Analysis complete:', data);
     if (data.reviews_stored !== null && data.reviews_stored !== undefined) {
       console.log(`[ruh] Reviews stored: ${data.reviews_stored}`);
     }
 
-    // Notify background worker that analysis is complete
-    chrome.runtime.sendMessage({
-      type: 'ANALYSIS_COMPLETE',
-      productUrl: currentProductUrl,
-      data
-    });
-
     // Inject button now that analysis is complete
-    // overall_score is safety score (0-100 where 100=safe), we need harm score
     const harmScore = 100 - data.analysis.overall_score;
     if (!buttonDismissed) {
       injectTriggerButton(harmScore);
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Analysis failed';
-    console.error('[ruh] Unable to send reviews to backend:', errorMessage);
+    console.error('[ruh] Analysis error:', errorMessage);
 
     // Notify background worker about the error
     chrome.runtime.sendMessage({
       type: 'ANALYSIS_ERROR',
-      productUrl: currentProductUrl,
+      productUrl: canonicalUrl,
       error: errorMessage
     });
-
-    // Don't show button on error
+  } finally {
+    analysisInFlight = false;
   }
 }
 
@@ -362,6 +347,7 @@ function cleanup() {
   }
   buttonDismissed = false;
   currentProductUrl = null;
+  analysisInFlight = false;
 }
 
 // Initialize on load
@@ -372,11 +358,13 @@ if (document.readyState === 'loading') {
 }
 
 // Re-initialize on URL changes (SPA navigation)
-let lastUrl = window.location.href;
+// Compare ASINs, not raw URLs — Amazon mutates tracking params via
+// history.replaceState() which would falsely trigger re-analysis.
+let lastAsin = extractASIN(window.location.href);
 new MutationObserver(() => {
-  const currentUrl = window.location.href;
-  if (currentUrl !== lastUrl) {
-    lastUrl = currentUrl;
+  const currentAsin = extractASIN(window.location.href);
+  if (currentAsin && currentAsin !== lastAsin) {
+    lastAsin = currentAsin;
     cleanup();
     setTimeout(init, 500); // Wait for page content to load
   }

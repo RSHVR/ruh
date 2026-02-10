@@ -2,8 +2,10 @@
 
 import hashlib
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
+from urllib.parse import urlparse
 from uuid import UUID
 
 from supabase import create_client, Client
@@ -72,16 +74,33 @@ class DatabaseService:
             logger.error(f"Failed to get/create anonymous user: {e}")
             return UUID('00000000-0000-0000-0000-000000000000')
 
+    @staticmethod
+    def _normalize_product_url(url: str) -> str:
+        """Normalize Amazon URL to canonical form: https://{host}/dp/{ASIN}.
+
+        Strips tracking parameters (psc, th, pd_rd_*, pf_rd_*, ref, sp_csd)
+        so the same product always produces the same hash regardless of how
+        the user arrived at the page.
+        """
+        parsed = urlparse(url)
+        match = re.search(r'/dp/([A-Z0-9]{10})|/gp/product/([A-Z0-9]{10})', parsed.path, re.IGNORECASE)
+        if match:
+            asin = match.group(1) or match.group(2)
+            return f"https://{parsed.hostname}/dp/{asin}"
+        # Non-Amazon or unrecognized format: strip query params, normalize
+        return f"https://{parsed.hostname}{parsed.path.rstrip('/')}".lower()
+
     def generate_url_hash(self, url: str) -> str:
-        """Generate SHA256 hash of product URL for efficient lookups.
+        """Generate SHA256 hash of normalized product URL for efficient lookups.
 
         Args:
-            url: Product URL
+            url: Product URL (raw — will be normalized before hashing)
 
         Returns:
             Hex string of SHA256 hash
         """
-        return hashlib.sha256(url.encode()).hexdigest()
+        normalized = self._normalize_product_url(url)
+        return hashlib.sha256(normalized.encode()).hexdigest()
 
     async def get_cached_analysis(self, url_hash: str) -> Optional[Dict[str, Any]]:
         """Check if product analysis exists in cache.
@@ -309,6 +328,22 @@ class DatabaseService:
             return response.data or []
         except Exception as e:
             logger.error(f"Failed to get PFAS compounds: {e}")
+            return []
+
+    async def get_all_toxic_substances(self) -> List[Dict[str, Any]]:
+        """Get all toxic substances from knowledge base.
+
+        Returns:
+            List of all toxic substance records (phthalates, bisphenols, heavy metals, etc.)
+        """
+        if not self.is_available:
+            return []
+
+        try:
+            response = self.client.table('toxic_substances').select('*').execute()
+            return response.data or []
+        except Exception as e:
+            logger.error(f"Failed to get toxic substances: {e}")
             return []
 
     async def cache_review_insights(
