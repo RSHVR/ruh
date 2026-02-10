@@ -11,10 +11,11 @@
   "host_permissions": [
     "https://*.amazon.com/*",
     "https://*.amazon.ca/*",
-    "https://ruh-api-948739110049.us-central1.run.app/*"
+    "https://ruh-api-948739110049.us-central1.run.app/*",
+    "http://localhost:8000/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://ruh-api-948739110049.us-central1.run.app"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://ruh-api-948739110049.us-central1.run.app https://*.supabase.co http://localhost:8000"
   },
   "background": {
     "service_worker": "background.js",

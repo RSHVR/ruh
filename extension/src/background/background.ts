@@ -1,4 +1,15 @@
+import { initSupabase, getSupabaseClient } from '../lib/supabase';
+
 console.log('[Ruh] Background service worker initialized');
+
+// Initialize Supabase client (hydrate storage adapter from chrome.storage)
+initSupabase().then((client) => {
+  if (client) {
+    console.log('[Ruh] Supabase client initialized');
+  } else {
+    console.log('[Ruh] Supabase not configured, using API key auth');
+  }
+});
 
 // Disable automatic side panel open on action click
 // This allows our onClicked handler to run and set the tabId query param
@@ -6,6 +17,27 @@ chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: false })
   .then(() => console.log('[Ruh] setPanelBehavior set to false'))
   .catch((err) => console.error('[Ruh] setPanelBehavior failed:', err));
+
+/**
+ * Get the Authorization header value. Prefers Supabase JWT if available,
+ * falls back to the static API key for backward compatibility.
+ */
+async function getAuthHeader(): Promise<string> {
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      const { data } = await client.auth.getSession();
+      if (data.session?.access_token) {
+        return `Bearer ${data.session.access_token}`;
+      }
+    } catch {
+      // Fall through to API key
+    }
+  }
+
+  const apiKey = import.meta.env.VITE_API_KEY || '';
+  return apiKey ? `Bearer ${apiKey}` : '';
+}
 
 // ============================================
 // SIDE PANEL STATE DETECTION using getContexts()
@@ -159,6 +191,128 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Track alternative product clicks
     console.log('[Ruh] Alternative clicked:', message.alternativeUrl);
     sendResponse({ success: true });
+  }
+
+  // ============================================
+  // API CALL DELEGATION (PNA bypass)
+  // Content scripts on amazon.ca can't reach localhost due to
+  // Chrome Private Network Access. Background worker is exempt.
+  // ============================================
+  if (message.type === 'ANALYZE_PRODUCT') {
+    const tabId = sender.tab?.id;
+    if (!tabId) {
+      sendResponse({ success: false, error: 'No tab ID' });
+      return true;
+    }
+
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+
+    if (!apiBaseUrl) {
+      console.error('[Ruh] VITE_API_BASE_URL is not configured');
+      sendResponse({ success: false, error: 'API URL not configured' });
+      return true;
+    }
+
+    console.log('[Ruh] Making API call for tab:', tabId, 'URL:', apiBaseUrl + '/api/analyze');
+
+    // Use JWT if available, else fall back to static API key
+    getAuthHeader().then((authValue) => {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authValue) {
+        headers['Authorization'] = authValue;
+      }
+
+      return fetch(apiBaseUrl + '/api/analyze', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(message.requestBody),
+      });
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+        const data = await response.json();
+        console.log('[Ruh] API response received for tab:', tabId);
+
+        // Store in chrome.storage (same as old ANALYSIS_COMPLETE handler)
+        const harmScore = data?.analysis?.overall_score
+          ? 100 - data.analysis.overall_score
+          : null;
+
+        chrome.storage.local.set({
+          [`analysis_${tabId}`]: {
+            tabId,
+            productUrl: message.productUrl,
+            status: 'complete',
+            data,
+            error: null,
+            timestamp: Date.now(),
+            harmScore,
+          },
+        });
+
+        sendResponse({ success: true, data });
+      })
+      .catch((err) => {
+        const errorMessage = err instanceof Error ? err.message : 'API request failed';
+        console.error('[Ruh] API call failed:', errorMessage);
+
+        chrome.storage.local.set({
+          [`analysis_${tabId}`]: {
+            tabId,
+            productUrl: message.productUrl,
+            status: 'error',
+            data: null,
+            error: errorMessage,
+            timestamp: Date.now(),
+            harmScore: null,
+          },
+        });
+
+        sendResponse({ success: false, error: errorMessage });
+      });
+
+    return true; // Keep channel open for async response
+  }
+
+  // ============================================
+  // AUTH CALLBACK (OAuth popup sends tokens here)
+  // ============================================
+  if (message.type === 'AUTH_CALLBACK') {
+    const client = getSupabaseClient();
+    if (!client) {
+      sendResponse({ success: false, error: 'Supabase not configured' });
+      return true;
+    }
+
+    (async () => {
+      try {
+        if (message.code) {
+          // PKCE flow: exchange code for session
+          const { error } = await client.auth.exchangeCodeForSession(message.code);
+          if (error) throw error;
+        } else if (message.access_token && message.refresh_token) {
+          // Implicit flow: set session directly
+          const { error } = await client.auth.setSession({
+            access_token: message.access_token,
+            refresh_token: message.refresh_token,
+          });
+          if (error) throw error;
+        } else {
+          throw new Error('No auth code or tokens provided');
+        }
+
+        console.log('[Ruh] Auth session established');
+        sendResponse({ success: true });
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Auth callback failed';
+        console.error('[Ruh] Auth callback error:', errorMsg);
+        sendResponse({ success: false, error: errorMsg });
+      }
+    })();
+
+    return true; // Async response
   }
 
   if (message.type === 'ANALYSIS_COMPLETE') {
@@ -318,4 +472,3 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   tabsWithOpenSidePanel.delete(tabId);
 });
 
-export {};

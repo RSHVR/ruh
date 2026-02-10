@@ -138,6 +138,11 @@ class AnalysisResponse(BaseModel):
     reviews_stored: Optional[int] = None  # Number of reviews stored with embeddings
     review_insights: Optional[dict[str, Any]] = None  # Health concerns extracted from reviews
 
+    # Auth/credit context (populated when user is JWT-authenticated)
+    user_tier: Optional[str] = None  # 'free', 'basic', 'middle', 'unlimited'
+    credits_remaining: Optional[int] = None  # Current balance (-1 = unlimited)
+    analysis_unlocked: Optional[bool] = None  # True if user has unlocked this product
+
 
 class ScrapedProduct(BaseModel):
     """Raw scraped product data from e-commerce site."""

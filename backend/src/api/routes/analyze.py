@@ -13,13 +13,22 @@ from ...infrastructure.safety_agent import ProductSafetyAgentWrapper as ProductS
 from ...infrastructure.product_scraper import ProductScraperService
 from ...infrastructure.claude_query import ClaudeQueryService
 from ...infrastructure.trafilatura_extractor import extract_product_data as trafilatura_extract, preprocess_ingredients
+from ...infrastructure.section_parser import parse_sections
 from ...infrastructure.database import db
 from ...infrastructure.review_vector_service import review_vector_service
 from ...infrastructure.validation_logger import validation_logger
 from ...infrastructure.token_tracker import TokenTracker
-from ..auth import verify_api_key
+from ..auth import verify_api_key, get_auth_context, AuthContext
+from ...infrastructure.config import settings
 from anthropic import RateLimitError
 from typing import List, Dict, Any
+
+
+def _safe_error_detail(message: str, error: Exception) -> str:
+    """Return error detail with str(e) only in debug mode."""
+    if settings.debug:
+        return f"{message}: {str(error)}"
+    return message
 
 # Initialize limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -48,6 +57,35 @@ logger = logging.getLogger(__name__)
 
 # Initialize scraper service (stateless, can be reused)
 scraper_service = ProductScraperService()
+
+
+def _auth_fields(auth: AuthContext, url_hash: str = "") -> dict:
+    """Build the auth/credit fields to merge into AnalysisResponse.
+
+    Returns an empty dict for legacy API-key callers so existing
+    behavior is unchanged.
+    """
+    if auth.is_api_key:
+        return {}
+
+    # Check if this product is already unlocked for the user
+    unlocked = False
+    if auth.user_id and url_hash:
+        try:
+            from ...infrastructure.database import db
+            if db.is_available:
+                resp = db.client.table("unlocked_analyses").select("id").eq(
+                    "user_id", str(auth.user_id)
+                ).eq("url_hash", url_hash).execute()
+                unlocked = bool(resp.data)
+        except Exception:
+            pass  # Non-fatal — default to not unlocked
+
+    return {
+        "user_tier": auth.tier,
+        "credits_remaining": auth.credits_remaining,
+        "analysis_unlocked": unlocked or auth.tier == "unlimited",
+    }
 
 
 def validate_and_filter_substances(
@@ -168,14 +206,14 @@ def validate_and_filter_substances(
 async def analyze_product(
     request: Request,
     analysis_request: AnalysisRequest,
-    api_key: str = Depends(verify_api_key)
+    auth: AuthContext = Depends(get_auth_context)
 ):
     """Analyze a product for harmful substances.
 
     Args:
         request: HTTP request (required by slowapi for rate limiting)
         analysis_request: Analysis request with product URL
-        api_key: Verified API key from Authorization header
+        auth: Authentication context (JWT user or legacy API key)
 
     Returns:
         Analysis response with harm score and details
@@ -236,6 +274,7 @@ async def analyze_product(
                 cache_age_seconds=int(cache_age),
                 url_hash=url_hash,  # Include for fetching reviews later
                 review_insights=cached_review_insights,
+                **_auth_fields(auth, url_hash),
             )
 
         # Step 4: Cache miss - perform new analysis
@@ -275,12 +314,14 @@ async def analyze_product(
         # Step 4b: Load knowledge bases from Supabase (with graceful fallback)
         allergen_db = []
         pfas_db = []
+        toxic_db = []
         if db.is_available:
             try:
-                logger.info("🔍 Loading allergen and PFAS knowledge bases from Supabase...")
+                logger.info("🔍 Loading allergen, PFAS, and toxic substance knowledge bases from Supabase...")
                 allergen_db = await db.get_all_allergens()
                 pfas_db = await db.get_all_pfas()
-                logger.info(f"✅ Loaded {len(allergen_db)} allergens and {len(pfas_db)} PFAS compounds")
+                toxic_db = await db.get_all_toxic_substances()
+                logger.info(f"✅ Loaded {len(allergen_db)} allergens, {len(pfas_db)} PFAS, {len(toxic_db)} toxic substances")
             except Exception as e:
                 logger.warning(f"⚠️  Failed to load knowledge bases (continuing): {e}")
         else:
@@ -302,13 +343,26 @@ async def analyze_product(
             # SUCCESS PATH: HTML available → Extract → Agent
             logger.info("✅ HTML available - using optimized extraction pipeline")
 
-            # Step 1: Try Trafilatura extraction first (FREE - no LLM call)
-            logger.info("📊 Step 1a: Trafilatura - attempting rule-based extraction")
-            trafilatura_result, needs_llm_fallback = trafilatura_extract(
-                html=scraped_html.raw_html_product,
-                url=analysis_request.product_url,
-                min_confidence=0.5
-            )
+            # Step 1: Extract product data (FREE - no LLM call)
+            content = scraped_html.raw_html_product
+            is_pre_extracted = content.lstrip().startswith("===")
+
+            if is_pre_extracted:
+                # Client-submitted HTML was already processed by AmazonScraper
+                # into === section === format. Use the dedicated parser.
+                logger.info("📊 Step 1a: Section parser - pre-extracted content detected")
+                trafilatura_result, needs_llm_fallback = parse_sections(
+                    text=content,
+                    url=analysis_request.product_url,
+                )
+            else:
+                # Raw HTML - use Trafilatura's CSS selectors / content extraction
+                logger.info("📊 Step 1a: Trafilatura - attempting rule-based extraction")
+                trafilatura_result, needs_llm_fallback = trafilatura_extract(
+                    html=content,
+                    url=analysis_request.product_url,
+                    min_confidence=0.5
+                )
 
             if not needs_llm_fallback:
                 # Trafilatura succeeded - save ~$0.01 Claude Query call
@@ -346,9 +400,14 @@ async def analyze_product(
                     ingredients=product_data.get('ingredients', []),
                     materials=product_data.get('materials', []),
                     allergen_database=allergen_db,
-                    pfas_database=pfas_db
+                    pfas_database=pfas_db,
+                    toxic_database=toxic_db,
                 )
-                logger.info(f"✅ Database matching: {len(basic_analysis['allergens_detected'])} allergens, {len(basic_analysis['pfas_detected'])} PFAS")
+                logger.info(
+                    f"✅ Database matching: {len(basic_analysis['allergens_detected'])} allergens, "
+                    f"{len(basic_analysis['pfas_detected'])} PFAS, "
+                    f"{len(basic_analysis.get('other_concerns', []))} toxic substances"
+                )
 
                 # Step 2/3 - Classify ingredients based on database results
                 logger.info("🔍 Step 2/3: Classifying ingredients to reduce LLM research")
@@ -650,13 +709,14 @@ async def analyze_product(
             url_hash=url_hash,  # Include for fetching reviews later
             reviews_stored=reviews_stored,
             review_insights=review_insights,
+            **_auth_fields(auth, url_hash),
         )
 
     except Exception as e:
         logger.error(f"Analysis failed: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Analysis failed: {str(e)}",
+            detail=_safe_error_detail("Analysis failed", e),
         )
 
 
@@ -664,7 +724,7 @@ async def analyze_product(
 async def get_review_insights(
     url_hash: str,
     force_refresh: bool = False,
-    api_key: str = Depends(verify_api_key)
+    auth: AuthContext = Depends(get_auth_context)
 ):
     """Get consumer insights from product reviews and Q&A.
 
@@ -708,7 +768,7 @@ async def get_review_insights(
             except Exception as e:
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Failed to retrieve product info: {str(e)}"
+                    detail=_safe_error_detail("Failed to retrieve product info", e)
                 )
         else:
             raise HTTPException(
@@ -773,7 +833,7 @@ async def get_review_insights(
         logger.error(f"❌ Review insights extraction failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Review analysis failed: {str(e)}"
+            detail=_safe_error_detail("Review analysis failed", e)
         )
 
 
@@ -817,7 +877,7 @@ class ReviewSearchResponse(BaseModel):
 async def search_reviews(
     request: Request,
     search_request: ReviewSearchRequest,
-    api_key: str = Depends(verify_api_key)
+    auth: AuthContext = Depends(get_auth_context)
 ):
     """Search reviews semantically using Cohere embeddings.
 
@@ -868,14 +928,14 @@ async def search_reviews(
         logger.error(f"❌ Review search failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Review search failed: {str(e)}"
+            detail=_safe_error_detail("Review search failed", e)
         )
 
 
 @router.get("/reviews/{url_hash}/summary")
 async def get_review_summary(
     url_hash: str,
-    api_key: str = Depends(verify_api_key)
+    auth: AuthContext = Depends(get_auth_context)
 ):
     """Get review statistics for a product.
 
@@ -899,5 +959,5 @@ async def get_review_summary(
         logger.error(f"❌ Failed to get review summary: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get review summary: {str(e)}"
+            detail=_safe_error_detail("Failed to get review summary", e)
         )

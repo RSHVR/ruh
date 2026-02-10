@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_key: str = ""
 
+    # Supabase Auth (JWT validation)
+    supabase_jwt_secret: str = ""
+
     # Redis (optional for basic API functionality)
     redis_url: str = ""
 

@@ -4,22 +4,35 @@
    *
    * Manages the Chrome Side Panel lifecycle, state synchronization,
    * and event coordination. This container component handles:
+   * - Auth gating (login required before viewing)
+   * - Credit-based access to detailed analysis
    * - Tab switching and URL navigation detection
    * - Analysis data loading from chrome.storage
    * - Empty states and error handling
    *
-   * Note: Side panel open/close state is now tracked by background.ts
-   * using chrome.runtime.getContexts() polling. This component no longer
-   * sends SIDE_PANEL_OPENED/CLOSED messages.
-   *
-   * Renders AnalysisView component when data is available.
+   * Rendering flow:
+   *   loading → auth check →
+   *     NOT logged in → LoginView
+   *     logged in →
+   *       no data → empty state
+   *       loading → LoadingScreen
+   *       error → error state
+   *       complete →
+   *         unlimited tier → AnalysisView
+   *         non-unlimited AND NOT unlocked → ScoreSummaryView
+   *         non-unlimited AND unlocked → AnalysisView
    */
   import { onMount, onDestroy } from 'svelte';
   import AnalysisView from './components/AnalysisView.svelte';
   import LoadingScreen from './components/LoadingScreen.svelte';
+  import LoginView from './components/LoginView.svelte';
+  import CreditBadge from './components/CreditBadge.svelte';
+  import ScoreSummaryView from './components/ScoreSummaryView.svelte';
   import type { TabAnalysisState } from './lib/storage-sync';
   import { getTabStorageKey, getActiveTab } from './lib/storage-sync';
   import { isAmazonProductPage } from '@/lib/utils';
+  import { initSupabase } from './lib/supabase';
+  import { authStore } from './lib/auth-store.svelte';
 
   // Props: initialTabId is passed from sidepanel.ts (read from URL query params)
   let { initialTabId = null }: { initialTabId: number | null } = $props();
@@ -29,12 +42,24 @@
   let loading: boolean = $state(true);
   let error: string | null = $state(null);
 
+  // Track whether current product is unlocked (client-side state)
+  let analysisUnlocked = $state(false);
+
   let storageListener: ((changes: any, area: string) => void) | null = null;
   let tabActivatedListener: ((activeInfo: chrome.tabs.TabActiveInfo) => void) | null = null;
   let tabUpdatedListener: ((tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void) | null = null;
 
+  // Determine if user should see full analysis
+  let showFullAnalysis = $derived(
+    authStore.userTier === 'unlimited' || analysisUnlocked,
+  );
+
   onMount(async () => {
     console.log('[SidePanelContainer] Initializing with initialTabId:', initialTabId);
+
+    // Initialize Supabase + auth state
+    await initSupabase();
+    await authStore.initialize();
 
     // Use initialTabId from URL if available, otherwise query active tab
     if (initialTabId) {
@@ -52,6 +77,8 @@
         console.log('[SidePanelContainer] Storage updated for current tab:', currentTabId);
         currentTabState = changes[key].newValue;
         loading = false;
+        // Check unlock status from response data
+        checkUnlockFromResponse();
       }
     };
     chrome.storage.onChanged.addListener(storageListener);
@@ -74,9 +101,11 @@
       if (!isProductPage) {
         console.log('[SidePanelContainer] Navigated away from product page');
         currentTabState = null;
+        analysisUnlocked = false;
         loading = false;
       } else {
         console.log('[SidePanelContainer] Navigated to new product page');
+        analysisUnlocked = false;
         await loadTabState(tabId);
       }
     };
@@ -84,9 +113,6 @@
   });
 
   onDestroy(() => {
-    // Clean up listeners
-    // Note: We no longer send SIDE_PANEL_CLOSED message here
-    // Background detects close via getContexts() polling
     if (storageListener) {
       chrome.storage.onChanged.removeListener(storageListener);
     }
@@ -133,53 +159,122 @@
       console.log('[SidePanelContainer] Loaded state for tab:', tabId, state.status);
       currentTabState = state;
       loading = false;
+
+      // Check unlock status from response data
+      checkUnlockFromResponse();
     } catch (err) {
       console.error('[SidePanelContainer] Error loading tab state:', err);
       error = 'Failed to load analysis data';
       loading = false;
     }
   }
+
+  /**
+   * Check if the analysis response indicates this product is unlocked
+   */
+  function checkUnlockFromResponse() {
+    if (currentTabState?.status === 'complete' && currentTabState.data) {
+      const data = currentTabState.data;
+      if (data.analysis_unlocked) {
+        analysisUnlocked = true;
+      }
+    }
+  }
+
+  /**
+   * Handle unlock button click — deduct credit via API
+   */
+  async function handleUnlock() {
+    if (!currentTabState?.data?.url_hash) return;
+
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+    const token = authStore.getAccessToken();
+    if (!token || !API_BASE_URL) return;
+
+    try {
+      const resp = await fetch(`${API_BASE_URL}/api/credits/deduct`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ url_hash: currentTabState.data.url_hash }),
+      });
+
+      if (resp.ok) {
+        const result = await resp.json();
+        analysisUnlocked = true;
+        await authStore.refreshCredits();
+      } else if (resp.status === 402) {
+        error = 'No credits remaining. Please upgrade your plan.';
+      } else {
+        error = 'Failed to unlock analysis';
+      }
+    } catch (err) {
+      console.error('[SidePanelContainer] Unlock failed:', err);
+      error = 'Failed to unlock analysis';
+    }
+  }
 </script>
 
 <div class="side-panel-container">
-  {#if loading}
+  {#if loading || authStore.loading}
     <div class="empty-state">
       <div class="spinner"></div>
       <p>Loading...</p>
     </div>
-  {:else if error}
-    <div class="empty-state">
-      <p class="error-text">{error}</p>
-      <button onclick={() => loadActiveTabState()} class="retry-button">
-        Retry
-      </button>
-    </div>
-  {:else if !currentTabState}
-    <div class="empty-state">
-      <img src="/icon-128.png" alt="Ruh" class="empty-icon" />
-      <h2>No Analysis Yet</h2>
-      <p>Navigate to an Amazon product page to analyze its safety.</p>
-    </div>
-  {:else if currentTabState.status === 'loading'}
-    <LoadingScreen currentStep="" />
-  {:else if currentTabState.status === 'error'}
-    <div class="empty-state">
-      <p class="error-text">{currentTabState.error || 'Analysis failed'}</p>
-      <button onclick={() => loadActiveTabState()} class="retry-button">
-        Retry
-      </button>
-    </div>
-  {:else if currentTabState.status === 'complete' && currentTabState.data}
-    <AnalysisView
-      analysis={currentTabState.data}
-      loading={false}
-      error={null}
-      visible={true}
-    />
+  {:else if !authStore.isAuthenticated}
+    <LoginView />
   {:else}
-    <div class="empty-state">
-      <p>Unknown state</p>
+    <!-- Auth header with credit badge and sign out -->
+    <div class="auth-header">
+      <CreditBadge />
+      <button class="signout-btn" onclick={() => authStore.signOut()}>
+        Sign Out
+      </button>
     </div>
+
+    {#if error}
+      <div class="empty-state">
+        <p class="error-text">{error}</p>
+        <button onclick={() => { error = null; loadActiveTabState(); }} class="retry-button">
+          Retry
+        </button>
+      </div>
+    {:else if !currentTabState}
+      <div class="empty-state">
+        <img src="/icon-128.png" alt="Ruh" class="empty-icon" />
+        <h2>No Analysis Yet</h2>
+        <p>Navigate to an Amazon product page to analyze its safety.</p>
+      </div>
+    {:else if currentTabState.status === 'loading'}
+      <LoadingScreen currentStep="" />
+    {:else if currentTabState.status === 'error'}
+      <div class="empty-state">
+        <p class="error-text">{currentTabState.error || 'Analysis failed'}</p>
+        <button onclick={() => loadActiveTabState()} class="retry-button">
+          Retry
+        </button>
+      </div>
+    {:else if currentTabState.status === 'complete' && currentTabState.data}
+      {#if showFullAnalysis}
+        <AnalysisView
+          analysis={currentTabState.data}
+          loading={false}
+          error={null}
+          visible={true}
+        />
+      {:else}
+        <ScoreSummaryView
+          analysis={currentTabState.data}
+          onUnlock={handleUnlock}
+        />
+      {/if}
+    {:else}
+      <div class="empty-state">
+        <p>Unknown state</p>
+      </div>
+    {/if}
   {/if}
 </div>
 
@@ -189,6 +284,35 @@
     height: 100vh;
     overflow-y: auto;
     background: var(--color-bg-primary, #fffbf5);
+  }
+
+  .auth-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid #e8e0d4;
+    background: var(--color-bg-primary, #fffbf5);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  .signout-btn {
+    background: none;
+    border: none;
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    color: var(--color-text-secondary, #6B6560);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 150ms ease;
+  }
+
+  .signout-btn:hover {
+    background: #f0ebe2;
+    color: var(--color-text-primary, #3A3633);
   }
 
   .empty-state {

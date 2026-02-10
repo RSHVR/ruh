@@ -60,6 +60,21 @@ export interface AnalysisResponse {
   cache_age_seconds?: number;
   url_hash?: string;
   reviews_stored?: number | null;
+
+  // Auth/credit context (present when user is JWT-authenticated)
+  user_tier?: string;         // 'free' | 'basic' | 'middle' | 'unlimited'
+  credits_remaining?: number; // -1 = unlimited
+  analysis_unlocked?: boolean;
+}
+
+export interface UserContext {
+  isAuthenticated: boolean;
+  userId?: string;
+  email?: string;
+  displayName?: string;
+  avatarUrl?: string;
+  tier: string;
+  creditsRemaining: number;
 }
 
 export interface CachedAnalysis {
