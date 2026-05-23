@@ -19,50 +19,77 @@ from .config import settings
 logger = logging.getLogger(__name__)
 
 
-# Model pricing (per 1M tokens)
+# Model pricing (per 1M tokens).
+# `cache_write` and `cache_read` apply to Anthropic 1hr ephemeral caching;
+# `cache_write` may be a list of [5m_rate, 1hr_rate] — we use the 1hr rate.
+# Providers without prompt caching set both to None (honest, not 0).
 PRICING = {
     # Claude models
     "claude-sonnet-4-5-20250929": {
-        "input": 3.00,   # $3 per 1M input tokens
-        "output": 15.00,  # $15 per 1M output tokens
+        "input": 3.00,
+        "output": 15.00,
+        "cache_write": 6.00,   # 1hr cache write (2x base input)
+        "cache_read": 0.30,    # cache read (0.1x base input)
     },
     "claude-sonnet-4-20250514": {
         "input": 3.00,
         "output": 15.00,
+        "cache_write": 6.00,
+        "cache_read": 0.30,
+    },
+    "claude-opus-4-7": {
+        "input": 15.00,
+        "output": 75.00,
+        "cache_write": 30.00,
+        "cache_read": 1.50,
     },
     "claude-haiku-3": {
-        "input": 0.80,   # $0.80 per 1M input tokens
-        "output": 4.00,  # $4 per 1M output tokens
+        "input": 0.80,
+        "output": 4.00,
+        "cache_write": 1.60,
+        "cache_read": 0.08,
     },
     "claude-3-5-haiku-20241022": {
         "input": 0.80,
         "output": 4.00,
+        "cache_write": 1.60,
+        "cache_read": 0.08,
     },
-    # Cohere models
+    # Cohere models — no prompt caching support
     "command-a-03-2025": {
-        "input": 2.50,   # $2.50 per 1M input tokens
-        "output": 10.00,  # $10 per 1M output tokens
+        "input": 2.50,
+        "output": 10.00,
+        "cache_write": None,
+        "cache_read": None,
     },
     "command-r-plus": {
         "input": 2.50,
         "output": 10.00,
+        "cache_write": None,
+        "cache_read": None,
     },
     "command-r-plus-08-2024": {
         "input": 2.50,
         "output": 10.00,
+        "cache_write": None,
+        "cache_read": None,
     },
     "command-r": {
-        "input": 0.15,   # $0.15 per 1M input tokens
-        "output": 0.60,  # $0.60 per 1M output tokens
+        "input": 0.15,
+        "output": 0.60,
+        "cache_write": None,
+        "cache_read": None,
     },
     "command-r-08-2024": {
         "input": 0.15,
         "output": 0.60,
+        "cache_write": None,
+        "cache_read": None,
     },
 }
 
 # Default pricing for unknown models (Sonnet pricing as default)
-DEFAULT_PRICING = {"input": 3.00, "output": 15.00}
+DEFAULT_PRICING = {"input": 3.00, "output": 15.00, "cache_write": 6.00, "cache_read": 0.30}
 
 # Web search pricing (per search)
 SEARCH_PRICING = {
@@ -75,49 +102,96 @@ SEARCH_PRICING = {
 
 @dataclass
 class TokenUsage:
-    """Token usage for a single API call."""
+    """Token usage for a single API call.
 
-    call_name: str  # e.g., "product_extraction", "review_insights", "agent_analysis"
+    Cache fields capture Anthropic's 1hr ephemeral prompt cache accounting.
+    For providers without prompt caching (Cohere) both stay at 0 — pricing
+    handles missing cache rates by treating cache_* as ordinary input tokens
+    at the input rate (i.e. a no-op), so a Cohere call with cache_read=0
+    yields the same cost as before.
+    """
+
+    call_name: str
     model: str
     input_tokens: int
     output_tokens: int
-    input_tokens_estimated: Optional[int] = None  # Pre-request estimate
+    cache_read_input_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+    input_tokens_estimated: Optional[int] = None
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
     def total_tokens(self) -> int:
-        """Total tokens used."""
-        return self.input_tokens + self.output_tokens
+        return (
+            self.input_tokens
+            + self.output_tokens
+            + self.cache_read_input_tokens
+            + self.cache_creation_input_tokens
+        )
 
     @property
     def input_cost(self) -> float:
-        """Cost for input tokens in USD."""
         pricing = PRICING.get(self.model, DEFAULT_PRICING)
         return (self.input_tokens / 1_000_000) * pricing["input"]
 
     @property
+    def cache_read_cost(self) -> float:
+        pricing = PRICING.get(self.model, DEFAULT_PRICING)
+        rate = pricing.get("cache_read")
+        if rate is None:
+            # Provider doesn't support caching; cache_read should be 0 anyway.
+            rate = pricing["input"]
+        return (self.cache_read_input_tokens / 1_000_000) * rate
+
+    @property
+    def cache_creation_cost(self) -> float:
+        pricing = PRICING.get(self.model, DEFAULT_PRICING)
+        rate = pricing.get("cache_write")
+        if rate is None:
+            rate = pricing["input"]
+        return (self.cache_creation_input_tokens / 1_000_000) * rate
+
+    @property
     def output_cost(self) -> float:
-        """Cost for output tokens in USD."""
         pricing = PRICING.get(self.model, DEFAULT_PRICING)
         return (self.output_tokens / 1_000_000) * pricing["output"]
 
     @property
     def total_cost(self) -> float:
-        """Total cost in USD."""
-        return self.input_cost + self.output_cost
+        return (
+            self.input_cost
+            + self.cache_read_cost
+            + self.cache_creation_cost
+            + self.output_cost
+        )
+
+    @property
+    def cache_hit_rate(self) -> Optional[float]:
+        """Fraction of input tokens served from cache. None if provider doesn't cache."""
+        pricing = PRICING.get(self.model, DEFAULT_PRICING)
+        if pricing.get("cache_read") is None:
+            return None
+        denom = self.input_tokens + self.cache_read_input_tokens + self.cache_creation_input_tokens
+        if denom == 0:
+            return 0.0
+        return self.cache_read_input_tokens / denom
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for storage."""
         return {
             "call_name": self.call_name,
             "model": self.model,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
+            "cache_read_input_tokens": self.cache_read_input_tokens,
+            "cache_creation_input_tokens": self.cache_creation_input_tokens,
             "input_tokens_estimated": self.input_tokens_estimated,
             "total_tokens": self.total_tokens,
             "input_cost_usd": round(self.input_cost, 6),
+            "cache_read_cost_usd": round(self.cache_read_cost, 6),
+            "cache_creation_cost_usd": round(self.cache_creation_cost, 6),
             "output_cost_usd": round(self.output_cost, 6),
             "total_cost_usd": round(self.total_cost, 6),
+            "cache_hit_rate": self.cache_hit_rate,
             "timestamp": self.timestamp.isoformat(),
         }
 
@@ -165,18 +239,46 @@ class AnalysisTokenSummary:
 
     @property
     def total_input_tokens(self) -> int:
-        """Total input tokens across all calls."""
         return sum(call.input_tokens for call in self.calls)
 
     @property
     def total_output_tokens(self) -> int:
-        """Total output tokens across all calls."""
         return sum(call.output_tokens for call in self.calls)
 
     @property
+    def total_cache_read_tokens(self) -> int:
+        return sum(call.cache_read_input_tokens for call in self.calls)
+
+    @property
+    def total_cache_creation_tokens(self) -> int:
+        return sum(call.cache_creation_input_tokens for call in self.calls)
+
+    @property
     def total_tokens(self) -> int:
-        """Total tokens across all calls."""
-        return self.total_input_tokens + self.total_output_tokens
+        return (
+            self.total_input_tokens
+            + self.total_output_tokens
+            + self.total_cache_read_tokens
+            + self.total_cache_creation_tokens
+        )
+
+    @property
+    def aggregate_cache_hit_rate(self) -> Optional[float]:
+        """Cache hit rate across all Anthropic calls. None if no calls support caching."""
+        cacheable_calls = [
+            c for c in self.calls
+            if PRICING.get(c.model, DEFAULT_PRICING).get("cache_read") is not None
+        ]
+        if not cacheable_calls:
+            return None
+        cache_reads = sum(c.cache_read_input_tokens for c in cacheable_calls)
+        total_inputs = sum(
+            c.input_tokens + c.cache_read_input_tokens + c.cache_creation_input_tokens
+            for c in cacheable_calls
+        )
+        if total_inputs == 0:
+            return 0.0
+        return cache_reads / total_inputs
 
     @property
     def token_cost(self) -> float:
@@ -221,7 +323,10 @@ class AnalysisTokenSummary:
             "url_hash": self.url_hash,
             "total_input_tokens": self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,
+            "total_cache_read_tokens": self.total_cache_read_tokens,
+            "total_cache_creation_tokens": self.total_cache_creation_tokens,
             "total_tokens": self.total_tokens,
+            "aggregate_cache_hit_rate": self.aggregate_cache_hit_rate,
             "token_cost_usd": round(self.token_cost, 6),
             "search_cost_usd": round(self.search_cost, 6),
             "total_cost_usd": round(self.total_cost, 6),
@@ -378,11 +483,18 @@ class TokenTracker:
         Returns:
             TokenUsage object
         """
+        # Anthropic responses include cache_read_input_tokens / cache_creation_input_tokens
+        # when prompt caching is in use. Cohere/other providers don't expose these.
+        cache_read = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+        cache_creation = int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+
         token_usage = TokenUsage(
             call_name=call_name,
             model=model,
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
+            cache_read_input_tokens=cache_read,
+            cache_creation_input_tokens=cache_creation,
             input_tokens_estimated=estimated_input,
         )
 

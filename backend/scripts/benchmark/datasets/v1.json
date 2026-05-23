@@ -1,0 +1,378 @@
+[
+  {
+    "product_id": "patchrx_pimple_patches",
+    "product_url": "https://www.amazon.com/PatchRx-Acne-Pimple-Patches/dp/B0CN3NCPDF",
+    "product_data": {
+      "product_name": "PatchRx Acne Pimple Patches",
+      "brand": "PatchRx",
+      "ingredients": ["Hydrocolloid", "Polyurethane Film", "Acrylic Adhesive"],
+      "materials": ["Hydrocolloid patches"],
+      "features": ["Hydrocolloid wound healing", "24 hour wear", "Translucent"],
+      "warnings": ["For external use only", "Do not use on broken skin"],
+      "description": "Hydrocolloid acne patches that absorb impurities and protect against bacteria."
+    }
+  },
+  {
+    "product_id": "la_roche_posay_anthelios_spf50",
+    "product_url": "https://www.amazon.com/dp/B07TYVHRZH",
+    "product_data": {
+      "product_name": "La Roche-Posay Anthelios SPF 50 Sunscreen",
+      "brand": "La Roche-Posay",
+      "ingredients": [
+        "Avobenzone 3%",
+        "Homosalate 10%",
+        "Octisalate 5%",
+        "Octocrylene 7%",
+        "Water",
+        "Styrene/Acrylates Copolymer",
+        "Glycerin",
+        "Tocopherol"
+      ],
+      "materials": [],
+      "features": [
+        "Broad spectrum SPF 50",
+        "Water resistant 80 min",
+        "Antioxidant complex"
+      ],
+      "warnings": ["For external use only", "Stop use if rash occurs"],
+      "description": "Daily face sunscreen with antioxidant protection."
+    }
+  },
+  {
+    "product_id": "tfal_nonstick_skillet",
+    "product_url": "https://www.amazon.com/dp/B07PMDLHZ8",
+    "product_data": {
+      "product_name": "T-fal Nonstick Skillet 12-Inch",
+      "brand": "T-fal",
+      "ingredients": [],
+      "materials": [
+        "Aluminum body",
+        "PTFE nonstick coating",
+        "Stainless steel base",
+        "Bakelite handle"
+      ],
+      "features": [
+        "Thermo-Spot heat indicator",
+        "Dishwasher safe",
+        "Oven safe to 350F"
+      ],
+      "warnings": ["Do not exceed medium-high heat", "Avoid metal utensils"],
+      "description": "Nonstick fry pan with PTFE coating for everyday cooking."
+    }
+  },
+  {
+    "product_id": "le_creuset_cast_iron_skillet",
+    "product_url": "https://www.amazon.com/dp/B0076NOGPY",
+    "product_data": {
+      "product_name": "Le Creuset Signature Enameled Cast Iron 10.25-Inch Skillet",
+      "brand": "Le Creuset",
+      "ingredients": [],
+      "materials": ["Enameled cast iron", "Porcelain enamel coating"],
+      "features": [
+        "Pre-seasoned",
+        "Compatible with all stovetops",
+        "Oven safe to 500F"
+      ],
+      "warnings": ["Handle gets hot"],
+      "description": "Premium enameled cast iron skillet, made in France."
+    }
+  },
+  {
+    "product_id": "paulas_choice_2pct_bha",
+    "product_url": "https://www.amazon.com/dp/B00949CTQQ",
+    "product_data": {
+      "product_name": "Paula's Choice 2% BHA Liquid Exfoliant",
+      "brand": "Paula's Choice",
+      "ingredients": [
+        "Water",
+        "Methylpropanediol",
+        "Butylene Glycol",
+        "Salicylic Acid",
+        "Polysorbate 20",
+        "Camellia Oleifera Leaf Extract",
+        "Sodium Hydroxide",
+        "Tetrasodium EDTA"
+      ],
+      "materials": [],
+      "features": ["2% BHA exfoliant", "Unclogs pores", "Smooths skin texture"],
+      "warnings": [
+        "Increases sun sensitivity - use sunscreen",
+        "Avoid eye area"
+      ],
+      "description": "Leave-on chemical exfoliant for unclogging pores and smoothing skin."
+    }
+  },
+  {
+    "product_id": "cerave_moisturizing_cream",
+    "product_url": "https://www.amazon.com/dp/B00TTD9BRC",
+    "product_data": {
+      "product_name": "CeraVe Moisturizing Cream",
+      "brand": "CeraVe",
+      "ingredients": [
+        "Aqua",
+        "Glycerin",
+        "Cetearyl Alcohol",
+        "Caprylic/Capric Triglyceride",
+        "Cetyl Alcohol",
+        "Ceramide NP",
+        "Ceramide AP",
+        "Ceramide EOP",
+        "Phenoxyethanol",
+        "Dimethicone",
+        "Behentrimonium Methosulfate",
+        "Sodium Lauroyl Lactylate"
+      ],
+      "materials": [],
+      "features": [
+        "Ceramides 1, 3, 6-II",
+        "Hyaluronic acid",
+        "Non-comedogenic"
+      ],
+      "warnings": ["For external use only"],
+      "description": "Daily moisturizing cream developed with dermatologists."
+    }
+  },
+  {
+    "product_id": "tide_pods_original",
+    "product_url": "https://www.amazon.com/dp/B07T2VDMDC",
+    "product_data": {
+      "product_name": "Tide PODS Original Laundry Detergent Pacs",
+      "brand": "Tide",
+      "ingredients": [
+        "Alcoholethoxy sulfate",
+        "Linear alkylbenzene sulfonate",
+        "Polyethyleneimine ethoxylate propoxylate",
+        "Sodium polyacrylate",
+        "Subtilisin enzyme",
+        "Polyvinyl alcohol film",
+        "Fragrance"
+      ],
+      "materials": ["Water-soluble PVA film"],
+      "features": ["3-in-1 power", "Cold water effective"],
+      "warnings": [
+        "KEEP OUT OF REACH OF CHILDREN",
+        "Do not bite or chew",
+        "Harmful if swallowed"
+      ],
+      "description": "Concentrated laundry detergent pods."
+    }
+  },
+  {
+    "product_id": "mrs_meyers_dish_soap_lavender",
+    "product_url": "https://www.amazon.com/dp/B0017T01XO",
+    "product_data": {
+      "product_name": "Mrs. Meyer's Clean Day Dish Soap, Lavender",
+      "brand": "Mrs. Meyer's",
+      "ingredients": [
+        "Water",
+        "Sodium lauryl sulfate",
+        "Lauramine oxide",
+        "Glycerin",
+        "Cocamidopropyl betaine",
+        "Methylisothiazolinone",
+        "Lavandula angustifolia (lavender) oil",
+        "Citric acid"
+      ],
+      "materials": [],
+      "features": ["Plant-derived ingredients", "Biodegradable"],
+      "warnings": ["Avoid contact with eyes"],
+      "description": "Lavender-scented liquid dish soap."
+    }
+  },
+  {
+    "product_id": "burts_bees_lip_balm_beeswax",
+    "product_url": "https://www.amazon.com/dp/B0030HMVCK",
+    "product_data": {
+      "product_name": "Burt's Bees Beeswax Lip Balm",
+      "brand": "Burt's Bees",
+      "ingredients": [
+        "Cera alba (beeswax)",
+        "Coconut oil",
+        "Sunflower oil",
+        "Lanolin",
+        "Tocopherol",
+        "Rosemary leaf extract",
+        "Peppermint oil",
+        "Limonene",
+        "Linalool"
+      ],
+      "materials": [],
+      "features": ["100% natural", "Beeswax based"],
+      "warnings": [],
+      "description": "Moisturizing beeswax lip balm."
+    }
+  },
+  {
+    "product_id": "all_clad_d3_stainless_skillet",
+    "product_url": "https://www.amazon.com/dp/B00005AL7M",
+    "product_data": {
+      "product_name": "All-Clad D3 Stainless Steel Skillet 10-Inch",
+      "brand": "All-Clad",
+      "ingredients": [],
+      "materials": [
+        "18/10 stainless steel",
+        "Aluminum core",
+        "Magnetic stainless exterior"
+      ],
+      "features": [
+        "Tri-ply construction",
+        "Induction compatible",
+        "Dishwasher safe"
+      ],
+      "warnings": [],
+      "description": "Tri-ply stainless steel fry pan made in USA."
+    }
+  },
+  {
+    "product_id": "skippy_creamy_peanut_butter",
+    "product_url": "https://www.amazon.com/dp/B0049Q9NIY",
+    "product_data": {
+      "product_name": "Skippy Creamy Peanut Butter",
+      "brand": "Skippy",
+      "ingredients": [
+        "Roasted peanuts",
+        "Sugar",
+        "Hydrogenated vegetable oils (cottonseed, soybean, rapeseed)",
+        "Salt"
+      ],
+      "materials": [],
+      "features": ["Smooth texture", "Naturally gluten-free"],
+      "warnings": ["Contains peanuts"],
+      "description": "Smooth peanut butter spread."
+    }
+  },
+  {
+    "product_id": "annies_mac_cheese_classic",
+    "product_url": "https://www.amazon.com/dp/B00B5ATAQO",
+    "product_data": {
+      "product_name": "Annie's Classic Cheddar Macaroni & Cheese",
+      "brand": "Annie's",
+      "ingredients": [
+        "Organic wheat pasta",
+        "Whey",
+        "Cheddar cheese (cultured milk, salt, enzymes)",
+        "Buttermilk",
+        "Salt",
+        "Annatto extract"
+      ],
+      "materials": [],
+      "features": ["Made with organic pasta", "No artificial flavors"],
+      "warnings": ["Contains milk, wheat"],
+      "description": "Boxed organic macaroni and cheese."
+    }
+  },
+  {
+    "product_id": "mac_studio_fix_powder_foundation",
+    "product_url": "https://www.amazon.com/dp/B001PCKFJU",
+    "product_data": {
+      "product_name": "MAC Studio Fix Powder Plus Foundation",
+      "brand": "MAC Cosmetics",
+      "ingredients": [
+        "Talc",
+        "Mica",
+        "Nylon-12",
+        "Zinc Stearate",
+        "Boron Nitride",
+        "Dimethicone",
+        "Methicone",
+        "Tocopheryl Acetate",
+        "Polymethyl Methacrylate",
+        "Silica",
+        "Phenoxyethanol",
+        "Ethylhexylglycerin",
+        "Caprylyl Glycol",
+        "Tin Oxide",
+        "Iron Oxides (CI 77491, CI 77492, CI 77499)",
+        "Titanium Dioxide (CI 77891)",
+        "Bismuth Oxychloride (CI 77163)",
+        "Manganese Violet (CI 77742)",
+        "Ultramarines (CI 77007)",
+        "Yellow 5 Lake (CI 19140)",
+        "Chromium Hydroxide Green (CI 77289)",
+        "Carmine (CI 75470)",
+        "Ferric Ammonium Ferrocyanide (CI 77510)",
+        "Ferric Ferrocyanide (CI 77510)",
+        "Red 7 (CI 15850)",
+        "Red 6 (CI 15850)",
+        "Red 30 Lake (CI 73360)",
+        "Red 36 (CI 12085)",
+        "Red 21 (CI 45380)",
+        "Red 28 Lake (CI 45410)",
+        "Black 2 (CI 77266)",
+        "Blue 1 (CI 42090)"
+      ],
+      "materials": [],
+      "features": ["Long-wearing", "Medium-to-full coverage"],
+      "warnings": ["For external use only"],
+      "description": "Pressed powder foundation with medium-to-full coverage."
+    }
+  },
+  {
+    "product_id": "edge_missing_ingredients",
+    "product_url": "https://www.amazon.com/dp/B00EXAMPLE",
+    "product_data": {
+      "product_name": "Generic Cleaning Spray (Ingredients Not Listed)",
+      "brand": "Unknown",
+      "ingredients": [],
+      "materials": [],
+      "features": ["All-purpose cleaner", "Lemon scent"],
+      "warnings": ["Keep away from children"],
+      "description": "Generic all-purpose spray cleaner with no ingredient list available on the product page."
+    }
+  },
+  {
+    "product_id": "edge_la_mer_non_english",
+    "product_url": "https://www.amazon.com/dp/B0010Y6LSM",
+    "product_data": {
+      "product_name": "La Mer Crème de la Mer Moisturizer",
+      "brand": "La Mer",
+      "ingredients": [
+        "Algae (Seaweed) Extract",
+        "Mineral Oil",
+        "Petrolatum",
+        "Glycerin",
+        "Isohexadecane",
+        "Citrus aurantifolia (Lime) Extract",
+        "Microcrystalline Wax",
+        "Lanolin Alcohol",
+        "Sesamum indicum (Sesame) Seed Oil",
+        "Eucalyptus globulus (Eucalyptus) Leaf Oil",
+        "Sesamum indicum (Sesame) Seed Powder",
+        "Medicago sativa (Alfalfa) Seed Powder",
+        "Helianthus annuus (Sunflower) Seed Cake",
+        "Prunus amygdalus dulcis (Sweet Almond) Seed Meal",
+        "Sodium Gluconate",
+        "Copper Gluconate",
+        "Calcium Gluconate",
+        "Magnesium Gluconate",
+        "Zinc Gluconate",
+        "Magnesium Sulfate",
+        "Paraffin",
+        "Tocopheryl Succinate",
+        "Niacin",
+        "Beta-Carotene",
+        "Decyl Oleate",
+        "Aluminum Distearate",
+        "Octyldodecanol",
+        "Citric Acid",
+        "Cyanocobalamin",
+        "Magnesium Stearate",
+        "Panthenol",
+        "Limonene",
+        "Geraniol",
+        "Linalool",
+        "Hydroxycitronellal",
+        "Citronellol",
+        "Benzyl Salicylate",
+        "Citral",
+        "Sodium Benzoate",
+        "Alcohol Denat.",
+        "Fragrance"
+      ],
+      "materials": [],
+      "features": ["Miracle Broth™ infused", "Luxurious texture"],
+      "warnings": [],
+      "description": "Iconic moisturizing cream with Miracle Broth."
+    }
+  }
+]

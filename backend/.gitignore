@@ -51,3 +51,7 @@ Thumbs.db
 
 # Supabase CLI temporary files
 supabase/.temp/
+
+# Benchmark eval outputs
+scripts/benchmark/output/
+scripts/benchmark/datasets/kb_snapshot.json

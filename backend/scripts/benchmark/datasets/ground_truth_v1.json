@@ -1,0 +1,37 @@
+[
+  {
+    "product_id": "patchrx_pimple_patches",
+    "expected_allergens": [],
+    "expected_pfas": [],
+    "expected_harm_score_range": [0, 25],
+    "notes": "Hydrocolloid + acrylic adhesive. No common allergens or PFAS; mild irritation possible from adhesive but not a priority allergen."
+  },
+  {
+    "product_id": "la_roche_posay_anthelios_spf50",
+    "expected_allergens": [],
+    "expected_pfas": [],
+    "expected_harm_score_range": [10, 40],
+    "notes": "Chemical sunscreen with octocrylene, homosalate (EWG flags but not on our priority KB). Some other_concerns possible. NOT PFAS-positive (no fluorinated UV filters)."
+  },
+  {
+    "product_id": "tfal_nonstick_skillet",
+    "expected_allergens": [],
+    "expected_pfas": ["PTFE"],
+    "expected_harm_score_range": [40, 75],
+    "notes": "PTFE coating is a polyfluorinated polymer. Should match PFAS KB by name 'PTFE' or 'Polytetrafluoroethylene'. Some PFAS regulators classify the polymer itself differently — accept either inclusion or other_concerns."
+  },
+  {
+    "product_id": "le_creuset_cast_iron_skillet",
+    "expected_allergens": [],
+    "expected_pfas": [],
+    "expected_harm_score_range": [0, 20],
+    "notes": "Enameled cast iron — no PFAS, no common allergens. Negative control."
+  },
+  {
+    "product_id": "paulas_choice_2pct_bha",
+    "expected_allergens": [],
+    "expected_pfas": [],
+    "expected_harm_score_range": [10, 45],
+    "notes": "Salicylic acid is an exfoliant — possible irritant, not in our priority allergen KB. Tetrasodium EDTA + butylene glycol may show as other_concerns."
+  }
+]
