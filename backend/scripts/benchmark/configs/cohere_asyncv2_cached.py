@@ -24,6 +24,17 @@ from .tool_schemas import COHERE_TOOLS
 
 logger = logging.getLogger(__name__)
 
+# LangSmith @traceable so each Cohere turn nests under the run's root trace.
+# Cohere has no official wrapper (unlike wrap_anthropic), so we trace the chat
+# call ourselves. Falls back to a no-op decorator if langsmith is unavailable.
+try:
+    from langsmith import traceable as _traceable
+except Exception:  # pragma: no cover
+    def _traceable(*_a, **_k):
+        def _deco(fn):
+            return fn
+        return _deco
+
 MODEL_ID = "command-a-03-2025"
 MAX_TOOL_ITERATIONS = 10
 
@@ -87,16 +98,23 @@ class CohereAsyncV2Runner(BaseAgentRunner):
         failure: Optional[str] = None
         final_text: str = ""
 
+        # Traced chat: each turn becomes an LLM child run in LangSmith. `messages`
+        # is logged as the input (what the model saw), resp as the output (its
+        # reasoning + tool_calls).
+        @_traceable(run_type="llm", name="cohere_chat")
+        async def _chat(messages: List[Dict[str, Any]]):
+            return await self._client.chat(
+                model=MODEL_ID,
+                messages=messages,
+                tools=COHERE_TOOLS,
+                temperature=self._temperature,
+            )
+
         with self._record_phase(inp.tracer, "tool_loop"):
             for iteration in range(MAX_TOOL_ITERATIONS):
                 t0 = time.perf_counter()
                 try:
-                    resp = await self._client.chat(
-                        model=MODEL_ID,
-                        messages=messages,
-                        tools=COHERE_TOOLS,
-                        temperature=self._temperature,
-                    )
+                    resp = await _chat(messages)
                 except Exception as e:
                     logger.warning("cohere chat failed: %s", e)
                     failure = "api_error"

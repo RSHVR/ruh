@@ -121,6 +121,19 @@ async def _main() -> int:
     args = _parse()
     _setup_logging(args.verbose)
 
+    # Load .env so LANGSMITH_* (and other SDK vars) land in os.environ. Does not
+    # override vars already exported in the shell (e.g. a local-Supabase override).
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except Exception:
+        pass
+    from scripts.benchmark.observability import tracing_enabled, project_name
+    if tracing_enabled():
+        logger.info("LangSmith tracing: ON (project=%s)", project_name() or "default")
+    else:
+        logger.info("LangSmith tracing: OFF (set LANGSMITH_TRACING=true in backend/.env)")
+
     configs = args.configs or list_configs()
     output_dir = _output_dir(args.mode, args.output)
     output_dir.mkdir(parents=True, exist_ok=True)

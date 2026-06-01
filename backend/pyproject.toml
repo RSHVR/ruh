@@ -29,6 +29,10 @@ dependencies = [
     "langchain-cohere>=0.3.0",
     "langchain-anthropic>=0.3.0",
     "langgraph>=1.0.0",
+    # LangSmith for agent observability (reason->act->observe traces). Transitive
+    # via langchain-core today; pinned explicitly since the harness uses
+    # wrap_anthropic / @traceable / trace() directly.
+    "langsmith>=0.6.0",
     # Direct Cohere SDK for the cohere_asyncv2_cached config.
     "cohere>=5.13.0",
     # Anthropic agent SDK for the claude_agentsdk_async_cached config.

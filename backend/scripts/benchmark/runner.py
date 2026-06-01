@@ -29,6 +29,7 @@ from .checkpoint import Checkpoint, compute_config_hash, install_signal_flush
 from .configs.base import AgentRunInput
 from .configs.registry import get_runner, list_configs
 from .metrics import RunMetrics, confusion, jaccard
+from .observability import root_run
 from .tracer import Tracer
 
 logger = logging.getLogger(__name__)
@@ -142,27 +143,47 @@ async def _run_one(
 
     started = time.perf_counter()
     failure_type: Optional[str] = None
-    try:
-        result = await runner_obj.run(inp)
-        analysis = result.analysis or {}
-        failure_type = result.failure_type
-        retry_count = result.retry_count
-    except Exception as e:
-        logger.error("Runner %s threw: %s", config_name, e, exc_info=True)
-        analysis = {}
-        failure_type = "runner_exception"
-        retry_count = 0
-
-    total_latency_ms = (time.perf_counter() - started) * 1000
-
-    # Validate against the production schema.
-    if failure_type is None:
+    result = None
+    analysis: Dict[str, Any] = {}
+    retry_count = 0
+    # One LangSmith root trace per run; every nested LLM/tool call attaches here
+    # (no-op when LANGSMITH_TRACING is unset).
+    with root_run(
+        f"{config_name}::{product_id}::run{run_idx}",
+        metadata={"config": config_name, "product_id": product_id,
+                  "run_idx": run_idx, "mode": output_dir.name},
+        tags=[config_name, _provider_for(config_name)],
+    ) as _ls_rt:
         try:
-            ProductSafetyAnalysis.model_validate(analysis)
-        except ValidationError as ve:
-            failure_type = "schema_invalid"
-            logger.warning("schema_invalid for %s/%s: %s errors",
-                           config_name, product_id, ve.error_count())
+            result = await runner_obj.run(inp)
+            analysis = result.analysis or {}
+            failure_type = result.failure_type
+            retry_count = result.retry_count
+        except Exception as e:
+            logger.error("Runner %s threw: %s", config_name, e, exc_info=True)
+            analysis = {}
+            failure_type = "runner_exception"
+            retry_count = 0
+
+        total_latency_ms = (time.perf_counter() - started) * 1000
+
+        # Validate against the production schema.
+        if failure_type is None:
+            try:
+                ProductSafetyAnalysis.model_validate(analysis)
+            except ValidationError as ve:
+                failure_type = "schema_invalid"
+                logger.warning("schema_invalid for %s/%s: %s errors",
+                               config_name, product_id, ve.error_count())
+
+        if _ls_rt is not None:
+            try:
+                _ls_rt.add_metadata({
+                    "failure_type": failure_type or "ok",
+                    "model": (result.notes.get("model") if result and result.notes else ""),
+                })
+            except Exception:
+                pass
 
     harm_score = HarmScoreCalculator.calculate(analysis) if analysis else 0
 
@@ -182,7 +203,7 @@ async def _run_one(
         config_name=config_name,
         product_id=product_id,
         run_idx=run_idx,
-        model_id=(result.notes.get("model") if 'result' in locals() and result.notes else ""),
+        model_id=(result.notes.get("model") if result and result.notes else ""),
         input_tokens=summary.total_input_tokens if summary else 0,
         output_tokens=summary.total_output_tokens if summary else 0,
         cache_read_tokens=summary.total_cache_read_tokens if summary else 0,

@@ -74,7 +74,16 @@ class ClaudeAgentSDKRunner(BaseAgentRunner):
     ) -> None:
         super().__init__()
         from anthropic import AsyncAnthropic
-        self._client = AsyncAnthropic(api_key=api_key)
+        client = AsyncAnthropic(api_key=api_key)
+        # Wrap with LangSmith so every messages.create (incl. tool_use /
+        # tool_result blocks) is traced and nests under the run's root trace.
+        # No-op if langsmith is unavailable.
+        try:
+            from langsmith.wrappers import wrap_anthropic
+            client = wrap_anthropic(client)
+        except Exception:
+            pass
+        self._client = client
         self._temperature = temperature
         self._search_budget = search_budget
 

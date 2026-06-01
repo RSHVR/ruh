@@ -1,0 +1,28 @@
+[
+  {
+    "product_id": "la_roche_posay_anthelios_spf50",
+    "product_url": "https://www.amazon.com/dp/B07TYVHRZH",
+    "product_data": {
+      "product_name": "La Roche-Posay Anthelios SPF 50 Sunscreen",
+      "brand": "La Roche-Posay",
+      "ingredients": [
+        "Avobenzone 3%",
+        "Homosalate 10%",
+        "Octisalate 5%",
+        "Octocrylene 7%",
+        "Water",
+        "Styrene/Acrylates Copolymer",
+        "Glycerin",
+        "Tocopherol"
+      ],
+      "materials": [],
+      "features": [
+        "Broad spectrum SPF 50",
+        "Water resistant 80 min",
+        "Antioxidant complex"
+      ],
+      "warnings": ["For external use only", "Stop use if rash occurs"],
+      "description": "Daily face sunscreen with antioxidant protection."
+    }
+  }
+]
