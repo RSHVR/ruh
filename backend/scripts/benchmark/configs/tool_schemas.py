@@ -151,7 +151,7 @@ def make_langchain_tools(
     from langchain_core.tools import tool
 
     @tool
-    def web_search(query: str, search_type: str = "general") -> str:
+    async def web_search(query: str, search_type: str = "general") -> str:
         """Search the web for product safety information.
 
         Args:
@@ -165,22 +165,15 @@ def make_langchain_tools(
         if not search_service:
             return json.dumps({"error": "Search service not available", "results": []})
 
-        async def _do_search() -> str:
-            return await search_service.search(query=query, search_type=search_type)
-
+        # Async tool: under create_react_agent.ainvoke(), LangGraph awaits this on
+        # the live event loop, so we await the async search service directly. A
+        # *sync* tool gets offloaded to a worker thread with no event loop, where
+        # asyncio.get_event_loop() raises "no current event loop in thread" — the
+        # bug that silently broke every LangGraph search.
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Nested loop case (LangGraph sometimes calls tools from within
-                # an async context); use nest_asyncio if available.
-                try:
-                    import nest_asyncio
-                    nest_asyncio.apply()
-                except ImportError:
-                    pass
-                result_str = loop.run_until_complete(_do_search())
-            else:
-                result_str = loop.run_until_complete(_do_search())
+            result_str = await search_service.search(
+                query=query, search_type=search_type
+            )
             return json.dumps({
                 "search_type": search_type,
                 "query": query,
@@ -191,7 +184,7 @@ def make_langchain_tools(
             return json.dumps({"error": str(e), "results": ""})
 
     @tool
-    def lookup_ingredient_research(ingredient: str) -> str:
+    async def lookup_ingredient_research(ingredient: str) -> str:
         """Look up pre-computed research for an ingredient.
 
         WARNING: This database may be incomplete or empty. ALWAYS use web_search
@@ -207,12 +200,15 @@ def make_langchain_tools(
                 "reason": "Database not available",
             })
         try:
-            result = (
-                supabase_client.table("ingredient_research")
-                .select("*")
-                .ilike("ingredient_name", f"%{ingredient}%")
-                .limit(1)
-                .execute()
+            # supabase-py is sync; run it off the event loop to avoid blocking.
+            result = await asyncio.to_thread(
+                lambda: (
+                    supabase_client.table("ingredient_research")
+                    .select("*")
+                    .ilike("ingredient_name", f"%{ingredient}%")
+                    .limit(1)
+                    .execute()
+                )
             )
             if result.data:
                 data = result.data[0]
