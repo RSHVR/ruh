@@ -46,7 +46,7 @@ class CohereLangGraph12Runner(BaseAgentRunner):
         from langgraph.graph import StateGraph, END
         from langgraph.checkpoint.memory import MemorySaver
         from langchain_cohere import ChatCohere
-        from langchain_core.messages import SystemMessage, HumanMessage
+        from langchain_core.messages import HumanMessage
         from langgraph.prebuilt import create_react_agent
         from src.domain.ingredient_matcher import match_ingredients_to_databases
         from ..traced_search import TracedSearchService
@@ -86,6 +86,10 @@ class CohereLangGraph12Runner(BaseAgentRunner):
                 system_text = STATIC_BASE_PROMPT + "\n" + build_kb_block(
                     state["allergen_db"], state["pfas_db"], state.get("allergen_profile")
                 )
+                # NOTE: create_react_agent(response_format=...) is broken for ChatCohere
+                # ("last message is not a ToolMessage or HumanMessage" upstream), so this
+                # config falls back to parsing the final text — which the relaxed schema
+                # now accepts. The other configs enforce structured output at generation.
                 agent = create_react_agent(model=llm, tools=tools, prompt=system_text)
                 user_msg = HumanMessage(
                     content=build_user_message(state["product_data"], state["product_url"])
@@ -96,14 +100,18 @@ class CohereLangGraph12Runner(BaseAgentRunner):
                     logger.warning("LangGraph (Cohere) subgraph failed: %s", e)
                     return {**state, "research": {}, "failure_type": "api_error"}
                 final_text = self._extract_final_text(out.get("messages", []))
+                sr = out.get("structured_response")
+                structured = sr.model_dump() if sr is not None else None
                 self._record_lg_usage(inp.token_tracker, out.get("messages", []), MODEL_ID)
-            return {**state, "research": {"final_text": final_text}}
+            return {**state, "research": {"final_text": final_text, "structured": structured}}
 
         def n_score(state):
             with self._record_phase(inp.tracer, "score"):
                 if state.get("failure_type"):
                     return state
-                parsed = self._safe_json_parse(state.get("research", {}).get("final_text", ""))
+                research = state.get("research", {})
+                parsed = research.get("structured") or self._safe_json_parse(
+                    research.get("final_text", ""))
                 if not parsed:
                     return {**state, "failure_type": "schema_invalid", "analysis": {}}
                 self._merge_matches(parsed, state.get("matched", {}))

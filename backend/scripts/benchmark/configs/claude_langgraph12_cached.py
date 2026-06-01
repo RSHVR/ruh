@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from typing import Any, Dict, List, Optional, TypedDict
 
 from .base import AgentRunInput, AgentRunOutput, BaseAgentRunner
 from .prompts import STATIC_BASE_PROMPT, build_kb_block, build_user_message
 from .tool_schemas import make_langchain_tools
+
+# Structured-output schema enforced at generation (create_react_agent.response_format).
+from src.domain.extraction_schemas import ProductSafetyAnalysis
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +134,7 @@ class ClaudeLangGraph12Runner(BaseAgentRunner):
                 agent = create_react_agent(
                     model=llm,
                     tools=tools,
+                    response_format=ProductSafetyAnalysis,  # enforce schema at generation
                 )
                 user_msg = HumanMessage(
                     content=build_user_message(state["product_data"], state["product_url"])
@@ -144,16 +147,22 @@ class ClaudeLangGraph12Runner(BaseAgentRunner):
                     return {**state, "research": {}, "failure_type": "api_error"}
 
                 final_text = self._extract_final_text(out.get("messages", []))
+                # Schema-enforced structured result (Pydantic instance) -> dict.
+                sr = out.get("structured_response")
+                structured = sr.model_dump() if sr is not None else None
                 # Record Anthropic usage from each AI message if available.
                 self._record_lg_usage(inp.token_tracker, out.get("messages", []), MODEL_ID)
 
-            return {**state, "research": {"final_text": final_text}}
+            return {**state, "research": {"final_text": final_text, "structured": structured}}
 
         def n_score(state: GraphState) -> GraphState:
             with self._record_phase(inp.tracer, "score"):
                 if state.get("failure_type"):
                     return state
-                parsed = self._safe_json_parse(state.get("research", {}).get("final_text", ""))
+                research = state.get("research", {})
+                # Prefer the schema-enforced structured result; fall back to parsing.
+                parsed = research.get("structured") or self._safe_json_parse(
+                    research.get("final_text", ""))
                 if not parsed:
                     return {**state, "failure_type": "schema_invalid", "analysis": {}}
                 # Merge DB matches into the analysis (Claude may have missed

@@ -19,18 +19,27 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from typing import Any, Dict, List, Optional
 
 from .base import AgentRunInput, AgentRunOutput, BaseAgentRunner
 from .prompts import STATIC_BASE_PROMPT, build_kb_block, build_user_message
 from .tool_schemas import ANTHROPIC_TOOLS
+from src.domain.extraction_schemas import ProductSafetyAnalysis
 
 logger = logging.getLogger(__name__)
 
 MODEL_ID = "claude-sonnet-4-5-20250929"
 CACHE_TTL = "1h"
 CACHE_BETA = "extended-cache-ttl-2025-04-11"
+
+# Forced final tool: when the model is done researching we force it to call this,
+# so the final analysis is emitted as schema-shaped tool input rather than parsed
+# from free text (guarantees a conforming structured output).
+SUBMIT_TOOL = {
+    "name": "submit_analysis",
+    "description": "Submit the final product safety analysis as structured data.",
+    "input_schema": ProductSafetyAnalysis.model_json_schema(),
+}
 
 DEFAULT_SEARCH_BUDGET = 6
 MAX_TOOL_ITERATIONS = 12
@@ -129,9 +138,35 @@ class ClaudeAgentSDKRunner(BaseAgentRunner):
                 )
 
                 if resp.stop_reason != "tool_use":
-                    # Done.
-                    text = self._extract_text(resp)
-                    analysis = self._safe_json_parse(text)
+                    # Done researching — force a schema-conforming submission via a
+                    # tool call instead of parsing the model's free-text JSON.
+                    messages.append({"role": "assistant", "content": resp.content})
+                    messages.append({"role": "user", "content":
+                                     "Now submit the final analysis by calling submit_analysis."})
+                    analysis = None
+                    try:
+                        final = await self._client.messages.create(
+                            model=MODEL_ID, max_tokens=4096, temperature=self._temperature,
+                            system=system, messages=messages, tools=[SUBMIT_TOOL],
+                            tool_choice={"type": "tool", "name": "submit_analysis"},
+                            extra_headers={"anthropic-beta": CACHE_BETA},
+                        )
+                        inp.token_tracker.record_usage(
+                            call_name="claude_sdk_submit", model=MODEL_ID,
+                            usage=final.usage, estimated_input=None)
+                        for b in final.content:
+                            if getattr(b, "type", None) == "tool_use" and b.name == "submit_analysis":
+                                analysis = b.input
+                                # Some models wrap the payload under an "analysis" key.
+                                if (isinstance(analysis, dict) and "analysis" in analysis
+                                        and "product_name" not in analysis
+                                        and isinstance(analysis["analysis"], dict)):
+                                    analysis = analysis["analysis"]
+                                break
+                    except Exception as e:
+                        logger.warning("submit_analysis call failed: %s", e)
+                    if not analysis:  # fall back to parsing the prior text
+                        analysis = self._safe_json_parse(self._extract_text(resp))
                     if not analysis:
                         failure = "schema_invalid"
                     return AgentRunOutput(

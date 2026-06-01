@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, TypedDict
 
 from .base import AgentRunInput, AgentRunOutput, BaseAgentRunner
 from .prompts import STATIC_BASE_PROMPT, build_kb_block, build_user_message
-from .tool_schemas import make_langchain_tools
+from src.domain.extraction_schemas import ProductSafetyAnalysis  # enforced output schema
 
 logger = logging.getLogger(__name__)
 
@@ -200,13 +200,20 @@ class CoordinatedRunner(BaseAgentRunner):
                     "Prior research text:\n"
                     + (state.get("claude_deep_research", {}).get("text", "") or "")
                 )
+                # Enforce the schema at generation; include_raw=True keeps the raw
+                # AIMessage so we can still record token usage.
+                structured_llm = llm.with_structured_output(
+                    ProductSafetyAnalysis, include_raw=True)
                 try:
-                    resp = await llm.ainvoke([sys_msg, HumanMessage(content=user)])
-                    self._record_anthropic_usage(inp.token_tracker, resp, "coord_claude_adjudicate")
-                    text = resp.content if isinstance(resp.content, str) else self._extract_text(resp.content)
-                    parsed = self._safe_json_parse(text)
-                    if not parsed:
+                    res = await structured_llm.ainvoke([sys_msg, HumanMessage(content=user)])
+                    raw = res.get("raw") if isinstance(res, dict) else None
+                    if raw is not None:
+                        self._record_anthropic_usage(
+                            inp.token_tracker, raw, "coord_claude_adjudicate")
+                    parsed_obj = res.get("parsed") if isinstance(res, dict) else res
+                    if parsed_obj is None:
                         return {**state, "failure_type": "schema_invalid"}
+                    parsed = parsed_obj.model_dump()
                     self._merge_matches(parsed, state.get("matched", {}))
                 except Exception as e:
                     logger.warning("Claude adjudicate failed: %s", e)
