@@ -58,9 +58,16 @@ CREATE INDEX idx_ingredient_research_cas ON ingredient_research(cas_number) WHER
 CREATE INDEX idx_ingredient_research_synonyms ON ingredient_research USING GIN(synonyms);
 CREATE INDEX idx_ingredient_research_source ON ingredient_research(source_table);
 
--- Full-text search on ingredient name and synonyms
+-- Full-text search on ingredient name and synonyms.
+-- array_to_string() is only STABLE, so it cannot be used directly in an index
+-- expression (Postgres requires IMMUTABLE). Wrap it in an IMMUTABLE SQL function.
+CREATE OR REPLACE FUNCTION immutable_array_to_string(text[], text)
+RETURNS text
+LANGUAGE sql IMMUTABLE PARALLEL SAFE
+AS $$ SELECT array_to_string($1, $2) $$;
+
 CREATE INDEX idx_ingredient_research_fts ON ingredient_research
-    USING GIN(to_tsvector('english', ingredient_name || ' ' || COALESCE(array_to_string(synonyms, ' '), '')));
+    USING GIN(to_tsvector('english', ingredient_name || ' ' || COALESCE(immutable_array_to_string(synonyms, ' '), '')));
 
 -- Function to search ingredient research by name or synonym
 CREATE OR REPLACE FUNCTION search_ingredient_research(search_term TEXT)

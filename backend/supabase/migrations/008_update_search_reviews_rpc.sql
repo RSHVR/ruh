@@ -1,7 +1,11 @@
 -- Migration 008: Update search_reviews RPC to return more fields
 -- Adds helpful_votes and reviewer_name for better review analysis
 
--- Drop and recreate the function with additional return fields
+-- Drop and recreate the function with additional return fields.
+-- An explicit DROP is required because CREATE OR REPLACE cannot change a
+-- function's return type (RETURNS TABLE shape) — Postgres raises 42P13.
+DROP FUNCTION IF EXISTS search_reviews(vector, text, float, int);
+
 CREATE OR REPLACE FUNCTION search_reviews(
   query_embedding vector(1536),
   match_url_hash TEXT DEFAULT NULL,

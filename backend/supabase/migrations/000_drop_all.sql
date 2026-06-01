@@ -14,42 +14,12 @@
 -- ============================================================================
 
 -- ============================================================================
--- STEP 1: Drop all RLS policies (must be dropped before tables)
+-- STEP 1: RLS policies — no explicit drops needed
 -- ============================================================================
-
--- Users table policies (4)
-DROP POLICY IF EXISTS "Users can read own data" ON users;
-DROP POLICY IF EXISTS "Users can insert own data" ON users;
-DROP POLICY IF EXISTS "Users can update own data" ON users;
-DROP POLICY IF EXISTS "Service role can manage users" ON users;
-
--- Product analyses policies (3)
-DROP POLICY IF EXISTS "Anyone can read product analyses" ON product_analyses;
-DROP POLICY IF EXISTS "Service role can insert analyses" ON product_analyses;
-DROP POLICY IF EXISTS "Service role can update analyses" ON product_analyses;
-
--- User searches policies (2)
-DROP POLICY IF EXISTS "Users can read own searches" ON user_searches;
-DROP POLICY IF EXISTS "Service role can manage searches" ON user_searches;
-
--- Alternative recommendations policies (2)
-DROP POLICY IF EXISTS "Anyone can read alternatives" ON alternative_recommendations;
-DROP POLICY IF EXISTS "Service role can manage alternatives" ON alternative_recommendations;
-
--- User interactions policies (2)
-DROP POLICY IF EXISTS "Users can read own interactions" ON user_interactions;
-DROP POLICY IF EXISTS "Service role can manage interactions" ON user_interactions;
-
--- Analysis feedback policies (3)
-DROP POLICY IF EXISTS "Anyone can read feedback" ON analysis_feedback;
-DROP POLICY IF EXISTS "Users can insert own feedback" ON analysis_feedback;
-DROP POLICY IF EXISTS "Service role can manage feedback" ON analysis_feedback;
-
--- Knowledge base policies (4)
-DROP POLICY IF EXISTS "Anyone can read allergens" ON allergens;
-DROP POLICY IF EXISTS "Service role can manage allergens" ON allergens;
-DROP POLICY IF EXISTS "Anyone can read pfas" ON pfas_compounds;
-DROP POLICY IF EXISTS "Service role can manage pfas" ON pfas_compounds;
+-- RLS policies are automatically removed when their table is dropped with
+-- CASCADE in STEP 3. Dropping them explicitly here would require the parent
+-- table to already exist (DROP POLICY IF EXISTS only guards the policy, not
+-- the table), which breaks this script on a fresh/empty database.
 
 -- ============================================================================
 -- STEP 2: Drop all functions (6 total)
