@@ -110,10 +110,19 @@ except Exception:  # pragma: no cover
     _SCHEMA = None
 
 
-def _confusion(detected, expected):
-    """Case-insensitive exact-match confusion counts (mirrors metrics.confusion)."""
-    sd = {x.strip().lower() for x in detected if x}
-    se = {x.strip().lower() for x in expected if x}
+def _norm_name(x, synmap):
+    """Canonicalise a substance name through the KB synonym map (e.g. 'dairy' ->
+    'milk', 'CAPB' -> 'cocamidopropyl betaine'). Deterministic, grounded in the
+    KB's own synonyms — credits a real detection expressed under a known alias."""
+    s = x.strip().lower()
+    return synmap.get(s, s) if synmap else s
+
+
+def _confusion(detected, expected, synmap=None):
+    """Synonym-aware confusion counts: both sides are canonicalised through the
+    KB synonym map before the set comparison (exact match when synmap is None)."""
+    sd = {_norm_name(x, synmap) for x in detected if x}
+    se = {_norm_name(x, synmap) for x in expected if x}
     return len(sd & se), len(sd - se), len(se - sd)
 
 
@@ -126,6 +135,10 @@ def _prf(tp, fp, fn):
 
 def aggregate(runs_dir: Path, datasets: Path):
     gt = {r["product_id"]: r for r in json.loads((datasets / "ground_truth_v1.json").read_text())}
+    syn = {"allergens": {}, "pfas": {}}
+    synp = datasets / "kb_synonyms.json"
+    if synp.exists():
+        syn = json.loads(synp.read_text())
     ds = json.loads((datasets / "v1.json").read_text())
     ds = ds if isinstance(ds, list) else ds.get("products", [])
     pname = {p["product_id"]: p["product_data"].get("product_name", p["product_id"]) for p in ds}
@@ -170,8 +183,8 @@ def aggregate(runs_dir: Path, datasets: Path):
                 a["ok"] += 1
             elif ft in (None, "schema_invalid"):
                 a["schema_invalid"] += 1
-            atp, afp, afn = _confusion(det_al, gtp.get("expected_allergens", []))
-            ptp, pfp, pfn = _confusion(det_pf, gtp.get("expected_pfas", []))
+            atp, afp, afn = _confusion(det_al, gtp.get("expected_allergens", []), syn.get("allergens"))
+            ptp, pfp, pfn = _confusion(det_pf, gtp.get("expected_pfas", []), syn.get("pfas"))
             a["a_tp"] += atp; a["a_fp"] += afp; a["a_fn"] += afn
             a["p_tp"] += ptp; a["p_fp"] += pfp; a["p_fn"] += pfn
             hr = gtp.get("expected_harm_score_range")
