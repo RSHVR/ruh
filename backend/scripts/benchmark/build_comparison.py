@@ -30,11 +30,18 @@ CONFIG_META = {
 
 # ---- Metric tooltips: exact definition + impact on app reliability -----------
 TIPS = {
-    "composite": "A single 0–100 roll-up of the three measured signals below: "
-                 "<b>40%</b> valid-output rate + <b>30%</b> PFAS F1 + <b>30%</b> harm-score "
-                 "calibration. <b>Impact:</b> higher means the app more often returns a result "
-                 "that is both well-formed and correctly grounded — the working definition of a "
-                 "trustworthy analysis.",
+    "composite": "A single 0–100 roll-up of the four measured signals below: "
+                 "<b>30%</b> valid-output rate + <b>25%</b> PFAS F1 + <b>25%</b> allergen F1 + "
+                 "<b>20%</b> harm-score calibration. <b>Impact:</b> higher means the app more often "
+                 "returns a result that is well-formed, correctly grounded, and correctly "
+                 "calibrated — the working definition of a trustworthy analysis.",
+    "allg_rec": "Recall = of the allergens truly present in labelled products, the fraction the "
+                "agent found — TP ÷ (TP+FN). <b>Impact:</b> low recall means the app misses real "
+                "allergens (e.g. peanuts in peanut butter) — a dangerous miss for a safety tool.",
+    "allg_prec": "Precision = of the allergens the agent reported, the fraction actually present — "
+                 "TP ÷ (TP+FP). <b>Impact:</b> low precision means false alarms; the app flags "
+                 "allergens that aren't there, over-scaring users and eroding trust. Names must "
+                 "match the knowledge base exactly to count.",
     "valid": "Share of the 15 analyses whose output conforms to the app's "
              "<i>ProductSafetyAnalysis</i> schema (required fields, types, enums). "
              "<b>Impact:</b> a non-conforming result is rejected by the backend and never reaches "
@@ -42,7 +49,7 @@ TIPS = {
     "schema_fail": "Runs whose JSON parsed but failed strict Pydantic validation against the "
                    "production schema. <b>Impact:</b> each is an analysis the backend throws out — "
                    "a hard failure from the user's point of view.",
-    "harm_cal": "Of the 5 labelled products with a known expected harm-score range, how many "
+    "harm_cal": "Of the labelled products with a known expected harm-score range, how many "
                 "scored inside that range. <b>Impact:</b> the harm score is the headline donut the "
                 "user sees — miscalibration means the app shows a misleading safety rating "
                 "(false alarm or false reassurance).",
@@ -95,6 +102,28 @@ def score_color(pct):
     return ALERT
 
 
+# Re-validate analyses against the CURRENT schema so schema fixes flow into the
+# report without a re-run. Optional — falls back to baked failure_type if absent.
+try:
+    from src.domain.extraction_schemas import ProductSafetyAnalysis as _SCHEMA
+except Exception:  # pragma: no cover
+    _SCHEMA = None
+
+
+def _confusion(detected, expected):
+    """Case-insensitive exact-match confusion counts (mirrors metrics.confusion)."""
+    sd = {x.strip().lower() for x in detected if x}
+    se = {x.strip().lower() for x in expected if x}
+    return len(sd & se), len(sd - se), len(se - sd)
+
+
+def _prf(tp, fp, fn):
+    p = tp / (tp + fp) if (tp + fp) else None
+    r = tp / (tp + fn) if (tp + fn) else None
+    f = (2 * p * r / (p + r)) if (p and r) else 0.0
+    return p, r, f
+
+
 def aggregate(runs_dir: Path, datasets: Path):
     gt = {r["product_id"]: r for r in json.loads((datasets / "ground_truth_v1.json").read_text())}
     ds = json.loads((datasets / "v1.json").read_text())
@@ -107,38 +136,62 @@ def aggregate(runs_dir: Path, datasets: Path):
         if cfg not in CONFIG_META:
             continue
         a = dict(n=0, ok=0, schema_invalid=0, lat=[], cost=0.0, in_tok=0, out_tok=0,
-                 p_tp=0, p_fp=0, p_fn=0, harm_ok=0, harm_n=0, per_product={})
+                 a_tp=0, a_fp=0, a_fn=0, p_tp=0, p_fp=0, p_fn=0, harm_ok=0, harm_n=0,
+                 per_product={})
         for mp in glob.glob(f"{cfgdir}/*/run*/metrics.json"):
             d = json.loads(Path(mp).read_text()); pid = d["product_id"]; a["n"] += 1
             ft = d.get("failure_type")
-            if not ft: a["ok"] += 1
-            elif ft == "schema_invalid": a["schema_invalid"] += 1
             if d.get("total_latency_ms"): a["lat"].append(d["total_latency_ms"] / 1000)
             a["cost"] += d.get("total_cost_usd", 0) or 0
             a["in_tok"] += d.get("input_tokens", 0) or 0
             a["out_tok"] += d.get("output_tokens", 0) or 0
-            for k, s in [("p_tp", "pfas_tp"), ("p_fp", "pfas_fp"), ("p_fn", "pfas_fn")]:
-                a[k] += d.get(s, 0) or 0
-            if d.get("harm_score_in_expected_range") is not None:
-                a["harm_n"] += 1; a["harm_ok"] += 1 if d.get("harm_score_in_expected_range") else 0
+            # Correctness + validity recomputed FRESH from the saved analysis against the
+            # current schema/GT, so schema relaxations and GT edits flow into the report
+            # without a re-run (metrics.json baked these against earlier versions).
+            gtp = gt.get(pid, {})
+            harm = d.get("harm_score")
+            det_al, det_pf, concerns = [], [], 0
             ap = mp.replace("metrics.json", "analysis.json")
-            det = dict(pfas=[], harm=d.get("harm_score"), valid=(not ft), labelled=(pid in gt))
-            if os.path.exists(ap):
-                aj = json.loads(Path(ap).read_text())
-                det["pfas"] = [x.get("name") for x in aj.get("pfas_detected", [])]
-                det["concerns"] = len(aj.get("other_concerns", []))
-            a["per_product"][pid] = det
+            aj = json.loads(Path(ap).read_text()) if os.path.exists(ap) else None
+            if aj is not None:
+                det_al = [x.get("name", "") for x in aj.get("allergens_detected", [])]
+                det_pf = [x.get("name", "") for x in aj.get("pfas_detected", [])]
+                concerns = len(aj.get("other_concerns", []))
+            # validity: re-validate against the current schema; non-schema run failures
+            # (api_error, runner_exception) stay failures.
+            if ft in (None, "schema_invalid") and aj is not None and _SCHEMA is not None:
+                try:
+                    _SCHEMA.model_validate(aj); valid = True
+                except Exception:
+                    valid = False
+            else:
+                valid = (ft is None)
+            if valid:
+                a["ok"] += 1
+            elif ft in (None, "schema_invalid"):
+                a["schema_invalid"] += 1
+            atp, afp, afn = _confusion(det_al, gtp.get("expected_allergens", []))
+            ptp, pfp, pfn = _confusion(det_pf, gtp.get("expected_pfas", []))
+            a["a_tp"] += atp; a["a_fp"] += afp; a["a_fn"] += afn
+            a["p_tp"] += ptp; a["p_fp"] += pfp; a["p_fn"] += pfn
+            hr = gtp.get("expected_harm_score_range")
+            in_range = None
+            if hr and len(hr) == 2 and harm is not None:
+                a["harm_n"] += 1
+                in_range = hr[0] <= harm <= hr[1]
+                if in_range: a["harm_ok"] += 1
+            a["per_product"][pid] = dict(
+                allergens=det_al, pfas=det_pf, harm=harm, valid=valid,
+                labelled=(pid in gt), concerns=concerns, in_range=in_range)
         # derived
         a["avg_lat"] = sum(a["lat"]) / len(a["lat"]) if a["lat"] else 0
         a["valid_rate"] = a["ok"] / a["n"] if a["n"] else 0
-        tp_fp = a["p_tp"] + a["p_fp"]; tp_fn = a["p_tp"] + a["p_fn"]
-        a["pfas_prec"] = a["p_tp"] / tp_fp if tp_fp else None
-        a["pfas_rec"] = a["p_tp"] / tp_fn if tp_fn else None
-        f1 = (2 * a["pfas_prec"] * a["pfas_rec"] / (a["pfas_prec"] + a["pfas_rec"])
-              if a["pfas_prec"] and a["pfas_rec"] else 0)
-        a["pfas_f1"] = f1
+        a["pfas_prec"], a["pfas_rec"], a["pfas_f1"] = _prf(a["p_tp"], a["p_fp"], a["p_fn"])
+        a["allg_prec"], a["allg_rec"], a["allg_f1"] = _prf(a["a_tp"], a["a_fp"], a["a_fn"])
         a["harm_cal"] = a["harm_ok"] / a["harm_n"] if a["harm_n"] else 0
-        a["composite"] = round(100 * (0.40 * a["valid_rate"] + 0.30 * f1 + 0.30 * a["harm_cal"]))
+        # Composite now weights both detection axes since allergen GT is populated.
+        a["composite"] = round(100 * (0.30 * a["valid_rate"] + 0.25 * a["pfas_f1"]
+                                      + 0.25 * a["allg_f1"] + 0.20 * a["harm_cal"]))
         configs[cfg] = a
     return configs, gt, pname
 
@@ -184,6 +237,10 @@ def build(configs, gt, pname):
         rec = f'{a["pfas_rec"]*100:.0f}%' if a["pfas_rec"] is not None else "—"
         pfp = a["p_fp"]
         fp_note = f'<span class="stat-sub">{pfp} false pos.</span>' if pfp else '<span class="stat-sub" style="color:'+SAFE+'">clean</span>'
+        aprec = f'{a["allg_prec"]*100:.0f}%' if a["allg_prec"] is not None else "—"
+        arec = f'{a["allg_rec"]*100:.0f}%' if a["allg_rec"] is not None else "—"
+        afp = a["a_fp"]
+        a_fp_note = f'<span class="stat-sub">{afp} false pos.</span>' if afp else '<span class="stat-sub" style="color:'+SAFE+'">clean</span>'
         cols.append(f"""
         <div class="card {'winner' if cfg==best else ''}">
           {winner}
@@ -197,14 +254,19 @@ def build(configs, gt, pname):
           {bar(a["valid_rate"], score_color(a["valid_rate"]*100))}
           <div class="muted">{wrap_tip(f'{a["schema_invalid"]} failed schema validation', "schema_fail")}</div>
 
-          <div class="section-h">Accuracy <span class="tag">5 labelled</span></div>
+          <div class="section-h">Accuracy <span class="tag">{a["harm_n"]} labelled</span></div>
           {stat("Harm-score calibration", f'{a["harm_ok"]}/{a["harm_n"]}', score_color(a["harm_cal"]*100), sub="in expected range", tipkey="harm_cal")}
           {bar(a["harm_cal"], score_color(a["harm_cal"]*100))}
+          <div class="row2">
+            {stat("Allergen recall", arec, score_color((a["allg_rec"] or 0)*100), tipkey="allg_rec")}
+            {stat("Allergen precision", aprec, score_color((a["allg_prec"] or 0)*100), tipkey="allg_prec")}
+          </div>
+          <div class="muted">allergens · {a_fp_note}</div>
           <div class="row2">
             {stat("PFAS recall", rec, SAFE if (a["pfas_rec"] or 0)>=0.99 else CAUTION, tipkey="pfas_rec")}
             {stat("PFAS precision", prec, score_color((a["pfas_prec"] or 0)*100), tipkey="pfas_prec")}
           </div>
-          <div class="muted">PTFE detected on T-fal · {fp_note}</div>
+          <div class="muted">PFAS · {fp_note}</div>
 
           <div class="section-h">Cost &amp; speed</div>
           <div class="row2">
@@ -224,8 +286,10 @@ def build(configs, gt, pname):
         labelled = pid in gt
         gtp = gt.get(pid, {})
         gt_pfas = ", ".join(gtp.get("expected_pfas", [])) or "—"
+        gt_al = ", ".join(gtp.get("expected_allergens", [])) or "—"
+        exp_al = {x.strip().lower() for x in gtp.get("expected_allergens", [])}
         hr = gtp.get("expected_harm_score_range")
-        gt_tag = (f'<span class="gt-pill">GT · PFAS: {gt_pfas} · harm {hr[0]}–{hr[1]}</span>'
+        gt_tag = (f'<span class="gt-pill">GT · allg: {gt_al} · PFAS: {gt_pfas} · harm {hr[0]}–{hr[1]}</span>'
                   if labelled else '<span class="gt-pill none">no ground truth</span>')
         cells = []
         for c in order:
@@ -234,6 +298,12 @@ def build(configs, gt, pname):
             pf = d.get("pfas") or []
             pf_html = (" ".join(f'<span class="chip">{x}</span>' for x in pf) if pf
                        else '<span class="chip empty">none</span>')
+            al = d.get("allergens") or []
+            # green = matches GT (true positive), red = false positive vs GT
+            al_html = (" ".join(
+                f'<span class="chip {"hit" if x.strip().lower() in exp_al else "fp"}">{x}</span>'
+                for x in al) if al else '')
+            al_div = f'<div class="al">{al_html}</div>' if al_html else ''
             valid = d.get("valid")
             badge = '' if valid else '<span class="invalid">schema✗</span>'
             in_range = ""
@@ -242,7 +312,7 @@ def build(configs, gt, pname):
                 in_range = f'<span class="rng {"ok" if ok else "no"}">{"✓" if ok else "✗"} range</span>'
             cells.append(
                 f'<td><span class="harm-dot" style="background:{hc}">{harm if harm is not None else "—"}</span>'
-                f'{in_range}{badge}<div class="pf">{pf_html}</div></td>')
+                f'{in_range}{badge}<div class="pf">{pf_html}</div>{al_div}</td>')
         rows.append(
             f'<tr class="{"lab" if labelled else "unlab"}"><td class="pcell">'
             f'<div class="pname">{pname[pid]}</div>{gt_tag}</td>{"".join(cells)}</tr>')
@@ -342,9 +412,12 @@ border-radius:50%;color:#fff;font-weight:700;font-size:12px}}
 .rng{{font-size:10px;margin-left:6px;font-weight:600}}
 .rng.ok{{color:#6f8f63}}.rng.no{{color:var(--alert)}}
 .invalid{{font-size:10px;color:var(--alert);margin-left:6px;font-weight:600}}
-.pf{{margin-top:6px;display:flex;flex-wrap:wrap;gap:3px}}
+.pf,.al{{margin-top:6px;display:flex;flex-wrap:wrap;gap:3px}}
+.al{{margin-top:3px}}
 .chip{{font-size:10px;background:#e7d3c8;color:#7a4a36;padding:2px 7px;border-radius:8px}}
 .chip.empty{{background:var(--sand);color:var(--gray)}}
+.chip.hit{{background:#d4dbc9;color:#3f5536}}
+.chip.fp{{background:#efcfc6;color:#8a3b28}}
 .foot{{max-width:1500px;margin:22px auto 0;font-size:11px;color:var(--gray);line-height:1.7}}
 .foot code{{background:var(--linen);padding:1px 5px;border-radius:4px}}
 /* tooltips */
@@ -380,8 +453,8 @@ border-radius:12px}}
   <div class="meta-bar">
     <div>Mode <b>smoke</b> · 1 run/product</div>
     <div>Total spend <b>${total_cost}</b></div>
-    <div>Detection scored on <b>5 labelled products</b></div>
-    <div>Composite = <b>40% validity + 30% PFAS&nbsp;F1 + 30% harm calibration</b></div>
+    <div>Detection scored on <b>15 labelled products</b></div>
+    <div>Composite = <b>30% validity + 25% PFAS&nbsp;F1 + 25% allergen&nbsp;F1 + 20% harm calibration</b></div>
     {langsmith}
   </div>
 </header>
@@ -390,12 +463,12 @@ border-radius:12px}}
 {legend}
 {matrix}
 <div class="foot">
-  <b>How to read this.</b> The donut is a composite of three measured signals, ranked best-first.
-  <b>Accuracy is scored only on the 5 products that have ground truth</b> (the answer key); the other
-  10 ran but are unlabelled (greyed out below) and don't count toward accuracy.
-  <b>Allergen accuracy is omitted</b> because every labelled product has an empty expected-allergen
-  set, which makes precision/recall a degenerate 0÷0 — PFAS (PTFE on the T-fal pan) and the
-  harm-score range are the only graded detection signals in the current ground truth.
+  <b>How to read this.</b> The donut is a composite of four measured signals, ranked best-first.
+  <b>Accuracy is scored against ground truth (the answer key)</b>, now expanded to all 15 products —
+  so allergen precision/recall is meaningful (8 products carry real allergen labels: peanuts, milk,
+  wheat, lanolin, etc.). Allergen names must match the knowledge base exactly to count.
+  Correctness is recomputed fresh from each saved analysis against the current ground truth, so the
+  report reflects whatever <code>ground_truth_v1.json</code> currently holds.
   Harm dot color follows the app's risk bands (≤20 safe → &gt;80 severe). Generated from
   <code>output/smoke/runs/</code>.
 </div>

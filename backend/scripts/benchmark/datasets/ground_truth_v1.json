@@ -4,34 +4,114 @@
     "expected_allergens": [],
     "expected_pfas": [],
     "expected_harm_score_range": [0, 25],
-    "notes": "Hydrocolloid + acrylic adhesive. No common allergens or PFAS; mild irritation possible from adhesive but not a priority allergen."
+    "notes": "Hydrocolloid / polyurethane / acrylic adhesive — none are KB allergens. Benign."
   },
   {
     "product_id": "la_roche_posay_anthelios_spf50",
     "expected_allergens": [],
     "expected_pfas": [],
     "expected_harm_score_range": [10, 40],
-    "notes": "Chemical sunscreen with octocrylene, homosalate (EWG flags but not on our priority KB). Some other_concerns possible. NOT PFAS-positive (no fluorinated UV filters)."
+    "notes": "Chemical sunscreen actives (avobenzone, homosalate, octisalate, octocrylene). No KB allergen in the ingredient list; Propylene Glycol is NOT listed, so flagging it is a false positive."
   },
   {
     "product_id": "tfal_nonstick_skillet",
-    "expected_allergens": [],
+    "expected_allergens": ["Nickel", "Chromium"],
     "expected_pfas": ["PTFE"],
     "expected_harm_score_range": [40, 75],
-    "notes": "PTFE coating is a polyfluorinated polymer. Should match PFAS KB by name 'PTFE' or 'Polytetrafluoroethylene'. Some PFAS regulators classify the polymer itself differently — accept either inclusion or other_concerns."
+    "notes": "PTFE nonstick coating is the headline hazard (PFAS-positive anchor). Stainless steel base contains Nickel/Chromium (BORDERLINE stainless policy: included)."
   },
   {
     "product_id": "le_creuset_cast_iron_skillet",
     "expected_allergens": [],
     "expected_pfas": [],
     "expected_harm_score_range": [0, 20],
-    "notes": "Enameled cast iron — no PFAS, no common allergens. Negative control."
+    "notes": "Enameled cast iron + porcelain enamel. Cast iron is iron (not a KB allergen) and is enamel-covered; no stainless, so no Nickel/Chromium. PFAS-negative control."
   },
   {
     "product_id": "paulas_choice_2pct_bha",
     "expected_allergens": [],
     "expected_pfas": [],
     "expected_harm_score_range": [10, 45],
-    "notes": "Salicylic acid is an exfoliant — possible irritant, not in our priority allergen KB. Tetrasodium EDTA + butylene glycol may show as other_concerns."
+    "notes": "Salicylic acid + glycols. No KB allergen listed (methylpropanediol / butylene glycol are not Propylene Glycol)."
+  },
+  {
+    "product_id": "cerave_moisturizing_cream",
+    "expected_allergens": [],
+    "expected_pfas": [],
+    "expected_harm_score_range": [0, 25],
+    "notes": "Ceramides, glycerin, cetearyl alcohol. Fragrance-free; no KB allergen in the listed INCI. Confidence: high (per provided ingredient list)."
+  },
+  {
+    "product_id": "tide_pods_original",
+    "expected_allergens": ["Fragrance Mix I", "Fragrance Mix II"],
+    "expected_pfas": [],
+    "expected_harm_score_range": [20, 55],
+    "notes": "Surfactants + subtilisin enzyme + 'Fragrance'. BORDERLINE (fragrance policy: included) — 'Fragrance' is generic; Fragrance Mix I/II is the inclusive interpretation."
+  },
+  {
+    "product_id": "mrs_meyers_dish_soap_lavender",
+    "expected_allergens": [
+      "Cocamidopropyl Betaine",
+      "Methylisothiazolinone",
+      "Fragrance Mix I",
+      "Fragrance Mix II"
+    ],
+    "expected_pfas": [],
+    "expected_harm_score_range": [25, 60],
+    "notes": "Cocamidopropyl Betaine + Methylisothiazolinone are explicitly listed KB allergens (certain). Lavender oil -> Fragrance Mix I/II (BORDERLINE fragrance policy: included)."
+  },
+  {
+    "product_id": "burts_bees_lip_balm_beeswax",
+    "expected_allergens": [
+      "Lanolin",
+      "Coconut",
+      "Fragrance Mix I",
+      "Fragrance Mix II"
+    ],
+    "expected_pfas": [],
+    "expected_harm_score_range": [10, 45],
+    "notes": "Lanolin + coconut oil (Coconut) explicitly listed (certain). Peppermint oil / Limonene -> Fragrance Mix I/II (BORDERLINE fragrance policy: included)."
+  },
+  {
+    "product_id": "all_clad_d3_stainless_skillet",
+    "expected_allergens": ["Nickel", "Chromium"],
+    "expected_pfas": [],
+    "expected_harm_score_range": [0, 30],
+    "notes": "18/10 stainless steel = ~18% chromium, ~10% nickel (BORDERLINE stainless policy: included). Food-grade stainless is largely inert, hence a low harm range. PFAS-negative control #2."
+  },
+  {
+    "product_id": "skippy_creamy_peanut_butter",
+    "expected_allergens": ["Peanuts", "Soy"],
+    "expected_pfas": [],
+    "expected_harm_score_range": [25, 60],
+    "notes": "Roasted peanuts -> Peanuts (certain, severe). Hydrogenated soybean oil -> Soy (BORDERLINE soy policy: included; refined soybean oil is FDA allergen-exempt)."
+  },
+  {
+    "product_id": "annies_mac_cheese_classic",
+    "expected_allergens": ["Wheat", "Milk"],
+    "expected_pfas": [],
+    "expected_harm_score_range": [25, 55],
+    "notes": "Organic wheat pasta -> Wheat; whey + cheddar (cultured milk) + buttermilk -> Milk. Both certain, explicitly listed."
+  },
+  {
+    "product_id": "mac_studio_fix_powder_foundation",
+    "expected_allergens": [],
+    "expected_pfas": [],
+    "expected_harm_score_range": [15, 45],
+    "notes": "Talc, mica, nylon-12, silicones. No KB allergen listed. Talc belongs in other_concerns (inhalation), not allergens. Confidence: medium (full INCI may add fragrance)."
+  },
+  {
+    "product_id": "edge_missing_ingredients",
+    "expected_allergens": [],
+    "expected_pfas": [],
+    "expected_harm_score_range": [0, 40],
+    "notes": "EDGE CASE — no ingredient list provided. Tests graceful degradation, not detection accuracy; a correct analysis should be low-confidence. Consider excluding from precision/recall scoring."
+  },
+  {
+    "product_id": "edge_la_mer_non_english",
+    "expected_allergens": ["Lanolin", "Fragrance Mix I", "Fragrance Mix II"],
+    "expected_pfas": [],
+    "expected_harm_score_range": [10, 45],
+    "notes": "Lanolin Alcohol -> Lanolin (certain). Citrus aurantifolia (Lime) extract -> Fragrance Mix I/II (BORDERLINE fragrance policy: included). Mineral oil / petrolatum are not KB allergens."
   }
 ]
