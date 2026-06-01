@@ -1,17 +1,25 @@
-"""Pydantic schemas for Claude structured outputs.
+"""Pydantic schemas for Claude structured outputs (GA).
 
-These schemas are used with the Anthropic structured outputs beta to guarantee
-valid JSON responses from Claude extraction calls. The schemas define the exact
+These schemas are used with the Anthropic structured outputs API to guarantee
+valid JSON responses from Claude calls. The schemas define the exact
 structure that Claude will output - no parsing errors possible.
 
-Usage:
+Usage with .parse() convenience method:
+    response = client.messages.parse(
+        model="claude-sonnet-4-5-20250929",
+        output_format=ProductExtraction,
+        ...
+    )
+
+Usage with .create() + output_config:
     from anthropic import transform_schema
 
-    response = client.beta.messages.create(
-        betas=["structured-outputs-2025-11-13"],
-        output_format={
-            "type": "json_schema",
-            "schema": transform_schema(ProductExtraction),
+    response = client.messages.create(
+        output_config={
+            "format": {
+                "type": "json_schema",
+                "schema": transform_schema(ProductSafetyAnalysis),
+            }
         },
         ...
     )
@@ -19,7 +27,7 @@ Usage:
 
 from enum import Enum
 from typing import List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # =============================================================================
@@ -209,4 +217,128 @@ class ReviewInsightsExtraction(BaseModel):
         ge=0.0,
         le=1.0,
         description="Extraction confidence (0.0 = poor data, 1.0 = high quality extraction)"
+    )
+
+
+# =============================================================================
+# PRODUCT SAFETY ANALYSIS SCHEMA (Agent output)
+# =============================================================================
+
+class ConcernCategory(str, Enum):
+    """Category for safety concerns found by agent research."""
+    under_investigation = "under_investigation"
+    carcinogen = "carcinogen"
+    regulatory_action = "regulatory_action"
+    heavy_metal = "heavy_metal"
+    endocrine_disruptor = "endocrine_disruptor"
+    other = "other"
+
+
+class SourceType(str, Enum):
+    """Type of research source found by agent."""
+    manufacturer_website = "manufacturer_website"
+    regulatory_action = "regulatory_action"
+    scientific_study = "scientific_study"
+    legal = "legal"
+    consumer = "consumer"
+    other = "other"  # catch-all so a citation label never invalidates an analysis
+
+
+class AllergenDetected(BaseModel):
+    """An allergen found during product safety analysis."""
+    name: str = Field(description="Allergen name matching knowledge base")
+    severity: SeverityType = Field(description="Severity level")
+    source: str = Field(default="", description="Where this allergen was found")
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class PfasDetected(BaseModel):
+    """A PFAS compound found during product safety analysis."""
+    name: str = Field(description="PFAS compound name matching knowledge base")
+    cas_number: str = Field(default="", description="CAS registry number if known")
+    body_effects: str = Field(default="", description="Effects on human body")
+    source: str = Field(default="", description="Where this PFAS was found")
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+    @field_validator("cas_number", mode="before")
+    @classmethod
+    def _coerce_cas(cls, v):
+        # Models often emit null when the CAS number is unknown — coerce to "".
+        return "" if v is None else str(v)
+
+
+class OtherConcern(BaseModel):
+    """A non-allergen, non-PFAS safety concern."""
+    name: str = Field(description="Concern name")
+    category: ConcernCategory = Field(description="Concern category")
+    severity: SeverityType = Field(description="Severity level")
+    description: str = Field(default="", description="Brief description with source citation")
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+# Common source-type variants the models emit, normalised to the SourceType enum.
+_SOURCE_TYPE_ALIASES = {
+    "consumer_report": "consumer", "consumer_reports": "consumer",
+    "consumer_complaint": "consumer", "reddit": "consumer",
+    "legal_action": "legal", "lawsuit": "legal", "court_record": "legal",
+    "manufacturer": "manufacturer_website", "official": "manufacturer_website",
+    "regulatory": "regulatory_action", "fda": "regulatory_action",
+    "scientific": "scientific_study", "study": "scientific_study",
+    "research": "scientific_study", "pubmed": "scientific_study",
+}
+
+
+class ResearchSource(BaseModel):
+    """A source found during agent web research."""
+    type: SourceType = Field(default=SourceType.other, description="Type of source")
+    url: str = Field(default="", description="Source URL")
+    finding: str = Field(default="", description="Key finding from this source")
+
+    # Source type is descriptive citation metadata, not a safety signal — it must
+    # never invalidate an otherwise-valid analysis. Normalise common variants and
+    # fall back to "other" for anything unrecognised, instead of raising.
+    @field_validator("type", mode="before")
+    @classmethod
+    def _normalize_type(cls, v):
+        if isinstance(v, SourceType):
+            return v
+        s = str(v or "").strip().lower()
+        s = _SOURCE_TYPE_ALIASES.get(s, s)
+        return s if s in {e.value for e in SourceType} else SourceType.other.value
+
+
+class ProductSafetyAnalysis(BaseModel):
+    """Complete product safety analysis output from the Claude agent.
+
+    Used for Pydantic validation of agent responses. Can also be used
+    with structured outputs via transform_schema() for constrained decoding.
+    """
+    product_name: str = Field(default="", description="Full product name")
+    brand: str = Field(default="", description="Brand or manufacturer")
+    retailer: str = Field(default="", description="Retailer (e.g., Amazon)")
+    ingredients: List[str] = Field(
+        default_factory=list,
+        description="Complete ingredient list"
+    )
+    allergens_detected: List[AllergenDetected] = Field(
+        default_factory=list,
+        description="Allergens found (must match knowledge base)"
+    )
+    pfas_detected: List[PfasDetected] = Field(
+        default_factory=list,
+        description="PFAS compounds found (must match knowledge base)"
+    )
+    other_concerns: List[OtherConcern] = Field(
+        default_factory=list,
+        description="Other safety concerns with evidence"
+    )
+    research_sources: List[ResearchSource] = Field(
+        default_factory=list,
+        description="Sources consulted during research"
+    )
+    confidence: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Overall analysis confidence"
     )
