@@ -22,7 +22,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from .base import AgentRunInput, AgentRunOutput, BaseAgentRunner
-from .prompts import STATIC_BASE_PROMPT, build_kb_block, build_user_message
+from .prompts import base_prompt, build_kb_block, build_user_message
 from .tool_schemas import ANTHROPIC_TOOLS
 from src.domain.extraction_schemas import ProductSafetyAnalysis
 
@@ -60,7 +60,7 @@ def _system_blocks(allergen_db, pfas_db, allergen_profile) -> List[Dict[str, Any
     return [
         {
             "type": "text",
-            "text": STATIC_BASE_PROMPT,
+            "text": base_prompt("claude"),
             "cache_control": {"type": "ephemeral", "ttl": CACHE_TTL},
         },
         {

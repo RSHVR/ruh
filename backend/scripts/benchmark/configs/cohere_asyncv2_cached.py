@@ -19,7 +19,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from .base import AgentRunInput, AgentRunOutput, BaseAgentRunner
-from .prompts import STATIC_BASE_PROMPT, build_kb_block, build_user_message
+from .prompts import base_prompt, build_kb_block, build_user_message
 from .tool_schemas import COHERE_TOOLS
 
 logger = logging.getLogger(__name__)
@@ -86,7 +86,7 @@ class CohereAsyncV2Runner(BaseAgentRunner):
         # see the same byte layout.
         with self._record_phase(inp.tracer, "build_prompt"):
             kb_block = build_kb_block(inp.allergen_db, inp.pfas_db, inp.allergen_profile)
-            system_text = STATIC_BASE_PROMPT + "\n" + kb_block
+            system_text = base_prompt("cohere") + "\n" + kb_block
             user_text = build_user_message(inp.product_data, inp.product_url)
 
         messages: List[Dict[str, Any]] = [

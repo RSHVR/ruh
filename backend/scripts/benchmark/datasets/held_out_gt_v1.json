@@ -1,0 +1,44 @@
+[
+  {
+    "product_id": "nutella_hazelnut_spread",
+    "expected_allergens": ["Tree Nuts", "Milk", "Soy"],
+    "expected_pfas": [],
+    "expected_harm_score_range": [25, 55],
+    "notes": "Hazelnuts->Tree Nuts; skim milk->Milk; soy lecithin->Soy. Food, multiple allergens."
+  },
+  {
+    "product_id": "cuisinart_nonstick_skillet",
+    "expected_allergens": [],
+    "expected_pfas": ["PTFE"],
+    "expected_harm_score_range": [40, 75],
+    "notes": "PTFE nonstick coating (true PFAS positive). Aluminum body, no stainless cooking surface."
+  },
+  {
+    "product_id": "greenpan_ceramic_skillet",
+    "expected_allergens": [],
+    "expected_pfas": [],
+    "expected_harm_score_range": [0, 25],
+    "notes": "Ceramic (Thermolon) coating, NO PTFE/PFOA/PFOS. PFAS-NEGATIVE control - flagging PFAS here is a false positive."
+  },
+  {
+    "product_id": "pyrex_glass_measuring_cup",
+    "expected_allergens": [],
+    "expected_pfas": [],
+    "expected_harm_score_range": [0, 15],
+    "notes": "Inert borosilicate glass. Benign control - harm must be LOW (catches harm over-scoring)."
+  },
+  {
+    "product_id": "lansinoh_lanolin_cream",
+    "expected_allergens": ["Lanolin"],
+    "expected_pfas": [],
+    "expected_harm_score_range": [10, 40],
+    "notes": "100% lanolin (a KB contact allergen). Single-ingredient - clean recall test."
+  },
+  {
+    "product_id": "mariani_dried_apricots",
+    "expected_allergens": ["Sulfites"],
+    "expected_pfas": [],
+    "expected_harm_score_range": [5, 30],
+    "notes": "Sulfur dioxide -> Sulfites (KB allergen). Food, mild preservative."
+  }
+]

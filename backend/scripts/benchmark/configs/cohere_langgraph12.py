@@ -11,7 +11,7 @@ import logging
 from typing import Any, Dict, List, Optional, TypedDict
 
 from .base import AgentRunInput, AgentRunOutput, BaseAgentRunner
-from .prompts import STATIC_BASE_PROMPT, build_kb_block, build_user_message
+from .prompts import base_prompt, build_kb_block, build_user_message
 from .tool_schemas import make_langchain_tools
 
 logger = logging.getLogger(__name__)
@@ -83,7 +83,7 @@ class CohereLangGraph12Runner(BaseAgentRunner):
                     supabase_client=inp.supabase_client,
                 )
                 # ChatCohere expects plain string system content.
-                system_text = STATIC_BASE_PROMPT + "\n" + build_kb_block(
+                system_text = base_prompt("cohere") + "\n" + build_kb_block(
                     state["allergen_db"], state["pfas_db"], state.get("allergen_profile")
                 )
                 # NOTE: create_react_agent(response_format=...) is broken for ChatCohere

@@ -1,0 +1,98 @@
+[
+  {
+    "product_id": "nutella_hazelnut_spread",
+    "product_url": "https://www.amazon.com/dp/B000WGELHC",
+    "product_data": {
+      "product_name": "Nutella Hazelnut Spread",
+      "brand": "Nutella",
+      "ingredients": [
+        "Sugar",
+        "Palm Oil",
+        "Hazelnuts",
+        "Skim Milk Powder",
+        "Cocoa",
+        "Lecithin (Soy)",
+        "Vanillin"
+      ],
+      "materials": [],
+      "features": ["Spreadable"],
+      "warnings": ["Contains hazelnuts, milk, soy"],
+      "description": "Hazelnut cocoa spread."
+    }
+  },
+  {
+    "product_id": "cuisinart_nonstick_skillet",
+    "product_url": "https://www.amazon.com/dp/B00008CM6E",
+    "product_data": {
+      "product_name": "Cuisinart Chef's Classic Nonstick Skillet",
+      "brand": "Cuisinart",
+      "ingredients": [],
+      "materials": [
+        "Hard-anodized aluminum",
+        "PTFE nonstick coating",
+        "Riveted stainless handle"
+      ],
+      "features": ["Nonstick", "Oven safe"],
+      "warnings": ["Do not overheat"],
+      "description": "Hard-anodized nonstick skillet."
+    }
+  },
+  {
+    "product_id": "greenpan_ceramic_skillet",
+    "product_url": "https://www.amazon.com/dp/B07WGV3K3M",
+    "product_data": {
+      "product_name": "GreenPan Valencia Pro Ceramic Nonstick Skillet",
+      "brand": "GreenPan",
+      "ingredients": [],
+      "materials": [
+        "Hard-anodized aluminum body",
+        "Thermolon ceramic nonstick coating (PFAS-free)"
+      ],
+      "features": ["Ceramic nonstick", "PFAS-free"],
+      "warnings": [],
+      "description": "Ceramic nonstick skillet, no PTFE."
+    }
+  },
+  {
+    "product_id": "pyrex_glass_measuring_cup",
+    "product_url": "https://www.amazon.com/dp/B00004OCNS",
+    "product_data": {
+      "product_name": "Pyrex Glass Measuring Cup 2-Cup",
+      "brand": "Pyrex",
+      "ingredients": [],
+      "materials": ["Tempered borosilicate glass"],
+      "features": ["Microwave safe", "Dishwasher safe"],
+      "warnings": ["Avoid thermal shock"],
+      "description": "Clear tempered glass measuring cup."
+    }
+  },
+  {
+    "product_id": "lansinoh_lanolin_cream",
+    "product_url": "https://www.amazon.com/dp/B0000532D",
+    "product_data": {
+      "product_name": "Lansinoh Lanolin Nipple Cream",
+      "brand": "Lansinoh",
+      "ingredients": ["100% Lanolin (USP Modified)"],
+      "materials": [],
+      "features": ["Single ingredient"],
+      "warnings": ["For external use"],
+      "description": "Pure lanolin skin cream for nursing."
+    }
+  },
+  {
+    "product_id": "mariani_dried_apricots",
+    "product_url": "https://www.amazon.com/dp/B0005ZV1CU",
+    "product_data": {
+      "product_name": "Mariani Mediterranean Dried Apricots",
+      "brand": "Mariani",
+      "ingredients": [
+        "Dried Apricots",
+        "Sulfur Dioxide (preservative for color)"
+      ],
+      "materials": [],
+      "features": ["No added sugar"],
+      "warnings": ["Contains sulfites"],
+      "description": "Dried apricots with sulfite preservative."
+    }
+  }
+]

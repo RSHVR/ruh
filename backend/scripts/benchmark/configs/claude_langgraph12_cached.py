@@ -17,7 +17,7 @@ import logging
 from typing import Any, Dict, List, Optional, TypedDict
 
 from .base import AgentRunInput, AgentRunOutput, BaseAgentRunner
-from .prompts import STATIC_BASE_PROMPT, build_kb_block, build_user_message
+from .prompts import base_prompt, build_kb_block, build_user_message
 from .tool_schemas import make_langchain_tools
 
 # Structured-output schema enforced at generation (create_react_agent.response_format).
@@ -114,7 +114,7 @@ class ClaudeLangGraph12Runner(BaseAgentRunner):
                 system_blocks = [
                     {
                         "type": "text",
-                        "text": STATIC_BASE_PROMPT,
+                        "text": base_prompt("claude"),
                         "cache_control": {"type": "ephemeral", "ttl": CACHE_TTL},
                     },
                     {

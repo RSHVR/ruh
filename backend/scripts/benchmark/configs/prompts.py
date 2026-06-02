@@ -93,15 +93,22 @@ Your final response MUST be a valid JSON object (no surrounding text or code blo
 
 **CRITICAL CLASSIFICATION RULES - READ CAREFULLY:**
 
+0. **CALIBRATION - presence is not harm. Verify every entry before adding it.**
+   - Most everyday consumer products are LOW harm. An inert or simple product (glass, ceramic, stainless steel, plain food) with no knowledge-base substances should have ZERO entries in allergens_detected, pfas_detected, AND other_concerns.
+   - Default severity is "low". Escalate to moderate/high/severe ONLY with confirmed serious evidence: a knowledge-base PFAS present, a documented regulatory recall, or an IARC Group 1/2A carcinogen actually in the product.
+   - Before adding ANY entry, verify: is this SPECIFIC substance actually in the provided ingredient list, and does it EXACTLY match the knowledge base (allergens/PFAS) or rest on hard evidence (other_concerns)? If not, omit it. When unsure, leave it out.
+
 1. **ALLERGENS - ONLY substances in the Allergen Knowledge Base below can go in allergens_detected**
    - If you find an ingredient via websearch that is NOT in the Allergen Knowledge Base → DO NOT add to allergens_detected
    - Minor irritants (citric acid, fragrance, etc.) are NOT allergens unless listed in the knowledge base
    - If a substance causes irritation but is not a priority allergen → add to other_concerns with category="under_investigation", severity="low"
+   - Be THOROUGH: check EVERY listed ingredient against the knowledge base, including its synonyms (e.g. whey/casein/dairy → Milk; CAPB → Cocamidopropyl Betaine; lanolin alcohol/wool alcohol → Lanolin; hazelnut/almond/cashew → Tree Nuts; sulfur dioxide → Sulfites). Missing a knowledge-base allergen that IS in the ingredient list is a serious error.
 
 2. **PFAS - ONLY substances in the PFAS Knowledge Base below can go in pfas_detected**
    - If you find a chemical via websearch that is NOT in the PFAS Knowledge Base → DO NOT add to pfas_detected
    - Unknown fluorinated compounds → add to other_concerns with category="under_investigation"
    - Match by CAS number or exact name from the knowledge base
+   - Fluorinated cosmetic ingredients NOT in the knowledge base (e.g. perfluorononyl / perfluorodecyl dimethicone, fluorinated silicones) are NOT PFAS for this analysis → other_concerns (severity low), NEVER pfas_detected. A ceramic or PFAS-free product has NO pfas_detected entries.
 
 3. **OTHER CONCERNS - Use this for substances not in the knowledge bases**
    - category="under_investigation": Substances with credible evidence but not in our database (MUST have severity="low" max)
@@ -114,6 +121,27 @@ Your final response MUST be a valid JSON object (no surrounding text or code blo
    - MUST NOT include unverified consumer complaints or blog posts
    - MUST include description with source citation (e.g., "IARC Group 2A carcinogen per iarc.who.int/2023")
 """
+
+
+# ---- Model-specific addenda --------------------------------------------------
+# Tuned to each model's *observed* tendency on this task (measured, not guessed):
+# Claude over-flags concerns and over-rates severity (harm over-scored); Cohere
+# under-detects allergens (low recall). These target the tendency, not the eval
+# products, so they should generalise to unseen products.
+
+CLAUDE_ADDENDUM = """**MODEL-SPECIFIC GUIDANCE:**
+You tend toward over-caution — flagging speculative concerns and over-rating severity. Counteract this deliberately: include a concern ONLY if you can name the specific substance, confirm it is in this product's ingredients, and cite hard evidence. Prefer omission over a weak or "just in case" flag. Default to "low" severity; a benign everyday product should yield few or no concerns. Do not inflate harm for ordinary cosmetic or food ingredients."""
+
+COHERE_ADDENDUM = """**MODEL-SPECIFIC GUIDANCE:**
+Be exhaustive on allergen detection. Go through EACH ingredient in the list one by one and check it (and its synonyms) against the full allergen knowledge base before you finish. Do not stop early or under-report: any knowledge-base allergen that appears in the ingredient list MUST be listed in allergens_detected. Thoroughness on allergens is your priority."""
+
+
+def base_prompt(model: str = "") -> str:
+    """STATIC_BASE_PROMPT plus the addendum tuned to this model's tendency.
+    Cohere -> thoroughness nudge; Claude (default) -> calibrate-down nudge."""
+    m = (model or "").lower()
+    addendum = COHERE_ADDENDUM if ("cohere" in m or "command" in m) else CLAUDE_ADDENDUM
+    return STATIC_BASE_PROMPT + "\n\n" + addendum
 
 
 def build_kb_block(
