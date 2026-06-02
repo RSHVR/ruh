@@ -111,10 +111,13 @@ Your final response MUST be a valid JSON object (no surrounding text or code blo
    - Fluorinated cosmetic ingredients NOT in the knowledge base (e.g. perfluorononyl / perfluorodecyl dimethicone, fluorinated silicones) are NOT PFAS for this analysis → other_concerns (severity low), NEVER pfas_detected. A ceramic or PFAS-free product has NO pfas_detected entries.
 
 3. **OTHER CONCERNS - Use this for substances not in the knowledge bases**
+   - SCOPE: other_concerns are for HARMFUL SUBSTANCES present in the product ONLY (toxic chemicals, heavy metals actually present, carcinogens, endocrine disruptors). This analysis is about chemical/substance safety, NOT product quality or physical safety.
+   - DO NOT include: physical/mechanical hazards (breakage, shattering, thermal shock, sharp edges, burns, choking), product-quality issues (durability, measurement accuracy, country-of-origin), or marketing/labeling disputes (false advertising, SPF or claim overstatement). These are NOT substance concerns — omit them entirely.
+   - A recall, lawsuit, or warning counts ONLY if it concerns a harmful SUBSTANCE in the product (e.g. benzene contamination), never if it concerns breakage, quality, or advertising.
    - category="under_investigation": Substances with credible evidence but not in our database (MUST have severity="low" max)
    - category="carcinogen": ONLY IARC-classified carcinogens (Groups 1, 2A, 2B) from credible sources
-   - category="regulatory_action": ONLY substances with FDA recall, EPA warning, or class action lawsuit
-   - category="heavy_metal", "endocrine_disruptor", "other": Other toxins with credible evidence
+   - category="regulatory_action": ONLY a harmful substance with an FDA recall, EPA warning, or substance-based lawsuit
+   - category="heavy_metal", "endocrine_disruptor", "other": Other toxins with credible evidence the substance is actually IN the product
 
 4. **EVIDENCE REQUIREMENTS for other_concerns:**
    - MUST have credible source (.gov, .edu, peer-reviewed journal, court record)
