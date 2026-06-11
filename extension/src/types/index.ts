@@ -17,7 +17,7 @@ export interface ProductAnalysis {
 
 export interface AllergenDetection {
   name: string;
-  severity: 'low' | 'moderate' | 'high' | 'severe';
+  severity: "low" | "moderate" | "high" | "severe";
   source: string;
   confidence: number;
 }
@@ -33,7 +33,7 @@ export interface PFASDetection {
 export interface ToxinConcern {
   name: string;
   category: string;
-  severity: 'low' | 'moderate' | 'high' | 'severe';
+  severity: "low" | "moderate" | "high" | "severe";
   description: string;
   confidence: number;
 }
@@ -62,7 +62,7 @@ export interface AnalysisResponse {
   reviews_stored?: number | null;
 
   // Auth/credit context (present when user is JWT-authenticated)
-  user_tier?: string;         // 'free' | 'basic' | 'middle' | 'unlimited'
+  user_tier?: string; // 'free' | 'basic' | 'middle' | 'unlimited'
   credits_remaining?: number; // -1 = unlimited
   analysis_unlocked?: boolean;
 }
@@ -83,7 +83,12 @@ export interface CachedAnalysis {
   url: string;
 }
 
-export type RiskLevel = 'Low Risk' | 'Minor Risk' | 'Moderate Risk' | 'High Risk' | 'Severe Risk';
+export type RiskLevel =
+  | "Low Risk"
+  | "Minor Risk"
+  | "Moderate Risk"
+  | "High Risk"
+  | "Severe Risk";
 
 export interface ProductInfo {
   url: string;

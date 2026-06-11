@@ -1,4 +1,4 @@
-import type { ProductAnalysis, RiskLevel } from '@/types';
+import type { ProductAnalysis, RiskLevel } from "@/types";
 
 /**
  * Calculate harm score from overall score
@@ -11,11 +11,11 @@ export function getHarmScore(overallScore: number): number {
  * Get risk level from harm score
  */
 export function getRiskLevel(harmScore: number): RiskLevel {
-  if (harmScore <= 20) return 'Low Risk';
-  if (harmScore <= 40) return 'Minor Risk';
-  if (harmScore <= 60) return 'Moderate Risk';
-  if (harmScore <= 80) return 'High Risk';
-  return 'Severe Risk';
+  if (harmScore <= 20) return "Low Risk";
+  if (harmScore <= 40) return "Minor Risk";
+  if (harmScore <= 60) return "Moderate Risk";
+  if (harmScore <= 80) return "High Risk";
+  return "Severe Risk";
 }
 
 /**
@@ -23,11 +23,11 @@ export function getRiskLevel(harmScore: number): RiskLevel {
  */
 export function getRiskClass(riskLevel: RiskLevel): string {
   const map: Record<RiskLevel, string> = {
-    'Low Risk': 'risk-low',
-    'Minor Risk': 'risk-minor',
-    'Moderate Risk': 'risk-moderate',
-    'High Risk': 'risk-high',
-    'Severe Risk': 'risk-severe'
+    "Low Risk": "risk-low",
+    "Minor Risk": "risk-minor",
+    "Moderate Risk": "risk-moderate",
+    "High Risk": "risk-high",
+    "Severe Risk": "risk-severe",
   };
   return map[riskLevel];
 }
@@ -37,11 +37,11 @@ export function getRiskClass(riskLevel: RiskLevel): string {
  */
 export function getRiskColor(riskLevel: RiskLevel): string {
   const map: Record<RiskLevel, string> = {
-    'Low Risk': '#9BB88F',
-    'Minor Risk': '#b8c9a8',
-    'Moderate Risk': '#D4A574',
-    'High Risk': '#c45c4a',
-    'Severe Risk': '#a63d2d'
+    "Low Risk": "#9BB88F",
+    "Minor Risk": "#b8c9a8",
+    "Moderate Risk": "#D4A574",
+    "High Risk": "#c45c4a",
+    "Severe Risk": "#a63d2d",
   };
   return map[riskLevel];
 }
@@ -53,8 +53,11 @@ export function isAmazonProductPage(url: string): boolean {
   try {
     const urlObj = new URL(url);
     const isAmazon =
-      urlObj.hostname.includes('amazon.com') || urlObj.hostname.includes('amazon.ca');
-    const hasDP = urlObj.pathname.includes('/dp/') || urlObj.pathname.includes('/gp/product/');
+      urlObj.hostname.includes("amazon.com") ||
+      urlObj.hostname.includes("amazon.ca");
+    const hasDP =
+      urlObj.pathname.includes("/dp/") ||
+      urlObj.pathname.includes("/gp/product/");
     return isAmazon && hasDP;
   } catch {
     return false;
@@ -66,7 +69,9 @@ export function isAmazonProductPage(url: string): boolean {
  */
 export function extractASIN(url: string): string | null {
   try {
-    const match = url.match(/\/dp\/([A-Z0-9]{10})|\/gp\/product\/([A-Z0-9]{10})/);
+    const match = url.match(
+      /\/dp\/([A-Z0-9]{10})|\/gp\/product\/([A-Z0-9]{10})/,
+    );
     return match ? match[1] || match[2] : null;
   } catch {
     return null;
@@ -81,7 +86,7 @@ export function formatTimeAgo(timestamp: string): string {
   const now = new Date();
   const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-  if (seconds < 60) return 'Just now';
+  if (seconds < 60) return "Just now";
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   return `${Math.floor(seconds / 86400)}d ago`;
@@ -91,7 +96,7 @@ export function formatTimeAgo(timestamp: string): string {
  * Generate user UUID (stored in chrome.storage)
  */
 export async function getUserId(): Promise<string> {
-  const result = await chrome.storage.local.get(['userId']);
+  const result = await chrome.storage.local.get(["userId"]);
   if (result.userId) {
     return result.userId;
   }

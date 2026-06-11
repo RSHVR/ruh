@@ -5,10 +5,10 @@
  * persist across service worker restarts and extension contexts.
  */
 
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
 /**
  * Custom storage adapter that uses chrome.storage.local.
@@ -23,10 +23,10 @@ class ChromeStorageAdapter {
   async init(): Promise<void> {
     if (this.initialized) return;
     try {
-      const result = await chrome.storage.local.get('supabase_auth');
-      if (result.supabase_auth && typeof result.supabase_auth === 'object') {
+      const result = await chrome.storage.local.get("supabase_auth");
+      if (result.supabase_auth && typeof result.supabase_auth === "object") {
         for (const [key, value] of Object.entries(result.supabase_auth)) {
-          if (typeof value === 'string') {
+          if (typeof value === "string") {
             this.cache.set(key, value);
           }
         }
@@ -78,7 +78,7 @@ export function getSupabaseClient(): SupabaseClient | null {
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: false,
-        flowType: 'pkce',
+        flowType: "pkce",
       },
     });
   }

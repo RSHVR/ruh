@@ -1,8 +1,8 @@
-import { openDB, type IDBPDatabase } from 'idb';
-import type { AnalysisResponse, CachedAnalysis } from '@/types';
+import { openDB, type IDBPDatabase } from "idb";
+import type { AnalysisResponse, CachedAnalysis } from "@/types";
 
-const DB_NAME = 'ruh-cache';
-const STORE_NAME = 'analyses';
+const DB_NAME = "ruh-cache";
+const STORE_NAME = "analyses";
 const DB_VERSION = 1;
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
 
@@ -15,10 +15,10 @@ class CacheManager {
     this.db = await openDB(DB_NAME, DB_VERSION, {
       upgrade(db) {
         if (!db.objectStoreNames.contains(STORE_NAME)) {
-          const store = db.createObjectStore(STORE_NAME, { keyPath: 'url' });
-          store.createIndex('timestamp', 'timestamp');
+          const store = db.createObjectStore(STORE_NAME, { keyPath: "url" });
+          store.createIndex("timestamp", "timestamp");
         }
-      }
+      },
     });
   }
 
@@ -26,7 +26,10 @@ class CacheManager {
     await this.init();
     if (!this.db) return null;
 
-    const cached: CachedAnalysis | undefined = await this.db.get(STORE_NAME, url);
+    const cached: CachedAnalysis | undefined = await this.db.get(
+      STORE_NAME,
+      url,
+    );
 
     if (!cached) return null;
 
@@ -48,7 +51,7 @@ class CacheManager {
     const cached: CachedAnalysis = {
       url,
       data,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
 
     await this.db.put(STORE_NAME, cached);
@@ -65,9 +68,9 @@ class CacheManager {
     await this.init();
     if (!this.db) return;
 
-    const tx = this.db.transaction(STORE_NAME, 'readwrite');
+    const tx = this.db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
-    const index = store.index('timestamp');
+    const index = store.index("timestamp");
 
     const cutoff = Date.now() - CACHE_TTL;
     const range = IDBKeyRange.upperBound(cutoff);

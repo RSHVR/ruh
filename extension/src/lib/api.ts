@@ -1,6 +1,6 @@
-import type { AnalysisResponse } from '@/types';
+import type { AnalysisResponse } from "@/types";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 const API_KEY = import.meta.env.VITE_API_KEY;
 
 export class EjectAPI {
@@ -12,71 +12,73 @@ export class EjectAPI {
     this.apiKey = apiKey;
 
     // Debug logging
-    if (import.meta.env.VITE_DEBUG === 'true') {
-      console.log('[Eject API] Initialized with:', {
+    if (import.meta.env.VITE_DEBUG === "true") {
+      console.log("[Eject API] Initialized with:", {
         baseUrl: this.baseUrl,
         hasApiKey: !!this.apiKey,
-        apiKeyPrefix: this.apiKey?.substring(0, 8) + '...'
+        apiKeyPrefix: this.apiKey?.substring(0, 8) + "...",
       });
     }
   }
 
   async analyzeProduct(
     productUrl: string,
-    allergenProfile: string[] = []
+    allergenProfile: string[] = [],
   ): Promise<AnalysisResponse> {
     try {
       const headers: HeadersInit = {
-        'Content-Type': 'application/json'
+        "Content-Type": "application/json",
       };
 
       // Add Authorization header if API key is configured
       if (this.apiKey) {
-        headers['Authorization'] = `Bearer ${this.apiKey}`;
+        headers["Authorization"] = `Bearer ${this.apiKey}`;
       }
 
       const requestUrl = `${this.baseUrl}/api/analyze`;
       const requestBody = {
         product_url: productUrl,
         allergen_profile: allergenProfile,
-        force_refresh: false
+        force_refresh: false,
       };
 
-      if (import.meta.env.VITE_DEBUG === 'true') {
-        console.log('[Eject API] Making request:', {
+      if (import.meta.env.VITE_DEBUG === "true") {
+        console.log("[Eject API] Making request:", {
           url: requestUrl,
-          method: 'POST',
+          method: "POST",
           headers: Object.keys(headers),
-          hasAuth: !!headers['Authorization']
+          hasAuth: !!headers["Authorization"],
         });
       }
 
       const response = await fetch(requestUrl, {
-        method: 'POST',
+        method: "POST",
         headers,
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || `HTTP error! status: ${response.status}`);
+        throw new Error(
+          error.detail || `HTTP error! status: ${response.status}`,
+        );
       }
 
       const data: AnalysisResponse = await response.json();
 
-      if (import.meta.env.VITE_DEBUG === 'true') {
-        console.log('[Eject API] Response received:', {
+      if (import.meta.env.VITE_DEBUG === "true") {
+        console.log("[Eject API] Response received:", {
           status: response.status,
-          hasData: !!data
+          hasData: !!data,
         });
       }
 
       return data;
     } catch (error) {
-      console.error('[Eject API] Request failed:', {
+      console.error("[Eject API] Request failed:", {
         error: error instanceof Error ? error.message : String(error),
         url: this.baseUrl,
-        type: error instanceof TypeError ? 'Network/CORS error' : 'Other error'
+        type: error instanceof TypeError ? "Network/CORS error" : "Other error",
       });
       throw error;
     }

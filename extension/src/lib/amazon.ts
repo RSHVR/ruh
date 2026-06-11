@@ -9,18 +9,26 @@ export interface ReviewsFetchResult {
   html: string;
   success: boolean;
   pagesLoaded: number;
-  error?: 'no_reviews' | 'network_error';
+  error?: "no_reviews" | "network_error";
 }
 
 export interface ReviewsFetchOptions {
   /** Number of review pages to fetch (default: 5, max: 10) */
   pages?: number;
   /** Filter by star rating (default: 'all') */
-  filter?: 'all' | 'critical' | 'positive' | 'five_star' | 'four_star' | 'three_star' | 'two_star' | 'one_star';
+  filter?:
+    | "all"
+    | "critical"
+    | "positive"
+    | "five_star"
+    | "four_star"
+    | "three_star"
+    | "two_star"
+    | "one_star";
   /** Delay between page fetches in ms (default: 300) */
   delayMs?: number;
   /** Sort order (default: 'helpful') */
-  sortBy?: 'helpful' | 'recent';
+  sortBy?: "helpful" | "recent";
 }
 
 /**
@@ -40,7 +48,7 @@ export function extractASIN(url: string): string | null {
     /\/dp\/([A-Z0-9]{10})/i,
     /\/gp\/product\/([A-Z0-9]{10})/i,
     /\/product-reviews\/([A-Z0-9]{10})/i,
-    /\/gp\/aw\/d\/([A-Z0-9]{10})/i,  // Mobile URLs
+    /\/gp\/aw\/d\/([A-Z0-9]{10})/i, // Mobile URLs
   ];
 
   for (const pattern of patterns) {
@@ -82,18 +90,18 @@ function hasReviews(html: string): boolean {
 function buildReviewsUrl(
   asin: string,
   pageNumber: number,
-  options: ReviewsFetchOptions
+  options: ReviewsFetchOptions,
 ): string {
   const params = new URLSearchParams();
-  params.set('pageNumber', pageNumber.toString());
-  params.set('reviewerType', 'all_reviews');
+  params.set("pageNumber", pageNumber.toString());
+  params.set("reviewerType", "all_reviews");
 
-  if (options.filter && options.filter !== 'all') {
-    params.set('filterByStar', options.filter);
+  if (options.filter && options.filter !== "all") {
+    params.set("filterByStar", options.filter);
   }
 
-  if (options.sortBy === 'recent') {
-    params.set('sortBy', 'recent');
+  if (options.sortBy === "recent") {
+    params.set("sortBy", "recent");
   }
 
   return `/product-reviews/${asin}/?${params.toString()}`;
@@ -112,13 +120,13 @@ function buildReviewsUrl(
  */
 export async function fetchReviews(
   asin: string,
-  options: ReviewsFetchOptions = {}
+  options: ReviewsFetchOptions = {},
 ): Promise<ReviewsFetchResult> {
   const {
     pages = 5,
-    filter = 'all',
+    filter = "all",
     delayMs = 300,
-    sortBy = 'helpful',
+    sortBy = "helpful",
   } = options;
 
   // Clamp pages to reasonable range
@@ -135,20 +143,20 @@ export async function fetchReviews(
       console.log(`[ruh] Fetching reviews page ${page}: ${url}`);
 
       const response = await fetch(url, {
-        credentials: 'include',  // Include cookies
+        credentials: "include", // Include cookies
         headers: {
-          'Accept': 'text/html,application/xhtml+xml',
-          'Accept-Language': 'en-US,en;q=0.9',
+          Accept: "text/html,application/xhtml+xml",
+          "Accept-Language": "en-US,en;q=0.9",
         },
       });
 
       if (!response.ok) {
         console.warn(`[ruh] Unable to read reviews (HTTP ${response.status})`);
         return {
-          html: allHtml.join('\n'),
+          html: allHtml.join("\n"),
           success: pagesLoaded > 0,
           pagesLoaded,
-          error: 'network_error',
+          error: "network_error",
         };
       }
 
@@ -158,12 +166,12 @@ export async function fetchReviews(
       // Check if page has reviews
       if (!hasReviews(html)) {
         if (page === 1) {
-          console.warn('[ruh] Unable to read reviews (no reviews found)');
+          console.warn("[ruh] Unable to read reviews (no reviews found)");
           return {
-            html: '',
+            html: "",
             success: false,
             pagesLoaded: 0,
-            error: 'no_reviews',
+            error: "no_reviews",
           };
         }
         // End of reviews on subsequent pages
@@ -177,25 +185,26 @@ export async function fetchReviews(
 
       // Delay between requests (except for last page)
       if (page < maxPages) {
-        await new Promise(resolve => setTimeout(resolve, delayMs));
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
-
     } catch (err) {
       console.error(`[ruh] Unable to read reviews:`, err);
       return {
-        html: allHtml.join('\n'),
+        html: allHtml.join("\n"),
         success: pagesLoaded > 0,
         pagesLoaded,
-        error: 'network_error',
+        error: "network_error",
       };
     }
   }
 
-  const totalBytes = allHtml.join('\n').length;
-  console.log(`[ruh] Reviews fetched: ${pagesLoaded} pages, ${(totalBytes / 1024).toFixed(1)}KB`);
+  const totalBytes = allHtml.join("\n").length;
+  console.log(
+    `[ruh] Reviews fetched: ${pagesLoaded} pages, ${(totalBytes / 1024).toFixed(1)}KB`,
+  );
 
   return {
-    html: allHtml.join('\n'),
+    html: allHtml.join("\n"),
     success: pagesLoaded > 0,
     pagesLoaded,
   };
@@ -211,11 +220,11 @@ export async function fetchReviews(
  */
 export async function fetchCriticalReviews(
   asin: string,
-  pages: number = 3
+  pages: number = 3,
 ): Promise<ReviewsFetchResult> {
   return fetchReviews(asin, {
     pages,
-    filter: 'critical',
-    sortBy: 'helpful',
+    filter: "critical",
+    sortBy: "helpful",
   });
 }

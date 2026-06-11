@@ -1,13 +1,20 @@
-import { extractASIN, fetchReviews, type ReviewsFetchResult } from '../lib/amazon';
-import type { AnalysisRequest } from '../types';
+import {
+  extractASIN,
+  fetchReviews,
+  type ReviewsFetchResult,
+} from "../lib/amazon";
+import type { AnalysisRequest } from "../types";
 
 // Inline utility function to avoid imports
 function isAmazonProductPage(url: string): boolean {
   try {
     const urlObj = new URL(url);
     const isAmazon =
-      urlObj.hostname.includes('amazon.com') || urlObj.hostname.includes('amazon.ca');
-    const hasDP = urlObj.pathname.includes('/dp/') || urlObj.pathname.includes('/gp/product/');
+      urlObj.hostname.includes("amazon.com") ||
+      urlObj.hostname.includes("amazon.ca");
+    const hasDP =
+      urlObj.pathname.includes("/dp/") ||
+      urlObj.pathname.includes("/gp/product/");
     return isAmazon && hasDP;
   } catch {
     return false;
@@ -16,12 +23,12 @@ function isAmazonProductPage(url: string): boolean {
 
 // Get score color based on harm level
 function getScoreColor(score: number): string {
-  if (score <= 30) return '#9BB88F'; // Safe Green
-  if (score <= 60) return '#D4A574'; // Caution Amber
-  return '#C18A72'; // Alert Rust
+  if (score <= 30) return "#9BB88F"; // Safe Green
+  if (score <= 60) return "#D4A574"; // Caution Amber
+  return "#C18A72"; // Alert Rust
 }
 
-console.log('[ruh] Content script loaded');
+console.log("[ruh] Content script loaded");
 
 // State
 let triggerButton: HTMLDivElement | null = null;
@@ -42,18 +49,18 @@ async function updateButtonVisibility() {
 
   try {
     const response = await chrome.runtime.sendMessage({
-      type: 'IS_SIDE_PANEL_OPEN'
+      type: "IS_SIDE_PANEL_OPEN",
     });
 
     if (response?.isOpen) {
-      triggerButton.style.display = 'none';
+      triggerButton.style.display = "none";
     } else if (currentProductUrl) {
-      triggerButton.style.display = 'block';
+      triggerButton.style.display = "block";
     }
   } catch (err) {
     // If query fails, default to showing button (if we have data)
     if (currentProductUrl) {
-      triggerButton.style.display = 'block';
+      triggerButton.style.display = "block";
     }
   }
 }
@@ -62,11 +69,11 @@ async function updateButtonVisibility() {
  * Listen for side panel state changes from background (polling notifications)
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'SIDE_PANEL_STATE_CHANGED') {
-    console.log('[Ruh Content] Side panel state changed:', message.isOpen);
+  if (message.type === "SIDE_PANEL_STATE_CHANGED") {
+    console.log("[Ruh Content] Side panel state changed:", message.isOpen);
 
     if (triggerButton && !buttonDismissed) {
-      triggerButton.style.display = message.isOpen ? 'none' : 'block';
+      triggerButton.style.display = message.isOpen ? "none" : "block";
     }
   }
 });
@@ -74,9 +81,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 /**
  * Check state when tab becomes visible (user switches back to this tab)
  */
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') {
-    console.log('[Ruh Content] Tab became visible, checking side panel state');
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    console.log("[Ruh Content] Tab became visible, checking side panel state");
     updateButtonVisibility();
   }
 });
@@ -84,8 +91,8 @@ document.addEventListener('visibilitychange', () => {
 /**
  * Check state when window regains focus
  */
-window.addEventListener('focus', () => {
-  console.log('[Ruh Content] Window focused, checking side panel state');
+window.addEventListener("focus", () => {
+  console.log("[Ruh Content] Window focused, checking side panel state");
   updateButtonVisibility();
 });
 
@@ -94,12 +101,12 @@ window.addEventListener('focus', () => {
  */
 function init() {
   if (!isAmazonProductPage(window.location.href)) {
-    console.log('[Ruh Content] Not a product page, skipping analysis');
+    console.log("[Ruh Content] Not a product page, skipping analysis");
     return;
   }
 
   currentProductUrl = window.location.href;
-  console.log('[Ruh Content] Product page detected:', currentProductUrl);
+  console.log("[Ruh Content] Product page detected:", currentProductUrl);
 
   // Start analysis in background
   startAnalysis();
@@ -114,7 +121,7 @@ async function startAnalysis() {
   if (!currentProductUrl || analysisInFlight) return;
   analysisInFlight = true;
 
-  console.log('[ruh] Starting analysis for:', currentProductUrl);
+  console.log("[ruh] Starting analysis for:", currentProductUrl);
 
   // Normalize URL to canonical form (strip Amazon tracking params)
   const asin = extractASIN(currentProductUrl);
@@ -124,8 +131,8 @@ async function startAnalysis() {
 
   // Notify background worker that analysis started
   chrome.runtime.sendMessage({
-    type: 'ANALYSIS_STARTED',
-    productUrl: canonicalUrl
+    type: "ANALYSIS_STARTED",
+    productUrl: canonicalUrl,
   });
 
   try {
@@ -136,30 +143,35 @@ async function startAnalysis() {
     // This bypasses bot detection since we're on the actual page
 
     const productHtml = document.documentElement.outerHTML;
-    console.log(`[ruh] Product page captured: ${(productHtml.length / 1024).toFixed(1)}KB`);
+    console.log(
+      `[ruh] Product page captured: ${(productHtml.length / 1024).toFixed(1)}KB`,
+    );
 
     // Fetch reviews using user's Amazon session (cookies included automatically)
     let reviewsHtml: string | undefined;
 
     if (asin) {
-      console.log('[ruh] Fetching reviews for ASIN:', asin);
+      console.log("[ruh] Fetching reviews for ASIN:", asin);
 
       const reviewsResult: ReviewsFetchResult = await fetchReviews(asin, {
         pages: 5,
-        filter: 'all',
-        sortBy: 'helpful',
+        filter: "all",
+        sortBy: "helpful",
         delayMs: 300,
       });
 
       if (reviewsResult.success) {
         reviewsHtml = reviewsResult.html;
-        const reviewCount = (reviewsHtml.match(/data-hook="review"/g) || []).length;
-        console.log(`[ruh] Reviews fetched: ${reviewCount} reviews from ${reviewsResult.pagesLoaded} pages (${(reviewsHtml.length / 1024).toFixed(1)}KB)`);
+        const reviewCount = (reviewsHtml.match(/data-hook="review"/g) || [])
+          .length;
+        console.log(
+          `[ruh] Reviews fetched: ${reviewCount} reviews from ${reviewsResult.pagesLoaded} pages (${(reviewsHtml.length / 1024).toFixed(1)}KB)`,
+        );
       } else {
-        console.warn('[ruh] Unable to read reviews');
+        console.warn("[ruh] Unable to read reviews");
       }
     } else {
-      console.warn('[ruh] Could not extract ASIN from URL');
+      console.warn("[ruh] Could not extract ASIN from URL");
     }
 
     // Build request payload with canonical URL
@@ -173,20 +185,20 @@ async function startAnalysis() {
     // Content scripts run in the web page origin (amazon.ca) which Chrome's
     // Private Network Access policy blocks from reaching localhost.
     // The background worker runs in chrome-extension:// and is exempt.
-    console.log('[ruh] Sending analysis request to background worker');
+    console.log("[ruh] Sending analysis request to background worker");
 
     const result = await chrome.runtime.sendMessage({
-      type: 'ANALYZE_PRODUCT',
+      type: "ANALYZE_PRODUCT",
       productUrl: canonicalUrl,
-      requestBody
+      requestBody,
     });
 
     if (!result?.success) {
-      throw new Error(result?.error || 'Background analysis failed');
+      throw new Error(result?.error || "Background analysis failed");
     }
 
     const data = result.data;
-    console.log('[ruh] Analysis complete:', data);
+    console.log("[ruh] Analysis complete:", data);
     if (data.reviews_stored !== null && data.reviews_stored !== undefined) {
       console.log(`[ruh] Reviews stored: ${data.reviews_stored}`);
     }
@@ -197,14 +209,15 @@ async function startAnalysis() {
       injectTriggerButton(harmScore);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Analysis failed';
-    console.error('[ruh] Analysis error:', errorMessage);
+    const errorMessage =
+      error instanceof Error ? error.message : "Analysis failed";
+    console.error("[ruh] Analysis error:", errorMessage);
 
     // Notify background worker about the error
     chrome.runtime.sendMessage({
-      type: 'ANALYSIS_ERROR',
+      type: "ANALYSIS_ERROR",
       productUrl: canonicalUrl,
-      error: errorMessage
+      error: errorMessage,
     });
   } finally {
     analysisInFlight = false;
@@ -219,8 +232,8 @@ async function injectTriggerButton(harmScore: number) {
 
   const scoreColor = getScoreColor(harmScore);
 
-  triggerButton = document.createElement('div');
-  triggerButton.id = 'ruh-trigger-button';
+  triggerButton = document.createElement("div");
+  triggerButton.id = "ruh-trigger-button";
 
   // Donut-only design: just the chart with harm score (no text, no dismiss)
   const radius = 18;
@@ -241,9 +254,9 @@ async function injectTriggerButton(harmScore: number) {
   `;
 
   // Inject styles
-  if (!document.getElementById('ruh-button-styles')) {
-    const styleEl = document.createElement('style');
-    styleEl.id = 'ruh-button-styles';
+  if (!document.getElementById("ruh-button-styles")) {
+    const styleEl = document.createElement("style");
+    styleEl.id = "ruh-button-styles";
     styleEl.textContent = `
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
@@ -315,27 +328,26 @@ async function injectTriggerButton(harmScore: number) {
   }
 
   // Add click handler to open side panel
-  triggerButton.addEventListener('click', () => {
+  triggerButton.addEventListener("click", () => {
     // Hide button immediately (optimistic update)
     if (triggerButton) {
-      triggerButton.style.display = 'none';
+      triggerButton.style.display = "none";
     }
-    chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });
+    chrome.runtime.sendMessage({ type: "OPEN_SIDE_PANEL" });
   });
 
   // Check if side panel is already open before showing button
   const response = await chrome.runtime.sendMessage({
-    type: 'IS_SIDE_PANEL_OPEN'
+    type: "IS_SIDE_PANEL_OPEN",
   });
 
   if (response?.isOpen) {
     // Hide button initially if side panel is open
-    triggerButton.style.display = 'none';
+    triggerButton.style.display = "none";
   }
 
   document.body.appendChild(triggerButton);
 }
-
 
 /**
  * Clean up on page navigation
@@ -351,8 +363,8 @@ function cleanup() {
 }
 
 // Initialize on load
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
 } else {
   init();
 }
@@ -371,4 +383,4 @@ new MutationObserver(() => {
 }).observe(document.body, { childList: true, subtree: true });
 
 // Cleanup on unload
-window.addEventListener('beforeunload', cleanup);
+window.addEventListener("beforeunload", cleanup);

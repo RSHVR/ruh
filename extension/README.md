@@ -51,6 +51,7 @@ VITE_DEBUG=true
 ```
 
 **For local backend testing**, use:
+
 ```bash
 VITE_API_BASE_URL=http://localhost:8001
 VITE_API_KEY=your-api-key-here
@@ -121,6 +122,7 @@ extension/
 ## Allowed Domains
 
 Extension only works on:
+
 - `https://*.amazon.com/*`
 - `https://*.amazon.ca/*`
 

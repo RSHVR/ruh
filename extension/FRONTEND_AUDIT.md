@@ -22,17 +22,18 @@ Ruh has a **promising organic/wellness aesthetic** that's being undermined by **
 
 The codebase maintains two competing color systems that create visual inconsistency:
 
-| CSS Variables (Brand) | Tailwind Config (Generic) |
-|-----------------------|---------------------------|
-| `#9bb88f` Safe Green | `#10b981` Tailwind emerald |
-| `#d4a574` Caution Amber | `#f59e0b` Tailwind amber |
-| `#c18a72` Alert Rust | `#ef4444` Tailwind red |
+| CSS Variables (Brand)   | Tailwind Config (Generic)  |
+| ----------------------- | -------------------------- |
+| `#9bb88f` Safe Green    | `#10b981` Tailwind emerald |
+| `#d4a574` Caution Amber | `#f59e0b` Tailwind amber   |
+| `#c18a72` Alert Rust    | `#ef4444` Tailwind red     |
 
 **Problem**: The brand palette (muted, earthy, sophisticated) clashes with Tailwind's saturated defaults scattered throughout utility classes like `text-red-600`, `bg-green-50`, `text-amber-600`.
 
 **Impact**: The "No Major Concerns Detected" box uses `bg-green-50` and `text-green-700` (Tailwind) while surrounding elements use `--color-safe` (brand). Users subconsciously sense this inconsistency.
 
 **Files Affected**:
+
 - `src/components/AnalysisView.svelte` (lines 252-263)
 - `tailwind.config.js`
 
@@ -45,14 +46,15 @@ The codebase maintains two competing color systems that create visual inconsiste
 Three different font stacks are declared across the codebase:
 
 ```css
-font-family: 'Cormorant Infant', serif;     /* LoadingScreen h3 */
-font-family: 'Poppins', sans-serif;          /* app.css, empty states */
-font-family: 'Inter', sans-serif;            /* AnalysisView everything */
+font-family: "Cormorant Infant", serif; /* LoadingScreen h3 */
+font-family: "Poppins", sans-serif; /* app.css, empty states */
+font-family: "Inter", sans-serif; /* AnalysisView everything */
 ```
 
 **Problem**: Cormorant Infant is declared but barely used. Poppins and Inter compete for body text. The elegant serif personality is lost.
 
 **Files Affected**:
+
 - `src/app.css` (imports Cormorant + Poppins)
 - `src/components/AnalysisView.svelte` (imports and uses Inter)
 - `src/components/LoadingScreen.svelte` (uses Cormorant)
@@ -66,16 +68,17 @@ font-family: 'Inter', sans-serif;            /* AnalysisView everything */
 
 Multiple color combinations fail WCAG contrast requirements:
 
-| Element | Foreground | Background | Contrast Ratio | WCAG Status |
-|---------|------------|------------|----------------|-------------|
-| `.severity-low` | `#2d4a2a` | `#9bb88f` | 3.2:1 | **Fail** |
-| `.severity-moderate` | `#6b4e2a` | `#d4a574` | 3.4:1 | **Fail** |
-| `.badge-safe` | `#065f46` | `#d1fae5` | 4.8:1 | AA only |
-| Secondary text | `#6b6560` | `#fffbf5` | 4.1:1 | Borderline |
+| Element              | Foreground | Background | Contrast Ratio | WCAG Status |
+| -------------------- | ---------- | ---------- | -------------- | ----------- |
+| `.severity-low`      | `#2d4a2a`  | `#9bb88f`  | 3.2:1          | **Fail**    |
+| `.severity-moderate` | `#6b4e2a`  | `#d4a574`  | 3.4:1          | **Fail**    |
+| `.badge-safe`        | `#065f46`  | `#d1fae5`  | 4.8:1          | AA only     |
+| Secondary text       | `#6b6560`  | `#fffbf5`  | 4.1:1          | Borderline  |
 
 **Impact**: Severity badges are particularly problematic—users need to instantly parse risk levels, but the muted palette sacrifices readability.
 
 **Files Affected**:
+
 - `src/components/AnalysisView.svelte` (lines 511-529, 587-609)
 
 ---
@@ -89,11 +92,13 @@ Multiple color combinations fail WCAG contrast requirements:
 The donut chart, card layouts, and badge system are functional but forgettable. Nothing signals "Ruh" versus any other health/wellness app.
 
 **Current State**:
+
 - Standard SVG circle with dashoffset animation (seen in every dashboard)
 - Conventional card-based layouts
 - Generic badge styling
 
 **Opportunity**: The brand has an organic/natural positioning. The score visualization could use:
+
 - Organic blob shapes instead of perfect circles
 - Gradient fills that shift with score
 - Subtle grain/texture overlay
@@ -136,6 +141,7 @@ Current empty state implementation:
 ```
 
 **Problems**:
+
 - Generic centered layout
 - 0.6 opacity icon looks broken, not intentional
 - No illustration, animation, or personality
@@ -150,6 +156,7 @@ Current empty state implementation:
 ### Brand Color Foundation
 
 The CSS variable palette is cohesive and distinctive:
+
 - Cream/sand tones convey naturalness
 - Muted greens/ambers feel trustworthy
 - Rust alert color is serious without being alarming
@@ -179,30 +186,31 @@ Remove Tailwind color utilities from components. Update `tailwind.config.js` to 
 ```javascript
 // tailwind.config.js
 export default {
-  content: ['./src/**/*.{html,js,svelte,ts}'],
+  content: ["./src/**/*.{html,js,svelte,ts}"],
   theme: {
     extend: {
       colors: {
         // Map to CSS variables
-        safe: 'var(--color-safe)',
-        caution: 'var(--color-caution)',
-        alert: 'var(--color-alert)',
-        primary: 'var(--color-primary)',
-        secondary: 'var(--color-secondary)',
-        accent: 'var(--color-accent)',
+        safe: "var(--color-safe)",
+        caution: "var(--color-caution)",
+        alert: "var(--color-alert)",
+        primary: "var(--color-primary)",
+        secondary: "var(--color-secondary)",
+        accent: "var(--color-accent)",
         // Semantic mappings
-        'bg-primary': 'var(--color-bg-primary)',
-        'bg-secondary': 'var(--color-bg-secondary)',
-        'text-primary': 'var(--color-text)',
-        'text-secondary': 'var(--color-text-secondary)',
-      }
-    }
+        "bg-primary": "var(--color-bg-primary)",
+        "bg-secondary": "var(--color-bg-secondary)",
+        "text-primary": "var(--color-text)",
+        "text-secondary": "var(--color-text-secondary)",
+      },
+    },
   },
-  plugins: []
+  plugins: [],
 };
 ```
 
 Then replace all hardcoded Tailwind colors in components:
+
 - `bg-green-50` → `bg-safe/10`
 - `text-green-700` → `text-safe`
 - `text-red-600` → `text-alert`
@@ -215,18 +223,18 @@ Update severity badge colors for 4.5:1 minimum contrast:
 ```css
 .severity-low {
   background: #9bb88f;
-  color: #1a2e18;  /* Darker green */
+  color: #1a2e18; /* Darker green */
 }
 
 .severity-moderate {
   background: #d4a574;
-  color: #3d2a12;  /* Darker brown */
+  color: #3d2a12; /* Darker brown */
 }
 
 .severity-high,
 .severity-severe {
   background: #c18a72;
-  color: #2d1810;  /* Darker rust */
+  color: #2d1810; /* Darker rust */
 }
 ```
 
@@ -240,7 +248,7 @@ Remove Inter entirely. Commit to the Cormorant + Poppins pairing:
 .section-subtitle,
 .score-number,
 .empty-state h2 {
-  font-family: 'Cormorant Infant', serif;
+  font-family: "Cormorant Infant", serif;
 }
 
 /* Body text, UI elements */
@@ -248,7 +256,7 @@ body,
 .item-card,
 .badge,
 button {
-  font-family: 'Poppins', sans-serif;
+  font-family: "Poppins", sans-serif;
 }
 ```
 
@@ -309,9 +317,15 @@ Staggered entrance animations for ingredient badges:
   animation: badgeReveal 300ms ease-out both;
 }
 
-.ingredient-badge:nth-child(1) { animation-delay: 0ms; }
-.ingredient-badge:nth-child(2) { animation-delay: 50ms; }
-.ingredient-badge:nth-child(3) { animation-delay: 100ms; }
+.ingredient-badge:nth-child(1) {
+  animation-delay: 0ms;
+}
+.ingredient-badge:nth-child(2) {
+  animation-delay: 50ms;
+}
+.ingredient-badge:nth-child(3) {
+  animation-delay: 100ms;
+}
 /* ... */
 
 @keyframes badgeReveal {
@@ -335,8 +349,13 @@ Severity badge pulse for critical items:
 }
 
 @keyframes severityPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(193, 138, 114, 0.4); }
-  50% { box-shadow: 0 0 0 4px rgba(193, 138, 114, 0); }
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(193, 138, 114, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(193, 138, 114, 0);
+  }
 }
 ```
 
@@ -344,15 +363,15 @@ Severity badge pulse for critical items:
 
 ## Scoring Breakdown
 
-| Aspect | Current | Target | Priority |
-|--------|---------|--------|----------|
-| Color Cohesion | 6/10 | 9/10 | High |
-| Typography | 4/10 | 8/10 | High |
-| Accessibility | 4/10 | 9/10 | High |
-| Visual Hierarchy | 5/10 | 8/10 | Medium |
-| Brand Distinctiveness | 5/10 | 8/10 | Medium |
-| Animation/Motion | 6/10 | 8/10 | Low |
-| **Overall** | **5/10** | **8.5/10** | — |
+| Aspect                | Current  | Target     | Priority |
+| --------------------- | -------- | ---------- | -------- |
+| Color Cohesion        | 6/10     | 9/10       | High     |
+| Typography            | 4/10     | 8/10       | High     |
+| Accessibility         | 4/10     | 9/10       | High     |
+| Visual Hierarchy      | 5/10     | 8/10       | Medium   |
+| Brand Distinctiveness | 5/10     | 8/10       | Medium   |
+| Animation/Motion      | 6/10     | 8/10       | Low      |
+| **Overall**           | **5/10** | **8.5/10** | —        |
 
 ---
 
@@ -367,13 +386,13 @@ Severity badge pulse for critical items:
 
 ## Files to Modify
 
-| File | Changes Required |
-|------|------------------|
-| `tailwind.config.js` | Remap colors to CSS variables |
-| `src/app.css` | Remove duplicate font imports, add CSS variable definitions |
-| `src/components/AnalysisView.svelte` | Remove Inter, fix Tailwind color classes, improve contrast |
-| `src/components/LoadingScreen.svelte` | Minor typography alignment |
-| `src/SidePanelContainer.svelte` | Empty state redesign, typography fixes |
+| File                                  | Changes Required                                            |
+| ------------------------------------- | ----------------------------------------------------------- |
+| `tailwind.config.js`                  | Remap colors to CSS variables                               |
+| `src/app.css`                         | Remove duplicate font imports, add CSS variable definitions |
+| `src/components/AnalysisView.svelte`  | Remove Inter, fix Tailwind color classes, improve contrast  |
+| `src/components/LoadingScreen.svelte` | Minor typography alignment                                  |
+| `src/SidePanelContainer.svelte`       | Empty state redesign, typography fixes                      |
 
 ---
 

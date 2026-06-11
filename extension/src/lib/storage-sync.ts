@@ -1,6 +1,6 @@
-import type { AnalysisResponse } from '@/types';
+import type { AnalysisResponse } from "@/types";
 
-export type AnalysisStatus = 'idle' | 'loading' | 'complete' | 'error';
+export type AnalysisStatus = "idle" | "loading" | "complete" | "error";
 
 export interface TabAnalysisState {
   tabId: number;
@@ -24,7 +24,7 @@ export function getTabStorageKey(tabId: number): string {
  */
 export async function setTabAnalysis(
   tabId: number,
-  state: Partial<TabAnalysisState>
+  state: Partial<TabAnalysisState>,
 ): Promise<void> {
   const key = getTabStorageKey(tabId);
 
@@ -33,12 +33,12 @@ export async function setTabAnalysis(
 
   const newState: TabAnalysisState = {
     tabId,
-    productUrl: state.productUrl ?? existing?.productUrl ?? '',
-    status: state.status ?? existing?.status ?? 'idle',
+    productUrl: state.productUrl ?? existing?.productUrl ?? "",
+    status: state.status ?? existing?.status ?? "idle",
     data: state.data ?? existing?.data ?? null,
     error: state.error ?? existing?.error ?? null,
     timestamp: state.timestamp ?? existing?.timestamp ?? Date.now(),
-    harmScore: state.harmScore ?? existing?.harmScore ?? null
+    harmScore: state.harmScore ?? existing?.harmScore ?? null,
   };
 
   await chrome.storage.local.set({ [key]: newState });
@@ -48,7 +48,7 @@ export async function setTabAnalysis(
  * Get analysis state for a specific tab
  */
 export async function getTabAnalysis(
-  tabId: number
+  tabId: number,
 ): Promise<TabAnalysisState | null> {
   const key = getTabStorageKey(tabId);
   const result = await chrome.storage.local.get(key);

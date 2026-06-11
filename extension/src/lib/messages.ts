@@ -23,7 +23,7 @@ export const wittyMessages = [
   "Verifying claims that sound like marketing speak...",
   "Checking for substances with suspiciously long names...",
   "Making sure 'natural' actually means natural...",
-  "Investigating what 'fragrance' really means..."
+  "Investigating what 'fragrance' really means...",
 ];
 
 export const progressMessages = [
@@ -34,5 +34,5 @@ export const progressMessages = [
   "Checking toxicity databases...",
   "Calculating harm score...",
   "Verifying against known substances...",
-  "Finalizing analysis..."
+  "Finalizing analysis...",
 ];

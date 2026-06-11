@@ -3,11 +3,7 @@
   "name": "Ruh",
   "version": "0.2.2",
   "description": "AI-powered product safety analysis - detect harmful substances and find safer alternatives",
-  "permissions": [
-    "storage",
-    "activeTab",
-    "sidePanel"
-  ],
+  "permissions": ["storage", "activeTab", "sidePanel"],
   "host_permissions": [
     "https://*.amazon.com/*",
     "https://*.amazon.ca/*",
@@ -23,10 +19,7 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://*.amazon.com/*",
-        "https://*.amazon.ca/*"
-      ],
+      "matches": ["https://*.amazon.com/*", "https://*.amazon.ca/*"],
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
