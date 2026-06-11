@@ -11,6 +11,17 @@
   "host_permissions": [
     "https://*.amazon.com/*",
     "https://*.amazon.ca/*",
+    "https://*.walmart.com/*",
+    "https://*.costco.com/*",
+    "https://*.instacart.com/*",
+    "https://*.sephora.com/*",
+    "https://*.hm.com/*",
+    "https://*.uniqlo.com/*",
+    "https://*.shein.com/*",
+    "https://*.aritzia.com/*",
+    "https://*.garageclothing.com/*",
+    "https://*.ikea.com/*",
+    "https://*.temu.com/*",
     "https://ruh-api-948739110049.us-central1.run.app/*",
     "http://localhost:8000/*"
   ],
@@ -25,7 +36,18 @@
     {
       "matches": [
         "https://*.amazon.com/*",
-        "https://*.amazon.ca/*"
+        "https://*.amazon.ca/*",
+        "https://*.walmart.com/*",
+        "https://*.costco.com/*",
+        "https://*.instacart.com/*",
+        "https://*.sephora.com/*",
+        "https://*.hm.com/*",
+        "https://*.uniqlo.com/*",
+        "https://*.shein.com/*",
+        "https://*.aritzia.com/*",
+        "https://*.garageclothing.com/*",
+        "https://*.ikea.com/*",
+        "https://*.temu.com/*"
       ],
       "js": ["content.js"],
       "css": ["content.css"],

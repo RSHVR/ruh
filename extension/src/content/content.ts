@@ -1,18 +1,5 @@
-import { extractASIN, fetchReviews, type ReviewsFetchResult } from '../lib/amazon';
+import { getAdapter, type SiteAdapter } from '../lib/retailers';
 import type { AnalysisRequest } from '../types';
-
-// Inline utility function to avoid imports
-function isAmazonProductPage(url: string): boolean {
-  try {
-    const urlObj = new URL(url);
-    const isAmazon =
-      urlObj.hostname.includes('amazon.com') || urlObj.hostname.includes('amazon.ca');
-    const hasDP = urlObj.pathname.includes('/dp/') || urlObj.pathname.includes('/gp/product/');
-    return isAmazon && hasDP;
-  } catch {
-    return false;
-  }
-}
 
 // Get score color based on harm level
 function getScoreColor(score: number): string {
@@ -93,16 +80,19 @@ window.addEventListener('focus', () => {
  * Initialize the extension on Amazon product pages
  */
 function init() {
-  if (!isAmazonProductPage(window.location.href)) {
-    console.log('[Ruh Content] Not a product page, skipping analysis');
+  const url = window.location.href;
+  const adapter = getAdapter(url);
+
+  if (!adapter || !adapter.isProductPage(url)) {
+    console.log('[Ruh Content] Not a supported product page, skipping analysis');
     return;
   }
 
-  currentProductUrl = window.location.href;
-  console.log('[Ruh Content] Product page detected:', currentProductUrl);
+  currentProductUrl = url;
+  console.log(`[Ruh Content] Product page detected (${adapter.name}):`, currentProductUrl);
 
   // Start analysis in background
-  startAnalysis();
+  startAnalysis(adapter);
 }
 
 /**
@@ -110,17 +100,15 @@ function init() {
  * then delegates the API call to the background service worker (which runs in
  * chrome-extension:// origin and is exempt from Private Network Access restrictions).
  */
-async function startAnalysis() {
+async function startAnalysis(adapter: SiteAdapter) {
   if (!currentProductUrl || analysisInFlight) return;
   analysisInFlight = true;
 
   console.log('[ruh] Starting analysis for:', currentProductUrl);
 
-  // Normalize URL to canonical form (strip Amazon tracking params)
-  const asin = extractASIN(currentProductUrl);
-  const canonicalUrl = asin
-    ? `${new URL(currentProductUrl).origin}/dp/${asin}`
-    : currentProductUrl;
+  // Normalize URL to canonical form via the adapter (e.g. Amazon → /dp/<ASIN>,
+  // stripping tracking params) so cache keys don't fragment.
+  const canonicalUrl = adapter.canonicalUrl?.(currentProductUrl) ?? currentProductUrl;
 
   // Notify background worker that analysis started
   chrome.runtime.sendMessage({
@@ -135,31 +123,38 @@ async function startAnalysis() {
     // Capture product page HTML directly from the DOM (user's session)
     // This bypasses bot detection since we're on the actual page
 
+    // Let the adapter prepare the page (e.g. scroll to trigger lazily-rendered
+    // sections like Instacart nutrition facts) before we snapshot the DOM.
+    if (adapter.prepareForCapture) {
+      try {
+        await adapter.prepareForCapture();
+      } catch (err) {
+        console.warn('[ruh] prepareForCapture failed (continuing):', err);
+      }
+    }
+
+    // Capture product page HTML
     const productHtml = document.documentElement.outerHTML;
     console.log(`[ruh] Product page captured: ${(productHtml.length / 1024).toFixed(1)}KB`);
 
-    // Fetch reviews using user's Amazon session (cookies included automatically)
+    // Fetch reviews via the retailer adapter, using the user's logged-in session.
+    // Adapters without a usable reviews endpoint omit fetchReviews entirely.
     let reviewsHtml: string | undefined;
 
-    if (asin) {
-      console.log('[ruh] Fetching reviews for ASIN:', asin);
-
-      const reviewsResult: ReviewsFetchResult = await fetchReviews(asin, {
-        pages: 5,
-        filter: 'all',
-        sortBy: 'helpful',
-        delayMs: 300,
-      });
-
-      if (reviewsResult.success) {
-        reviewsHtml = reviewsResult.html;
-        const reviewCount = (reviewsHtml.match(/data-hook="review"/g) || []).length;
-        console.log(`[ruh] Reviews fetched: ${reviewCount} reviews from ${reviewsResult.pagesLoaded} pages (${(reviewsHtml.length / 1024).toFixed(1)}KB)`);
-      } else {
-        console.warn('[ruh] Unable to read reviews');
+    if (adapter.fetchReviews) {
+      try {
+        const reviewsResult = await adapter.fetchReviews(currentProductUrl);
+        if (reviewsResult && reviewsResult.html) {
+          reviewsHtml = reviewsResult.html;
+          console.log(
+            `[ruh] Reviews fetched (${adapter.name}): ${reviewsResult.count} reviews (${(reviewsHtml.length / 1024).toFixed(1)}KB)`
+          );
+        } else {
+          console.warn('[ruh] Unable to read reviews');
+        }
+      } catch (err) {
+        console.warn('[ruh] Reviews fetch failed:', err);
       }
-    } else {
-      console.warn('[ruh] Could not extract ASIN from URL');
     }
 
     // Build request payload with canonical URL
@@ -358,13 +353,17 @@ if (document.readyState === 'loading') {
 }
 
 // Re-initialize on URL changes (SPA navigation)
-// Compare ASINs, not raw URLs — Amazon mutates tracking params via
-// history.replaceState() which would falsely trigger re-analysis.
-let lastAsin = extractASIN(window.location.href);
+// Compare canonical product identity, not raw URLs — retailers mutate
+// tracking params via history.replaceState() which would falsely re-trigger.
+function canonicalIdentity(url: string): string {
+  const adapter = getAdapter(url);
+  return adapter?.canonicalUrl?.(url) ?? url;
+}
+let lastIdentity = canonicalIdentity(window.location.href);
 new MutationObserver(() => {
-  const currentAsin = extractASIN(window.location.href);
-  if (currentAsin && currentAsin !== lastAsin) {
-    lastAsin = currentAsin;
+  const currentIdentity = canonicalIdentity(window.location.href);
+  if (currentIdentity !== lastIdentity) {
+    lastIdentity = currentIdentity;
     cleanup();
     setTimeout(init, 500); // Wait for page content to load
   }

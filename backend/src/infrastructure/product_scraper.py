@@ -21,6 +21,38 @@ class ProductScraperService:
         """Initialize scraper service."""
         self.factory = ScraperFactory()
 
+    async def process_client_html(
+        self,
+        url: str,
+        product_html: str,
+        reviews_html: str = "",
+    ) -> Optional[ScrapedProduct]:
+        """Process client-captured HTML using the URL-appropriate scraper.
+
+        Selects the scraper via the factory (ADR-002 — no hardcoded retailer),
+        then applies selector-based extraction. Returns None if no scraper claims
+        the URL, so the caller can fall back to sending raw HTML to Claude.
+
+        Args:
+            url: Product URL
+            product_html: Raw product-page HTML from the user's session
+            reviews_html: Optional raw reviews HTML from the user's session
+
+        Returns:
+            ScrapedProduct if a scraper handled it, else None.
+        """
+        scraper = await self.factory.get_scraper(url)
+        if scraper is None:
+            logger.info(f"🔄 No scraper for {url}; client HTML will be passed to Claude fallback")
+            return None
+
+        logger.info(f"✅ Processing client HTML with {scraper.__class__.__name__}")
+        return scraper.process_client_html(
+            url=url,
+            product_html=product_html,
+            reviews_html=reviews_html,
+        )
+
     async def try_scrape(
         self,
         url: str,
