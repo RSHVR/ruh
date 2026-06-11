@@ -6,7 +6,15 @@ from typing import List, Optional, Dict, Any
 import logging
 
 from ...infrastructure.database import db
+from ...infrastructure.config import settings
 from ..auth import verify_api_key
+
+
+def _safe_error_detail(message: str, error: Exception) -> str:
+    """Return error detail with str(e) only in debug mode."""
+    if settings.debug:
+        return f"{message}: {str(error)}"
+    return message
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -81,7 +89,7 @@ async def get_validation_logs(
         logger.error(f"Failed to fetch validation logs: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch validation logs: {str(e)}"
+            detail=_safe_error_detail("Failed to fetch validation logs", e)
         )
 
 
@@ -129,7 +137,7 @@ async def get_validation_stats(
         logger.error(f"Failed to fetch validation stats: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch validation stats: {str(e)}"
+            detail=_safe_error_detail("Failed to fetch validation stats", e)
         )
 
 
@@ -164,7 +172,7 @@ async def get_flagged_substances(
         logger.error(f"Failed to fetch flagged substances: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch flagged substances: {str(e)}"
+            detail=_safe_error_detail("Failed to fetch flagged substances", e)
         )
 
 
@@ -213,7 +221,7 @@ async def get_stats_by_date(
         logger.error(f"Failed to fetch stats by date: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch stats by date: {str(e)}"
+            detail=_safe_error_detail("Failed to fetch stats by date", e)
         )
 
 
@@ -250,5 +258,5 @@ async def get_product_validation_logs(
         logger.error(f"Failed to fetch product validation logs: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch product validation logs: {str(e)}"
+            detail=_safe_error_detail("Failed to fetch product validation logs", e)
         )

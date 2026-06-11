@@ -7,13 +7,43 @@ import time
 from typing import Any, Dict, List, Optional
 import httpx
 from anthropic import Anthropic, RateLimitError, APIError
-from ..infrastructure.config import settings
-from ..infrastructure.token_tracker import TokenTracker
-from ..infrastructure.search_tool_service import SearchToolService
+from pydantic import ValidationError
+from .config import settings
+from .token_tracker import TokenTracker
+from .search_tool_service import SearchToolService
+from ..domain.extraction_schemas import ProductSafetyAnalysis
 
 logger = logging.getLogger(__name__)
 
-# Custom web_search tool definition (replaces Anthropic's native web_search_20250305)
+# Custom tool definitions
+
+LOOKUP_INGREDIENT_RESEARCH_TOOL = {
+    "name": "lookup_ingredient_research",
+    "description": """Look up pre-computed research for an ingredient from the database.
+
+WARNING: This database may be incomplete or empty. ALWAYS use web_search
+for ingredient research first. Only use this tool as a supplementary check
+AFTER you have already searched for the ingredient via web_search.
+
+Args:
+    ingredient: Ingredient name to look up
+
+Returns:
+    JSON string with research findings or not found message""",
+    "strict": True,
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "ingredient": {
+                "type": "string",
+                "description": "Ingredient name to look up",
+            },
+        },
+        "required": ["ingredient"],
+        "additionalProperties": False,
+    },
+}
+
 CUSTOM_WEB_SEARCH_TOOL = {
     "name": "web_search",
     "description": """Search the web for product safety information.
@@ -37,6 +67,7 @@ IMPORTANT: For products with multiple ingredients, use search_type="ingredient" 
 individual ingredients like "[ingredient name] toxicity" or "[ingredient name] IARC classification".
 
 Results are filtered to credible sources based on search_type.""",
+    "strict": True,
     "input_schema": {
         "type": "object",
         "properties": {
@@ -50,7 +81,8 @@ Results are filtered to credible sources based on search_type.""",
                 "description": "Type of search. Use 'ingredient' for per-ingredient safety research.",
             },
         },
-        "required": ["query"],
+        "required": ["query", "search_type"],
+        "additionalProperties": False,
     },
 }
 
@@ -63,6 +95,7 @@ class ProductSafetyAgent:
         token_tracker: Optional[TokenTracker] = None,
         search_service: Optional[SearchToolService] = None,
         supabase_client: Optional[Any] = None,
+        temperature: float = 1.0,
     ) -> None:
         """Initialize the Claude Agent.
 
@@ -72,11 +105,14 @@ class ProductSafetyAgent:
             search_service: Optional SearchToolService for custom web search.
                            If not provided and use_custom_search is True, one will be created.
             supabase_client: Optional Supabase client for search cache.
+            temperature: Temperature for model responses (0.0-1.0). Default 1.0.
         """
         self.client = Anthropic(api_key=settings.anthropic_api_key)
         self.model = "claude-sonnet-4-5-20250929"
+        self.temperature = temperature
         self.http_client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
         self.token_tracker = token_tracker or TokenTracker()
+        self.supabase_client = supabase_client  # Store for lookup_ingredient_research tool
 
         # Initialize search service if custom search is enabled
         self.use_custom_search = settings.use_custom_search
@@ -169,6 +205,7 @@ class ProductSafetyAgent:
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=4096,
+                temperature=self.temperature,
                 system=system_prompt,
                 messages=messages,
                 tools=tools,
@@ -259,6 +296,7 @@ class ProductSafetyAgent:
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=4096,
+                    temperature=self.temperature,
                     system=system_prompt,
                     messages=messages,
                     tools=tools,
@@ -524,59 +562,42 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
 3. Provide your comprehensive structured JSON analysis"""
 
     def _parse_response(self, response: Any) -> Dict[str, Any]:
-        """Parse Claude's response and extract analysis JSON with validation."""
-        # Extract text content from response
+        """Parse Claude's response, extract JSON, and validate with Pydantic.
+
+        JSON extraction handles multiple formats (raw JSON, ```json blocks, ``` blocks).
+        After extraction, the result is validated against ProductSafetyAnalysis schema
+        to catch type mismatches and normalize enum values.
+        """
         for block in response.content:
             if hasattr(block, "text"):
                 text = block.text
 
-                # Try to extract JSON
                 try:
-                    # Look for JSON in various formats
-                    if "```json" in text:
-                        json_start = text.find("```json") + 7
-                        json_end = text.find("```", json_start)
-                        json_str = text[json_start:json_end].strip()
-                    elif "```" in text:
-                        json_start = text.find("```") + 3
-                        json_end = text.find("```", json_start)
-                        json_str = text[json_start:json_end].strip()
-                    else:
-                        # Try to find JSON object directly
-                        json_start = text.find("{")
-                        json_end = text.rfind("}") + 1
-                        if json_start != -1 and json_end > json_start:
-                            json_str = text[json_start:json_end]
-                        else:
-                            raise ValueError("No JSON found")
-
+                    # Extract JSON from response text
+                    json_str = self._extract_json_string(text)
                     analysis = json.loads(json_str)
 
-                    # VALIDATION: Check for required fields and valid values
-                    if not analysis.get("product_name") or analysis.get("product_name") == "Unknown":
-                        logger.warning(f"⚠️  Claude returned 'Unknown' or missing product_name. Raw response: {text[:300]}")
+                    # Validate and normalize via Pydantic schema
+                    try:
+                        validated = ProductSafetyAnalysis.model_validate(analysis)
+                        analysis = validated.model_dump()
+                        logger.info(f"✅ Parsed and validated: {analysis.get('product_name', 'Unknown')}")
+                    except ValidationError as ve:
+                        # Pydantic validation failed — log but use raw parsed data
+                        logger.warning(f"⚠️  Pydantic validation failed, using raw JSON: {ve.error_count()} error(s)")
+                        logger.debug(f"Validation errors: {ve.errors()}")
+                        # Ensure required lists exist
+                        analysis.setdefault('allergens_detected', [])
+                        analysis.setdefault('pfas_detected', [])
+                        analysis.setdefault('other_concerns', [])
+                        analysis.setdefault('ingredients', [])
 
-                    # Ensure lists exist
-                    analysis.setdefault('allergens_detected', [])
-                    analysis.setdefault('pfas_detected', [])
-                    analysis.setdefault('other_concerns', [])
-                    analysis.setdefault('ingredients', [])
-
-                    # Validate confidence is between 0-1
-                    confidence = analysis.get('confidence', 0.8)
-                    if not isinstance(confidence, (int, float)) or confidence < 0 or confidence > 1:
-                        logger.warning(f"⚠️  Invalid confidence value: {confidence}, defaulting to 0.5")
-                        analysis['confidence'] = 0.5
-
-                    logger.info(f"✅ Successfully parsed Claude response: {analysis.get('product_name', 'Unknown')}")
                     return analysis
 
                 except (json.JSONDecodeError, ValueError) as e:
-                    # Log the full error for debugging
                     logger.error(f"❌ JSON parsing failed: {str(e)}")
                     logger.error(f"Raw Claude response text (first 1000 chars): {text[:1000]}")
 
-                    # Return error structure with partial data if possible
                     return {
                         "product_name": "Unknown",
                         "brand": "Unknown",
@@ -587,10 +608,9 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
                         "other_concerns": [],
                         "confidence": 0.1,
                         "error": f"Failed to parse JSON: {str(e)}",
-                        "raw_response_preview": text[:500]  # Include preview for debugging
+                        "raw_response_preview": text[:500],
                     }
 
-        # No text block found
         logger.error("❌ No text block found in Claude response")
         return {
             "product_name": "Unknown",
@@ -603,6 +623,27 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
             "confidence": 0.0,
             "error": "No text content in Claude response",
         }
+
+    @staticmethod
+    def _extract_json_string(text: str) -> str:
+        """Extract JSON string from Claude's text response.
+
+        Handles: raw JSON, ```json blocks, ``` blocks.
+        """
+        if "```json" in text:
+            json_start = text.find("```json") + 7
+            json_end = text.find("```", json_start)
+            return text[json_start:json_end].strip()
+        elif "```" in text:
+            json_start = text.find("```") + 3
+            json_end = text.find("```", json_start)
+            return text[json_start:json_end].strip()
+        else:
+            json_start = text.find("{")
+            json_end = text.rfind("}") + 1
+            if json_start != -1 and json_end > json_start:
+                return text[json_start:json_end]
+            raise ValueError("No JSON found in response text")
 
     async def analyze_extracted_product(
         self,
@@ -680,6 +721,7 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=2048,
+                temperature=self.temperature,
                 system=system_prompt,
                 messages=messages,
                 tools=tools,
@@ -716,7 +758,8 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
         3. Send tool_result back to Claude
         4. Repeat until stop_reason="end_turn"
         """
-        tools = [CUSTOM_WEB_SEARCH_TOOL]
+        # Include lookup_ingredient_research for parity with Cohere
+        tools = [CUSTOM_WEB_SEARCH_TOOL, LOOKUP_INGREDIENT_RESEARCH_TOOL]
         messages = [{"role": "user", "content": user_message}]
 
         logger.info(f"🔍 Calling Claude Agent with CUSTOM search (Tavily/Serper)")
@@ -746,6 +789,7 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=4096,  # Increased for comprehensive analysis with research_sources
+                    temperature=self.temperature,
                     system=system_prompt,
                     messages=messages,
                     tools=tools,
@@ -775,25 +819,38 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
                     logger.warning("stop_reason=tool_use but no tool_use blocks found")
                     break
 
-                logger.info(f"🔧 Claude requested {len(tool_uses)} search(es)")
+                logger.info(f"🔧 Claude requested {len(tool_uses)} tool call(s)")
 
-                # Execute searches IN PARALLEL (Tavily best practice)
+                # Separate tool calls by type
+                search_tool_uses = [t for t in tool_uses if t.name == "web_search"]
+                lookup_tool_uses = [t for t in tool_uses if t.name == "lookup_ingredient_research"]
+
+                # Execute web searches IN PARALLEL (Tavily best practice)
                 search_tasks = []
-                for tool_use in tool_uses:
+                for tool_use in search_tool_uses:
                     query = tool_use.input.get("query", "")
                     search_type = tool_use.input.get("search_type", "general")
-                    logger.info(f"   Search: {query[:60]}... (type={search_type})")
+                    logger.info(f"   🔍 web_search: {query[:60]}... (type={search_type})")
                     search_tasks.append(
                         self.search_service.search(query, search_type)
                     )
 
+                # Execute lookup_ingredient_research calls
+                lookup_results = {}
+                for tool_use in lookup_tool_uses:
+                    ingredient = tool_use.input.get("ingredient", "")
+                    logger.info(f"   📚 lookup_ingredient_research: {ingredient}")
+                    lookup_results[tool_use.id] = await self._lookup_ingredient_research(ingredient)
+
                 # Run all searches in parallel
-                results = await asyncio.gather(*search_tasks, return_exceptions=True)
+                search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
 
                 # Build tool results
                 messages.append({"role": "assistant", "content": response.content})
                 tool_results = []
-                for tool_use, result in zip(tool_uses, results):
+
+                # Add search results
+                for tool_use, result in zip(search_tool_uses, search_results):
                     if isinstance(result, Exception):
                         content = f"Search failed: {result}"
                         logger.warning(f"Search failed: {result}")
@@ -804,6 +861,15 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
                         "tool_use_id": tool_use.id,
                         "content": content,
                     })
+
+                # Add lookup results
+                for tool_use in lookup_tool_uses:
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": tool_use.id,
+                        "content": lookup_results[tool_use.id],
+                    })
+
                 messages.append({"role": "user", "content": tool_results})
 
             else:
@@ -830,12 +896,7 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
         """Build system prompt for safety analysis with extracted data."""
         prompt = """You are a product safety analysis expert. You have been provided with pre-extracted product information.
 
-CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
-- NO explanatory text before the JSON
-- NO explanatory text after the JSON
-- NO markdown code blocks (no ```json or ```)
-- NO comments
-- Start immediately with { and end with }
+Your final response MUST be a valid JSON object (no surrounding text or code blocks).
 
 **Your Analysis Process:**
 1. Review the provided product details (already extracted from the product page)
@@ -1015,9 +1076,7 @@ CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
 4. **Legal search** (search_type="legal"): Find class action lawsuits, settlements against this brand/product
 5. **Consumer search** (search_type="consumer"): Find Reddit user reports of reactions, allergies, breakouts
 
-After completing ALL searches, cross-reference findings with the knowledge bases and return the JSON analysis.
-
-**CRITICAL:** Your response must be ONLY the JSON object. No text before it, no text after it."""
+After completing ALL searches, cross-reference findings with the knowledge bases and return the JSON analysis."""
         return message
 
     def _format_list(self, items: List[str]) -> str:
@@ -1025,6 +1084,52 @@ After completing ALL searches, cross-reference findings with the knowledge bases
         if not items:
             return "None listed"
         return "\n".join([f"{i+1}. {item}" for i, item in enumerate(items)])
+
+    async def _lookup_ingredient_research(self, ingredient: str) -> str:
+        """Look up pre-computed research for an ingredient from the database.
+
+        This mirrors the same tool available to Cohere for fair comparison.
+        WARNING: The database may be empty - this is intentional for testing.
+        """
+        import json
+
+        if not self.supabase_client:
+            return json.dumps({
+                "ingredient": ingredient,
+                "found": False,
+                "reason": "Database not available"
+            })
+
+        try:
+            result = self.supabase_client.table("ingredient_research").select("*").ilike(
+                "ingredient_name", f"%{ingredient}%"
+            ).execute()
+
+            if result.data and len(result.data) > 0:
+                research = result.data[0]
+                logger.info(f"   ✓ Found research for: {ingredient}")
+                return json.dumps({
+                    "ingredient": ingredient,
+                    "found": True,
+                    "safety_summary": research.get("safety_summary", ""),
+                    "concerns": research.get("concerns", []),
+                    "sources": research.get("sources", []),
+                })
+            else:
+                logger.info(f"   ✗ No research found for: {ingredient}")
+                return json.dumps({
+                    "ingredient": ingredient,
+                    "found": False,
+                    "reason": "No pre-computed research available for this ingredient"
+                })
+
+        except Exception as e:
+            logger.error(f"Database lookup failed: {e}")
+            return json.dumps({
+                "ingredient": ingredient,
+                "found": False,
+                "reason": f"Database error: {str(e)}"
+            })
 
     async def find_alternatives(
         self, product_analysis: Dict[str, Any], max_results: int = 5

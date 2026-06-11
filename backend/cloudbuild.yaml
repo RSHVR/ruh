@@ -3,36 +3,36 @@
 
 steps:
   # Deploy to Cloud Run from source
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: gcloud
     args:
-      - 'run'
-      - 'deploy'
-      - 'ruh-api'
-      - '--source'
-      - '.'
-      - '--platform'
-      - 'managed'
-      - '--region'
-      - 'us-central1'
-      - '--allow-unauthenticated'
-      - '--port'
-      - '8080'
-      - '--memory'
-      - '1Gi'
-      - '--cpu'
-      - '1'
-      - '--min-instances'
-      - '0'
-      - '--max-instances'
-      - '10'
-      - '--timeout'
-      - '300'
-      - '--set-secrets'
-      - 'ANTHROPIC_API_KEY=anthropic-api-key:latest,API_KEY=ruh-api-key:latest,SUPABASE_KEY=supabase-api-key:latest'
-      - '--set-env-vars'
-      - 'API_HOST=0.0.0.0,API_PORT=8080,DEBUG=false,ALLOWED_ORIGINS=*,LOG_LEVEL=INFO,SUPABASE_URL=https://vslnwiugfuvquiaafxgh.supabase.co'
-    dir: 'backend'
+      - "run"
+      - "deploy"
+      - "ruh-api"
+      - "--source"
+      - "."
+      - "--platform"
+      - "managed"
+      - "--region"
+      - "us-central1"
+      - "--allow-unauthenticated"
+      - "--port"
+      - "8080"
+      - "--memory"
+      - "1Gi"
+      - "--cpu"
+      - "1"
+      - "--min-instances"
+      - "0"
+      - "--max-instances"
+      - "10"
+      - "--timeout"
+      - "300"
+      - "--set-secrets"
+      - "ANTHROPIC_API_KEY=anthropic-api-key:latest,API_KEY=ruh-api-key:latest,SUPABASE_KEY=supabase-api-key:latest"
+      - "--set-env-vars"
+      - "API_HOST=0.0.0.0,API_PORT=8080,DEBUG=false,ALLOWED_ORIGINS=*,LOG_LEVEL=INFO,SUPABASE_URL=https://vslnwiugfuvquiaafxgh.supabase.co"
+    dir: "backend"
 
 options:
   logging: CLOUD_LOGGING_ONLY

@@ -1,6 +1,6 @@
 """Claude Query service for structured data extraction.
 
-Uses Anthropic's structured outputs beta to guarantee valid JSON responses.
+Uses Anthropic's structured outputs (GA) to guarantee valid JSON responses.
 No more fragile regex-based JSON parsing!
 """
 
@@ -17,17 +17,13 @@ from ..domain.extraction_schemas import ProductExtraction, ReviewInsightsExtract
 
 logger = logging.getLogger(__name__)
 
-# Structured outputs beta identifier
-STRUCTURED_OUTPUTS_BETA = "structured-outputs-2025-11-13"
-
-
 class ClaudeQueryService:
     """Service for querying Claude to extract structured data from HTML.
 
     This is a separate, lightweight Claude call focused purely on data extraction.
     No web tools, no analysis - just HTML → JSON parsing.
 
-    Uses structured outputs to guarantee valid JSON matching our schemas.
+    Uses structured outputs (GA) to guarantee valid JSON matching our schemas.
     """
 
     def __init__(self, token_tracker: Optional[TokenTracker] = None):
@@ -72,14 +68,12 @@ class ClaudeQueryService:
         try:
             logger.info("📊 CLAUDE QUERY API CALL: Sending request with structured outputs...")
             logger.info(f"   Model: {self.model}")
-            logger.info(f"   Beta: {STRUCTURED_OUTPUTS_BETA}")
 
             # Use .parse() which handles schema transformation automatically
             # and returns parsed_output as a validated Pydantic model
-            response = self.client.beta.messages.parse(
+            response = self.client.messages.parse(
                 model=self.model,
                 max_tokens=2048,
-                betas=[STRUCTURED_OUTPUTS_BETA],
                 system=system_prompt,
                 messages=messages,
                 output_format=ProductExtraction,
@@ -141,10 +135,9 @@ class ClaudeQueryService:
 
         try:
             # Use .parse() which handles schema transformation automatically
-            response = self.client.beta.messages.parse(
+            response = self.client.messages.parse(
                 model=self.model,
                 max_tokens=3072,  # Larger for comprehensive review analysis
-                betas=[STRUCTURED_OUTPUTS_BETA],
                 system=system_prompt,
                 messages=messages,
                 output_format=ReviewInsightsExtraction,
@@ -399,10 +392,9 @@ Reviews ({len(reviews)} health-relevant reviews):
         )
 
         try:
-            response = self.client.beta.messages.parse(
+            response = self.client.messages.parse(
                 model=self.model,
                 max_tokens=2048,
-                betas=[STRUCTURED_OUTPUTS_BETA],
                 system=system_prompt,
                 messages=messages,
                 output_format=ReviewInsightsExtraction,

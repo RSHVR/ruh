@@ -4,11 +4,11 @@ Replaces Anthropic's native `web_search_20250305` tool with a custom implementat
 
 ## Why Custom Search?
 
-| Provider | Cost per 1000 searches | Features |
-|----------|------------------------|----------|
-| Anthropic native | $10.00 | Basic search |
-| **Tavily** | $8.00 | AI-optimized, domain filtering, content extraction |
-| Serper (fallback) | $1.00 | Google results |
+| Provider          | Cost per 1000 searches | Features                                           |
+| ----------------- | ---------------------- | -------------------------------------------------- |
+| Anthropic native  | $10.00                 | Basic search                                       |
+| **Tavily**        | $8.00                  | AI-optimized, domain filtering, content extraction |
+| Serper (fallback) | $1.00                  | Google results                                     |
 
 **With caching enabled, expect 40-50% cost reduction.**
 
@@ -63,6 +63,7 @@ SEARCH_CACHE_TTL_HOURS=24         # Cache expiration
 ### Feature Flag
 
 In `config.py`:
+
 ```python
 use_custom_search: bool = True  # Set to False to use Anthropic native
 ```
@@ -71,15 +72,15 @@ use_custom_search: bool = True  # Set to False to use Anthropic native
 
 ## Search Types
 
-| Type | Domain Filter | Extraction | Required | Use Case |
-|------|---------------|------------|----------|----------|
-| `manufacturer` | None (any) | ✅ Yes | If ingredients incomplete | Full ingredient lists, MSDS |
-| `regulatory` | `*.gov`, Health Canada | ✅ Yes | ✅ Yes | FDA recalls, safety alerts |
-| `ingredient` | PubMed, NIH, IARC, EPA, EWG, `*.edu` | ❌ No | ✅ Yes (per-ingredient) | Individual chemical safety research |
-| `scientific` | PubMed, NIH, IARC, `*.edu` | ❌ No | Optional | General research studies |
-| `legal` | Courts, Reuters, NYT, WSJ | ❌ No | ✅ Yes | Lawsuits, settlements |
-| `consumer` | Reddit only | ❌ No | ✅ Yes | Real user experiences, reactions |
-| `general` | None | ❌ No | Optional | Fallback searches |
+| Type           | Domain Filter                        | Extraction | Required                  | Use Case                            |
+| -------------- | ------------------------------------ | ---------- | ------------------------- | ----------------------------------- |
+| `manufacturer` | None (any)                           | ✅ Yes     | If ingredients incomplete | Full ingredient lists, MSDS         |
+| `regulatory`   | `*.gov`, Health Canada               | ✅ Yes     | ✅ Yes                    | FDA recalls, safety alerts          |
+| `ingredient`   | PubMed, NIH, IARC, EPA, EWG, `*.edu` | ❌ No      | ✅ Yes (per-ingredient)   | Individual chemical safety research |
+| `scientific`   | PubMed, NIH, IARC, `*.edu`           | ❌ No      | Optional                  | General research studies            |
+| `legal`        | Courts, Reuters, NYT, WSJ            | ❌ No      | ✅ Yes                    | Lawsuits, settlements               |
+| `consumer`     | Reddit only                          | ❌ No      | ✅ Yes                    | Real user experiences, reactions    |
+| `general`      | None                                 | ❌ No      | Optional                  | Fallback searches                   |
 
 ### Per-Ingredient Research (NEW)
 
@@ -94,6 +95,7 @@ The `ingredient` search type is specifically designed for researching individual
 ```
 
 **Priority ingredients to research:**
+
 - Preservatives (phenoxyethanol, parabens, formaldehyde releasers)
 - Antioxidants (BHT, BHA)
 - Fragrance/parfum (phthalates concern)
@@ -150,9 +152,9 @@ result = await tavily_client.search_consumer_verified(
 
 ### Output Categories
 
-| Category | Meaning |
-|----------|---------|
-| ✅ **Verified** | Post only mentions the target product |
+| Category         | Meaning                                                   |
+| ---------------- | --------------------------------------------------------- |
+| ✅ **Verified**  | Post only mentions the target product                     |
 | ⚠️ **Uncertain** | User also used other brand products - can't isolate cause |
 
 This prevents false attribution when users try multiple products from the same brand.
@@ -339,16 +341,16 @@ class TavilySearchClient:
 
 ## Files Reference
 
-| File | Purpose |
-|------|---------|
-| `config.py` | Feature flag, API keys, cache TTL |
-| `search_tool_service.py` | Orchestrator with caching |
-| `search_clients/tavily.py` | Tavily client with extract |
-| `search_clients/serper.py` | Serper fallback client |
-| `search_clients/base.py` | Abstract base, dataclasses |
-| `claude_agent.py` | Custom tool + manual loop |
-| `token_tracker.py` | Unified cost tracking |
-| `supabase/migrations/009_*.sql` | Cache table migration |
+| File                            | Purpose                           |
+| ------------------------------- | --------------------------------- |
+| `config.py`                     | Feature flag, API keys, cache TTL |
+| `search_tool_service.py`        | Orchestrator with caching         |
+| `search_clients/tavily.py`      | Tavily client with extract        |
+| `search_clients/serper.py`      | Serper fallback client            |
+| `search_clients/base.py`        | Abstract base, dataclasses        |
+| `claude_agent.py`               | Custom tool + manual loop         |
+| `token_tracker.py`              | Unified cost tracking             |
+| `supabase/migrations/009_*.sql` | Cache table migration             |
 
 ---
 
@@ -392,15 +394,19 @@ asyncio.run(analyze_product("https://amazon.ca/..."))
 ## Troubleshooting
 
 ### "Tavily API key not configured"
+
 Add `TAVILY_API_KEY=tvly-...` to `.env`
 
 ### "Serper API key not configured (no fallback)"
+
 Optional - add `SERPER_API_KEY=...` for fallback
 
 ### Token counting errors for web_fetch
+
 Normal - the beta `web_fetch_20250910` tool isn't supported by token counting API. Actual calls work fine.
 
 ### Low cache hit rate
+
 - Check `SEARCH_CACHE_TTL_HOURS` setting
 - Ensure Supabase client is passed for L2 cache
 - Similar queries may have different normalized forms
@@ -410,26 +416,27 @@ Normal - the beta `web_fetch_20250910` tool isn't supported by token counting AP
 ## Cost Comparison Example
 
 **Analysis of 1 product (comprehensive - ~10 searches):**
+
 - 1 manufacturer search (if needed)
 - 1 regulatory search
 - 4 per-ingredient searches (avg)
 - 1 legal search
 - 1 consumer search
-- + 2 extraction calls for manufacturer/regulatory
+- - 2 extraction calls for manufacturer/regulatory
 
-| Provider | Cost |
-|----------|------|
-| Anthropic native | $0.100 |
-| Tavily (no cache) | $0.084 |
+| Provider           | Cost   |
+| ------------------ | ------ |
+| Anthropic native   | $0.100 |
+| Tavily (no cache)  | $0.084 |
 | Tavily (40% cache) | $0.050 |
 
 **Monthly at 1000 analyses:**
 
-| Provider | Monthly Cost |
-|----------|--------------|
-| Anthropic native | $100.00 |
-| Tavily (no cache) | $84.00 |
-| Tavily (40% cache) | **$50.00** |
+| Provider           | Monthly Cost |
+| ------------------ | ------------ |
+| Anthropic native   | $100.00      |
+| Tavily (no cache)  | $84.00       |
+| Tavily (40% cache) | **$50.00**   |
 
 Savings: **50%** with caching enabled.
 

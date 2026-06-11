@@ -6,22 +6,22 @@ The domain layer contains the core business logic for the Ruh product safety ana
 
 ## Files
 
-| File | Purpose | Lines | Key Classes/Functions |
-|------|---------|-------|----------------------|
-| `models.py` | Pydantic data models for API requests/responses | 204 | 14 classes, 1 enum |
-| `harm_calculator.py` | Harm score calculation algorithm | 202 | `HarmScoreCalculator` class |
-| `ingredient_matcher.py` | Database-level substance matching fallback | 163 | `match_ingredients_to_databases()` |
+| File                    | Purpose                                         | Lines | Key Classes/Functions              |
+| ----------------------- | ----------------------------------------------- | ----- | ---------------------------------- |
+| `models.py`             | Pydantic data models for API requests/responses | 204   | 14 classes, 1 enum                 |
+| `harm_calculator.py`    | Harm score calculation algorithm                | 202   | `HarmScoreCalculator` class        |
+| `ingredient_matcher.py` | Database-level substance matching fallback      | 163   | `match_ingredients_to_databases()` |
 
 ## Key Models
 
-| Model | Purpose |
-|-------|---------|
-| `ProductAnalysis` | Complete analysis of a product's safety |
-| `AllergenDetection` | Detected allergen with severity |
-| `PFASDetection` | Detected PFAS compound with health effects |
-| `ToxinConcern` | Other harmful substances |
-| `AnalysisRequest` | Request payload for product analysis |
-| `AnalysisResponse` | Complete response with analysis and alternatives |
+| Model               | Purpose                                          |
+| ------------------- | ------------------------------------------------ |
+| `ProductAnalysis`   | Complete analysis of a product's safety          |
+| `AllergenDetection` | Detected allergen with severity                  |
+| `PFASDetection`     | Detected PFAS compound with health effects       |
+| `ToxinConcern`      | Other harmful substances                         |
+| `AnalysisRequest`   | Request payload for product analysis             |
+| `AnalysisResponse`  | Complete response with analysis and alternatives |
 
 ## HarmScoreCalculator
 
@@ -36,21 +36,23 @@ Calculates harm score (0-100) based on detected substances using a weighted form
 
 ## Production Readiness Issues
 
-| Severity | Issue | Location | Recommendation |
-|----------|-------|----------|----------------|
-| **Critical** | No unit tests for harm calculation | harm_calculator.py | Add comprehensive unit tests |
-| **Critical** | No unit tests for ingredient matching | ingredient_matcher.py | Add edge case tests |
-| **High** | `get_risk_level()` unused with different thresholds | harm_calculator.py:185 | Remove dead code or sync with `ProductAnalysis.risk_level` |
-| **High** | No input validation in `similar()` | ingredient_matcher.py:16 | Add type checking |
-| **Medium** | Unvalidated string enums in models | models.py | Use Literal types |
-| **Low** | Hardcoded model version | models.py:69 | Move to configuration |
+| Severity     | Issue                                               | Location                 | Recommendation                                             |
+| ------------ | --------------------------------------------------- | ------------------------ | ---------------------------------------------------------- |
+| **Critical** | No unit tests for harm calculation                  | harm_calculator.py       | Add comprehensive unit tests                               |
+| **Critical** | No unit tests for ingredient matching               | ingredient_matcher.py    | Add edge case tests                                        |
+| **High**     | `get_risk_level()` unused with different thresholds | harm_calculator.py:185   | Remove dead code or sync with `ProductAnalysis.risk_level` |
+| **High**     | No input validation in `similar()`                  | ingredient_matcher.py:16 | Add type checking                                          |
+| **Medium**   | Unvalidated string enums in models                  | models.py                | Use Literal types                                          |
+| **Low**      | Hardcoded model version                             | models.py:69             | Move to configuration                                      |
 
 ## Dependencies
 
 ### Internal
+
 - None (pure domain layer)
 
 ### External
+
 - `pydantic` - Data validation
 - `difflib` - Fuzzy string matching
 - Standard library only

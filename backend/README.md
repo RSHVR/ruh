@@ -5,12 +5,14 @@ AI-powered product safety analysis backend using FastAPI and Claude Agent SDK.
 ## Setup
 
 ### Requirements
+
 - Python 3.13+
 - pip or uv
 
 ### Installation
 
 1. Install dependencies:
+
 ```bash
 pip install -e .
 # Or for development:
@@ -18,12 +20,14 @@ pip install -e ".[dev]"
 ```
 
 2. Configure environment:
+
 ```bash
 cp .env.example .env
 # Edit .env with your credentials
 ```
 
 3. Run the server:
+
 ```bash
 python run.py
 ```
@@ -33,17 +37,20 @@ The API will be available at http://localhost:8000
 ## API Documentation
 
 Once running, visit:
+
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
 
 ## Endpoints
 
 ### Health Check
+
 ```bash
 GET /api/health
 ```
 
 ### Analyze Product
+
 ```bash
 POST /api/analyze
 Content-Type: application/json
@@ -56,6 +63,7 @@ Content-Type: application/json
 ```
 
 Response:
+
 ```json
 {
   "analysis": {
@@ -75,11 +83,13 @@ Response:
 ## Testing
 
 Run E2E tests with real Amazon products:
+
 ```bash
 pytest tests/e2e/test_product_analysis.py -v
 ```
 
 Run all tests:
+
 ```bash
 pytest tests/ -v
 ```

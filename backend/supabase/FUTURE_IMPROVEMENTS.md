@@ -11,11 +11,13 @@ This document tracks potential database optimizations and enhancements for futur
 ### Current State
 
 **Matching Strategy**: Python-level fuzzy matching in `backend/src/domain/ingredient_matcher.py`
+
 - Uses `difflib.SequenceMatcher` for similarity scoring
 - Runs in application memory (not database)
 - Works well for current scale (~14 allergens, ~8 PFAS compounds)
 
 **Database Indexes**: Standard B-tree indexes only
+
 - `idx_allergen_name` on `allergens(name)`
 - `idx_pfas_name` on `pfas_compounds(name)`
 - `idx_toxic_name` on `toxic_substances(name)`
@@ -24,8 +26,9 @@ This document tracks potential database optimizations and enhancements for futur
 ### Problem
 
 As database grows (1000+ compounds), Python fuzzy matching will become slow:
+
 - Must load entire database into memory
-- O(n*m) comparison (n ingredients × m database entries)
+- O(n\*m) comparison (n ingredients × m database entries)
 - No index support = full table scan every time
 
 ### Solution: PostgreSQL Trigram Matching
@@ -57,7 +60,7 @@ ALTER DATABASE postgres SET pg_trgm.similarity_threshold = 0.3;
 
 ### Benefits
 
-1. **Performance**: O(log n) lookup instead of O(n*m)
+1. **Performance**: O(log n) lookup instead of O(n\*m)
 2. **Accuracy**: PostgreSQL trigram matching is highly optimized
 3. **Scalability**: Handles 10,000+ compounds efficiently
 4. **Query Simplicity**: Use `%` operator for fuzzy matching
@@ -65,6 +68,7 @@ ALTER DATABASE postgres SET pg_trgm.similarity_threshold = 0.3;
 ### Usage Example
 
 **Current (Python)**:
+
 ```python
 # Load all 1000 allergens, compare in Python
 allergen_db = await db.get_all_allergens()
@@ -76,6 +80,7 @@ for ingredient in ingredients:
 ```
 
 **Future (PostgreSQL)**:
+
 ```python
 # Database does fuzzy matching with index
 matches = await db.fuzzy_search_allergens(ingredient)
@@ -91,6 +96,7 @@ matches = await db.fuzzy_search_allergens(ingredient)
 ### Implementation Trigger
 
 Implement when:
+
 - Allergen database > 100 entries
 - PFAS database > 50 entries
 - Query latency > 200ms
@@ -109,6 +115,7 @@ Implement when:
 ### Current State
 
 **Search Strategy**: Substring matching with `LIKE` or `ILIKE`
+
 - No ranking or relevance scoring
 - Case-insensitive but slow
 - No support for multi-word queries
@@ -116,6 +123,7 @@ Implement when:
 ### Problem
 
 Users search for complex ingredient names:
+
 - "sodium lauryl sulfate" vs "sodium laureth sulfate" (different chemicals!)
 - "BPA free" vs "bisphenol A" (same thing)
 - Typos: "parabens" vs "paraben" vs "paraben free"
@@ -200,6 +208,7 @@ LIMIT 10;
 ### Current State
 
 **Analytics**: No aggregated statistics
+
 - Can't see "most common allergens detected"
 - Can't track "frequently found PFAS compounds"
 - No trending analysis
@@ -207,6 +216,7 @@ LIMIT 10;
 ### Problem
 
 Running aggregate queries on `product_analyses` table is expensive:
+
 - JSONB parsing for every row
 - No caching of common queries
 - Slow for analytics dashboard
@@ -274,6 +284,7 @@ SELECT cron.schedule('refresh-stats', '0 * * * *', 'SELECT refresh_statistics()'
 ### Current State
 
 **Table Size**: Single table for all analyses
+
 - Will grow unbounded over time
 - Slow queries as table grows
 - Difficult to archive old data
@@ -281,6 +292,7 @@ SELECT cron.schedule('refresh-stats', '0 * * * *', 'SELECT refresh_statistics()'
 ### Problem
 
 After 1 year of operation:
+
 - 1M+ product analyses
 - 10GB+ table size
 - Query performance degrades
@@ -380,6 +392,7 @@ SELECT cron.schedule('drop-old-partitions', '0 0 1 * *', 'SELECT drop_old_partit
 ### Current State
 
 **JSONB Columns**: `allergens_detected`, `pfas_detected`, `other_concerns`
+
 - No indexes on JSONB content
 - Full scan for queries like "find all products with peanuts"
 
@@ -429,13 +442,13 @@ LIMIT 100;
 
 ## Implementation Priority
 
-| Priority | Feature | Trigger | Estimated Effort |
-|----------|---------|---------|------------------|
-| **High** | Fuzzy Matching (pg_trgm) | > 100 compounds | 2 hours |
-| **Medium** | JSONB Indexes | > 10,000 analyses | 1 hour |
-| **Medium** | Full-Text Search | User feature request | 4 hours |
-| **Low** | Materialized Views | Analytics dashboard | 3 hours |
-| **Low** | Table Partitioning | > 1M analyses | 6 hours |
+| Priority   | Feature                  | Trigger              | Estimated Effort |
+| ---------- | ------------------------ | -------------------- | ---------------- |
+| **High**   | Fuzzy Matching (pg_trgm) | > 100 compounds      | 2 hours          |
+| **Medium** | JSONB Indexes            | > 10,000 analyses    | 1 hour           |
+| **Medium** | Full-Text Search         | User feature request | 4 hours          |
+| **Low**    | Materialized Views       | Analytics dashboard  | 3 hours          |
+| **Low**    | Table Partitioning       | > 1M analyses        | 6 hours          |
 
 ---
 

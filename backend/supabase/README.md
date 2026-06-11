@@ -20,16 +20,19 @@ This directory contains the database schema and migrations for the Eject product
 ### Option 1: Using Supabase CLI
 
 1. Install Supabase CLI:
+
 ```bash
 npm install -g supabase
 ```
 
 2. Link to your project:
+
 ```bash
 supabase link --project-ref vslnwiugfuvquiaafxgh
 ```
 
 3. Run migrations:
+
 ```bash
 supabase db push
 ```
@@ -83,18 +86,22 @@ SELECT * FROM search_pfas('PFOA');
 ## Database Functions
 
 ### `search_allergen(search_term TEXT)`
+
 Searches allergens by name or synonym. Returns matching allergens with severity scores.
 
 **Example:**
+
 ```sql
 SELECT * FROM search_allergen('dairy');  -- Returns 'Milk' allergen
 SELECT * FROM search_allergen('gluten'); -- Returns 'Wheat' allergen
 ```
 
 ### `search_pfas(search_term TEXT)`
+
 Searches PFAS compounds by name, CAS number, or synonym. Returns compound details with health effects.
 
 **Example:**
+
 ```sql
 SELECT * FROM search_pfas('PFOA');      -- Returns PFOA details
 SELECT * FROM search_pfas('335-67-1');  -- Search by CAS number
@@ -151,12 +158,15 @@ After running migrations:
 ## Troubleshooting
 
 **Error: "relation already exists"**
+
 - Tables already created. Use `DROP TABLE` carefully or create new migration to alter existing tables.
 
 **Error: "function search_allergen does not exist"**
+
 - Run migration 002 which creates the search functions.
 
 **Can't connect to database**
+
 - Verify your Supabase project is active
 - Check your connection string and credentials
 - Ensure your IP is allowed (Supabase allows all by default)

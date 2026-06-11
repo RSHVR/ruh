@@ -1,31 +1,21 @@
-"""LangGraph-based product safety agent using Cohere Command R+ with Claude verification.
+"""LangGraph-based product safety agent using Cohere Command A.
 
-This implements a ReACT agent pattern using LangGraph's StateGraph:
-- Research node: Cohere gathers information via tool calls
-- Analyze node: Cohere synthesizes findings into harm assessment
-- Verify node: Claude Haiku performs adversarial verification
+Uses LangGraph's create_react_agent for reliable tool calling - same pattern as scraper-agent.
 
 Cost savings: ~40-50% compared to all-Claude approach.
+
+FEATURE PARITY: This agent now has the same knowledge bases, classification rules,
+and search types as the Claude agent for fair comparison.
 """
 
-import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Annotated, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Optional
 
-from langchain_core.messages import (
-    AIMessage,
-    BaseMessage,
-    HumanMessage,
-    SystemMessage,
-    ToolMessage,
-)
 from langchain_core.tools import tool
 from langchain_cohere import ChatCohere
-from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
-from langgraph.prebuilt import ToolNode
+from langgraph.prebuilt import create_react_agent
 from anthropic import Anthropic
 
 from .config import settings
@@ -36,841 +26,299 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# AGENT STATE
-# =============================================================================
-
-class AgentState(dict):
-    """State for the LangGraph safety analysis agent.
-
-    Using dict subclass for compatibility with LangGraph's state management.
-    """
-
-    @property
-    def messages(self) -> List[BaseMessage]:
-        return self.get("messages", [])
-
-    @property
-    def product_data(self) -> Dict[str, Any]:
-        return self.get("product_data", {})
-
-    @property
-    def product_url(self) -> str:
-        return self.get("product_url", "")
-
-    @property
-    def research_findings(self) -> Dict[str, Any]:
-        return self.get("research_findings", {})
-
-    @property
-    def analysis_result(self) -> Dict[str, Any]:
-        return self.get("analysis_result", {})
-
-    @property
-    def verification_status(self) -> str:
-        return self.get("verification_status", "pending")
-
-    @property
-    def iteration_count(self) -> int:
-        return self.get("iteration_count", 0)
-
-
-# Type annotation for LangGraph state
-from typing import TypedDict
-
-class SafetyAgentState(TypedDict):
-    """Typed state definition for LangGraph."""
-    messages: Annotated[List[BaseMessage], add_messages]
-    product_data: Dict[str, Any]
-    product_url: str
-    allergen_database: List[Dict[str, Any]]
-    pfas_database: List[Dict[str, Any]]
-    research_findings: Dict[str, Any]
-    analysis_result: Dict[str, Any]
-    verification_status: str  # "pending", "pass", "fail", "needs_research"
-    iteration_count: int
-    max_iterations: int
-
-
-# =============================================================================
-# SYSTEM PROMPTS
-# =============================================================================
-
-RESEARCH_SYSTEM_PROMPT = """You are a product safety research agent. Your job is to gather comprehensive information about a product's ingredients and potential harms.
-
-Available tools:
-- lookup_ingredient_research: Get pre-computed research for known ingredients from our database (FAST, FREE - USE FIRST!)
-- web_search: Search the web for safety information
-
-SEARCH TYPES for web_search:
-- "manufacturer": Official product pages, MSDS, ingredient lists
-- "regulatory": FDA.gov, Health Canada, EPA recalls and warnings
-- "ingredient": Per-ingredient safety research (PubMed, NIH, IARC, EPA, EWG)
-- "scientific": Scientific studies and research papers
-- "legal": Class action lawsuits, court records, settlements
-- "consumer": Reddit user experiences and reactions
-- "general": No domain filter
-
-**RESEARCH STRATEGY:**
-
-1. **FIRST - Database Lookups (FREE, do these first):**
-   - Call lookup_ingredient_research for concerning ingredients
-   - Skip well-known safe ingredients: water, glycerin, tocopherol, citric acid
-   - Focus on: preservatives, fragrances, surfactants, dyes, sunscreen agents
-
-2. **REQUIRED WEB SEARCHES (do ALL of these):**
-
-   a) **MANUFACTURER SEARCH:**
-      - Search: "[brand] [product] official ingredients MSDS"
-      - search_type: "manufacturer"
-      - Goal: Get complete official ingredient list
-
-   b) **REGULATORY SEARCH:**
-      - Search: "[brand] [product] FDA recall warning Health Canada"
-      - search_type: "regulatory"
-      - Goal: Find any recalls, warnings, regulatory actions
-
-   c) **PER-INGREDIENT RESEARCH (CRITICAL - do for 3-5 concerning ingredients):**
-      - Search: "[ingredient name] toxicity IARC classification health effects"
-      - search_type: "ingredient"
-      - Focus on: preservatives, fragrances, surfactants, parabens, sulfates
-
-   d) **LEGAL SEARCH:**
-      - Search: "[brand] [product] lawsuit class action settlement"
-      - search_type: "legal"
-      - Goal: Find lawsuits, settlements, legal actions
-
-   e) **CONSUMER SEARCH (real user experiences are critical):**
-      - Search: "[brand] [product] reaction allergy breakout reddit"
-      - search_type: "consumer"
-      - Goal: Find real user reports of adverse reactions, skin issues, allergies
-
-**CRITICAL WEBSEARCH RESTRICTIONS:**
-- DO NOT use consumer blogs, forums, or non-scientific health websites for safety claims
-- DO NOT use marketing materials or unverified product review sites
-- ONLY use credible sources: .gov, .edu, manufacturer official sites, peer-reviewed journals, court records
-- Reddit/consumer sources are ONLY for discovering user-reported reactions, not for safety claims
-
-**PFAS Detection Guidelines:**
-- Non-stick cookware often contains PTFE (Teflon)
-- "Water-resistant", "stain-resistant" products may have PFAS coatings
-- Match against knowledge base by CAS number or exact name
-
-**Allergen Detection:**
-- Check ingredient lists carefully against knowledge base
-- Look for synonyms listed in knowledge base
-- Fragrance/Parfum often contains undisclosed allergens
-
-When you have gathered sufficient information, respond with a summary of your findings WITHOUT using any tools."""
-
-
-ANALYSIS_SYSTEM_PROMPT = """You are a product safety analyst. Based on research findings, provide a comprehensive harm assessment.
-
-CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
-- NO explanatory text before the JSON
-- NO explanatory text after the JSON
-- Start immediately with { and end with }
-
-Output JSON format:
-{
-    "product_name": "string",
-    "brand": "string",
-    "retailer": "string",
-    "ingredients": ["list", "of", "ingredients"],
-    "allergens_detected": [
-        {
-            "name": "allergen name (MUST match knowledge base)",
-            "severity": "low|moderate|high|severe",
-            "source": "where found in product",
-            "confidence": 0.0-1.0
-        }
-    ],
-    "pfas_detected": [
-        {
-            "name": "PFAS compound name (MUST match knowledge base)",
-            "cas_number": "CAS number if known",
-            "body_effects": "effects on human body",
-            "source": "where found",
-            "confidence": 0.0-1.0
-        }
-    ],
-    "other_concerns": [
-        {
-            "name": "concern name",
-            "category": "under_investigation|carcinogen|regulatory_action|heavy_metal|endocrine_disruptor|other",
-            "severity": "low|moderate|high|severe",
-            "description": "brief description with source citation",
-            "confidence": 0.0-1.0
-        }
-    ],
-    "research_sources": [
-        {"type": "manufacturer|regulatory|scientific|legal|consumer", "url": "...", "finding": "..."}
-    ],
-    "confidence": 0.0-1.0
-}
-
-**CRITICAL CLASSIFICATION RULES - READ CAREFULLY:**
-
-1. **ALLERGENS** - ONLY substances that EXACTLY match the Allergen Knowledge Base:
-   - Must match by name or synonym from the database
-   - If not in database, it goes in other_concerns instead
-   - Severity based on database classification
-
-2. **PFAS** - ONLY substances that EXACTLY match the PFAS Knowledge Base:
-   - Match by exact name OR CAS number
-   - If not in database, it goes in other_concerns instead
-
-3. **other_concerns** - For everything else with credible evidence:
-   - category="carcinogen": IARC Group 1, 2A, or 2B classification
-   - category="regulatory_action": FDA/EPA/Health Canada action exists
-   - category="endocrine_disruptor": Scientific evidence of hormone disruption
-   - category="heavy_metal": Lead, mercury, arsenic, cadmium detected
-   - category="under_investigation": Credible evidence but not in our database (MUST have severity="low" max)
-   - MUST have credible source (.gov, .edu, peer-reviewed journal, court record)
-   - MUST NOT include unverified consumer complaints or blog posts
-   - MUST include description with source citation (e.g., "IARC Group 2A carcinogen per iarc.who.int")
-
-4. **Source Requirements:**
-   - Every allergen/PFAS/concern MUST have a source field
-   - Sources must be credible: .gov, .edu, manufacturer, peer-reviewed, court records
-   - Consumer reports (Reddit) can inform research but are NOT sources for safety claims
-
-**PFAS Detection Guidelines:**
-- Non-stick cookware often contains PTFE (Teflon) - check knowledge base
-- "Water-resistant", "stain-resistant" products may have PFAS coatings
-- Match against knowledge base by CAS number or exact name
-- If ingredients aren't fully listed, note lower confidence
-
-**Allergen Detection:**
-- Check ingredient lists carefully against knowledge base
-- Look for synonyms listed in knowledge base
-- Fragrance/Parfum often contains undisclosed allergens - flag with moderate confidence"""
-
-
-VERIFICATION_PROMPT_TEMPLATE = """You are an adversarial reviewer checking product safety analysis quality.
-
-Product: {product_data}
-
-Analysis Result:
-{analysis_result}
-
-Allergen Knowledge Base (only these can be in allergens_detected):
-{allergen_names}
-
-PFAS Knowledge Base (only these can be in pfas_detected):
-{pfas_names}
-
-Check for:
-1. Are all detected allergens actually in the knowledge base? List any that aren't.
-2. Are all detected PFAS compounds actually in the knowledge base? List any that aren't.
-3. Are severity ratings justified by evidence found in research?
-4. Are there obvious ingredients that were missed?
-5. Is the confidence score appropriate given the evidence quality?
-6. Are all claims backed by source citations?
-
-Respond with JSON:
-{{
-    "status": "pass" | "fail" | "needs_research",
-    "issues": [
-        {{"type": "invalid_allergen|invalid_pfas|missing_ingredient|unsupported_claim|confidence_mismatch", "details": "..."}}
-    ],
-    "corrections": {{
-        "allergens_to_remove": ["names of allergens not in knowledge base"],
-        "pfas_to_remove": ["names of PFAS not in knowledge base"],
-        "severity_adjustments": [{{"name": "...", "suggested_severity": "..."}}]
-    }},
-    "summary": "Brief explanation of pass/fail/needs_research decision"
-}}
-
-Be strict but fair. Minor issues shouldn't cause a fail. Focus on:
-- Substances incorrectly classified as allergens/PFAS when not in knowledge base
-- Major safety concerns that were missed
-- Highly inflated severity ratings without evidence"""
-
-
-# =============================================================================
-# TOOL DEFINITIONS
+# TOOL CONTEXT (shared state across tools)
 # =============================================================================
 
 @dataclass
 class LangGraphToolContext:
-    """Context object passed to tools for accessing services."""
+    """Shared context for LangGraph tools."""
     search_service: Optional[SearchToolService] = None
     supabase_client: Any = None
     token_tracker: Optional[TokenTracker] = None
 
 
-# Global context - will be set before running the graph
+# Global tool context (set before running agent)
 _tool_context: Optional[LangGraphToolContext] = None
 
 
-def set_tool_context(context: LangGraphToolContext) -> None:
+def set_tool_context(ctx: LangGraphToolContext):
     """Set the global tool context for LangGraph tools."""
     global _tool_context
-    _tool_context = context
+    _tool_context = ctx
 
+
+def get_tool_context() -> LangGraphToolContext:
+    """Get the current tool context."""
+    if _tool_context is None:
+        raise RuntimeError("Tool context not set. Call set_tool_context() first.")
+    return _tool_context
+
+
+# =============================================================================
+# SYSTEM PROMPT TEMPLATE - Feature parity with Claude agent
+# =============================================================================
+
+# Base prompt - knowledge bases get appended dynamically
+SAFETY_AGENT_PROMPT_BASE = """You are a product safety research agent. You MUST use tools to complete tasks.
+
+## Your Analysis Process
+
+1. **MANUFACTURER SEARCH** (search_type="manufacturer"):
+   - Search: "[brand] [product name] official ingredients" OR "[brand] MSDS"
+   - Goal: Find complete ingredient/material lists from official sources
+
+2. **REGULATORY SEARCH** (search_type="regulatory"):
+   - Search: "[product name] recall FDA warning" OR "[brand] safety alert Health Canada"
+   - Goal: Find FDA/EPA/Health Canada recalls, warnings, advisories
+
+3. **PER-INGREDIENT RESEARCH** (search_type="ingredient" or "scientific"):
+   - For EACH potentially concerning ingredient, search individually:
+     - "[ingredient name] toxicity studies"
+     - "[ingredient name] IARC classification carcinogen"
+     - "[ingredient name] contact dermatitis allergy"
+     - "[ingredient name] endocrine disruptor research"
+   - PRIORITY ingredients to research:
+     - Essential oils (tea tree, lavender - sensitization potential)
+     - Acids (salicylic acid, glycolic acid - irritation)
+     - Preservatives (phenoxyethanol, parabens, formaldehyde releasers)
+     - Antioxidants (BHT, BHA)
+     - Fragrance/parfum (phthalates concern)
+     - Adhesives and polymers (skin barrier disruption)
+
+4. **LEGAL SEARCH** (search_type="legal"):
+   - Search: "[brand] class action lawsuit" OR "[brand] settlement"
+   - Goal: Find documented lawsuits, settlements, regulatory fines
+
+5. **CONSUMER SEARCH** (search_type="consumer"):
+   - Search: "[brand] [product] reaction allergy breakout reddit"
+   - Goal: Find real user reports of adverse reactions
+
+6. **SAVE ANALYSIS** - Call save_analysis with COMPLETE findings
+
+## CRITICAL CLASSIFICATION RULES
+
+1. **ALLERGENS - ONLY substances in the Allergen Knowledge Base can go in allergens_detected**
+   - If you find an ingredient via websearch that is NOT in the Allergen Knowledge Base → DO NOT add to allergens_detected
+   - Minor irritants are NOT allergens unless listed in the knowledge base
+   - If a substance causes irritation but is not in the knowledge base → add to other_concerns with category="under_investigation"
+
+2. **PFAS - ONLY substances in the PFAS Knowledge Base can go in pfas_detected**
+   - If you find a chemical via websearch that is NOT in the PFAS Knowledge Base → DO NOT add to pfas_detected
+   - Unknown fluorinated compounds → add to other_concerns with category="under_investigation"
+
+3. **OTHER CONCERNS - Use for substances NOT in knowledge bases**
+   - category="under_investigation": Substances with credible evidence but not in our database
+   - category="carcinogen": ONLY IARC-classified carcinogens (Groups 1, 2A, 2B) from credible sources
+   - category="regulatory_action": ONLY substances with FDA recall, EPA warning, or class action lawsuit
+   - category="endocrine_disruptor", "heavy_metal", "other": Other toxins with credible evidence
+
+4. **EVIDENCE REQUIREMENTS for other_concerns:**
+   - Scientific claims: Use .gov, .edu, peer-reviewed journal, PubMed, court record
+   - Consumer reports: Reddit user experiences ARE valid evidence for skin reactions, allergies, adverse effects
+   - ALWAYS include consumer/Reddit sources in research_sources when users report reactions
+   - MUST include description with source citation (e.g., "PubMed PMID: 12345678" or "Reddit r/SkincareAddiction")
+
+## save_analysis JSON format (REQUIRED):
+
+```json
+{
+  "product_name": "full product name",
+  "brand": "brand name",
+  "retailer": "retailer name",
+  "ingredients": ["list", "of", "ingredients"],
+  "allergens_detected": [
+    {"name": "allergen (MUST be in knowledge base)", "severity": "low|moderate|high|severe", "source": "where found", "confidence": 0.0-1.0}
+  ],
+  "pfas_detected": [
+    {"name": "PFAS compound (MUST be in knowledge base)", "cas_number": "if known", "source": "where found", "confidence": 0.0-1.0}
+  ],
+  "other_concerns": [
+    {"name": "concern name", "category": "under_investigation|carcinogen|regulatory_action|endocrine_disruptor|heavy_metal|other", "severity": "low|moderate|high", "description": "detailed finding WITH source citation", "confidence": 0.0-1.0}
+  ],
+  "research_sources": [
+    {"type": "manufacturer_website|regulatory_action|scientific_study|consumer_reports", "url": "full URL", "finding": "what was found"}
+  ],
+  "confidence": 0.0-1.0
+}
+```
+
+CRITICAL:
+- Do ALL searches (manufacturer, regulatory, ingredient/scientific, legal, consumer) before save_analysis
+- Research EACH ingredient individually, especially essential oils and acids
+- Include ALL findings in research_sources array
+- Only classify as allergen/PFAS if in the knowledge base
+- Use other_concerns for anything not in knowledge base"""
+
+
+# =============================================================================
+# TOOLS
+# =============================================================================
 
 @tool
-async def web_search(query: str, search_type: str = "general") -> str:
-    """Search for product safety information.
+def web_search(query: str, search_type: str = "general") -> str:
+    """Search the web for product safety information.
 
     Args:
-        query: Search query (keep under 400 characters)
-        search_type: Type of search - one of:
-            - "manufacturer": Official product pages, MSDS, ingredient lists
-            - "regulatory": FDA.gov, Health Canada, EPA recalls and warnings
-            - "ingredient": Per-ingredient safety research (PubMed, NIH, IARC, EPA, EWG)
-            - "scientific": General scientific studies and research papers
-            - "legal": Class action lawsuits, court records, settlements
-            - "consumer": Reddit user experiences and reactions
-            - "general": No domain filter (default)
+        query: Search query
+        search_type: One of: manufacturer, regulatory, ingredient, scientific, legal, consumer, general
+            - manufacturer: Official product pages, MSDS, ingredient lists
+            - regulatory: FDA.gov, Health Canada, EPA recalls and warnings
+            - ingredient: Per-ingredient safety research (PubMed, NIH, EWG)
+            - scientific: Scientific studies, IARC classifications, peer-reviewed journals
+            - legal: Class action lawsuits, court records, settlements
+            - consumer: Reddit user experiences and reactions
+            - general: No domain filter
 
     Returns:
-        Search results formatted as text
+        JSON string with search results
     """
-    if not _tool_context or not _tool_context.search_service:
-        return "Search service not available"
+    import nest_asyncio
+    nest_asyncio.apply()
+
+    ctx = get_tool_context()
+
+    if not ctx.search_service:
+        return json.dumps({"error": "Search service not available", "results": []})
+
+    import asyncio
+
+    async def do_search():
+        results = await ctx.search_service.search(
+            query=query,
+            search_type=search_type,
+        )
+        return results
 
     try:
-        result = await _tool_context.search_service.search(query, search_type)
-        return result
+        # search() returns a formatted string for Claude
+        results_str = asyncio.get_event_loop().run_until_complete(do_search())
+
+        logger.info(f"🔍 web_search [{search_type}]: {query[:50]}...")
+
+        # Return as JSON with the search results
+        return json.dumps({
+            "search_type": search_type,
+            "query": query,
+            "results": results_str[:2000],  # Truncate for context
+        })
+
     except Exception as e:
-        logger.error(f"Web search failed: {e}")
-        return f"Search failed: {e}"
+        logger.error(f"Search failed: {e}")
+        return json.dumps({"error": str(e), "results": ""})
 
 
 @tool
-async def lookup_ingredient_research(ingredient: str) -> str:
+def lookup_ingredient_research(ingredient: str) -> str:
     """Look up pre-computed research for an ingredient from the database.
 
-    This retrieves cached scientific, regulatory, and legal research
-    that was pre-computed for known allergens, PFAS, and toxic substances.
+    WARNING: This database may be incomplete or empty. ALWAYS use web_search
+    for ingredient research first. Only use this tool as a supplementary check
+    AFTER you have already searched for the ingredient via web_search.
 
     Args:
         ingredient: Ingredient name to look up
 
     Returns:
-        Pre-computed research findings or "No research found"
+        JSON string with research findings or not found message
     """
-    if not _tool_context or not _tool_context.supabase_client:
-        return "Database not available"
+    ctx = get_tool_context()
+
+    if not ctx.supabase_client:
+        return json.dumps({"ingredient": ingredient, "found": False, "reason": "Database not available"})
 
     try:
-        # Supabase client is synchronous, wrap in thread executor
-        response = await asyncio.to_thread(
-            lambda: _tool_context.supabase_client.table("ingredient_research").select(
-                "ingredient_name, iarc_classification, ewg_score, health_effects, "
-                "regulatory_actions, lawsuits, settlements, confidence_score"
-            ).ilike("ingredient_name", f"%{ingredient}%").limit(1).execute()
-        )
+        result = ctx.supabase_client.table("ingredient_research").select("*").ilike(
+            "ingredient_name", f"%{ingredient}%"
+        ).limit(1).execute()
 
-        if response.data:
-            research = response.data[0]
+        if result.data:
+            data = result.data[0]
+            logger.info(f"📚 Found research for: {ingredient}")
             return json.dumps({
-                "ingredient": research.get("ingredient_name"),
-                "iarc_classification": research.get("iarc_classification"),
-                "ewg_score": research.get("ewg_score"),
-                "health_effects": research.get("health_effects", []),
-                "regulatory_actions": research.get("regulatory_actions", []),
-                "lawsuits_count": len(research.get("lawsuits", [])),
-                "settlements_count": len(research.get("settlements", [])),
-                "confidence": research.get("confidence_score", 0),
-            }, indent=2)
-
-        return f"No pre-computed research found for '{ingredient}'"
+                "ingredient": ingredient,
+                "found": True,
+                "safety_summary": data.get("safety_summary", ""),
+                "concerns": data.get("concerns", []),
+                "sources": data.get("sources", []),
+            })
+        else:
+            return json.dumps({"ingredient": ingredient, "found": False})
 
     except Exception as e:
-        logger.warning(f"Ingredient lookup failed: {e}")
-        return f"Lookup failed: {e}"
-
-
-# =============================================================================
-# NODE FUNCTIONS
-# =============================================================================
-
-async def research_node(state: SafetyAgentState) -> Dict[str, Any]:
-    """Research node - Cohere gathers information using tools.
-
-    This node calls Cohere Command R+ with tool bindings to gather
-    safety information about the product.
-    """
-    logger.info(f"🔍 Research node - iteration {state['iteration_count'] + 1}")
-
-    # Initialize Cohere model with tools
-    model = ChatCohere(
-        model="command-a-03-2025",
-        temperature=0.3,
-        cohere_api_key=settings.cohere_api_key,
-    )
-
-    # Bind tools to model
-    tools = [web_search, lookup_ingredient_research]
-    model_with_tools = model.bind_tools(tools)
-
-    # Build system message with product context
-    product_data = state["product_data"]
-
-    # Get preprocessed ingredients if available (from trafilatura_extractor)
-    known_safe = product_data.get('_known_safe', [])
-    known_concerns = product_data.get('_known_concerns', [])
-    needs_research = product_data.get('_needs_research', [])
-
-    # Build ingredient guidance based on preprocessing
-    ingredient_guidance = ""
-    if known_safe or known_concerns or needs_research:
-        ingredient_guidance = f"""
-
-PREPROCESSED INGREDIENT ANALYSIS (SAVE COST BY FOLLOWING THIS):
-✅ SKIP RESEARCH (already known safe): {', '.join(known_safe[:15]) if known_safe else 'none'}
-⚠️  ALREADY FLAGGED (no research needed): {', '.join([c['name'] for c in known_concerns[:10]]) if known_concerns else 'none'}
-🔍 RESEARCH THESE ONLY: {', '.join(needs_research[:20]) if needs_research else 'all ingredients'}
-
-For the flagged concerns, here are the known issues:
-{chr(10).join([f"  - {c['name']}: {c['category']} - {c['description']}" for c in known_concerns[:5]]) if known_concerns else '  (none pre-flagged)'}
-
-DO NOT use web_search for ingredients in the SKIP or FLAGGED lists above."""
-    else:
-        ingredient_guidance = ""
-
-    system_content = RESEARCH_SYSTEM_PROMPT + f"""
-
-PRODUCT BEING ANALYZED:
-- Name: {product_data.get('product_name', 'Unknown')}
-- Brand: {product_data.get('brand', 'Unknown')}
-- URL: {state['product_url']}
-- Ingredients: {', '.join(product_data.get('ingredients', [])[:20])}
-- Materials: {', '.join(product_data.get('materials', [])[:10])}{ingredient_guidance}
-
-Research this product using the available tools, prioritizing database lookups over web searches."""
-
-    # Get messages from state
-    messages = list(state["messages"])
-
-    # If this is the first iteration, add the system message
-    if state["iteration_count"] == 0:
-        messages = [SystemMessage(content=system_content)] + messages
-
-    # Call Cohere (async)
-    response = await model_with_tools.ainvoke(messages)
-
-    logger.info(f"   Cohere response type: {type(response)}")
-    if hasattr(response, 'tool_calls') and response.tool_calls:
-        logger.info(f"   Tool calls: {len(response.tool_calls)}")
-        for tc in response.tool_calls:
-            logger.info(f"      - {tc['name']}: {str(tc['args'])[:100]}...")
-
-    return {
-        "messages": [response],
-        "iteration_count": state["iteration_count"] + 1,
-    }
-
-
-async def analyze_node(state: SafetyAgentState) -> Dict[str, Any]:
-    """Analysis node - Cohere synthesizes findings into harm assessment.
-
-    This node takes all the research findings and produces a structured
-    safety analysis in JSON format.
-    """
-    logger.info("📊 Analyze node - synthesizing research into harm assessment")
-
-    model = ChatCohere(
-        model="command-a-03-2025",
-        temperature=0.2,  # Lower temperature for consistent output
-        cohere_api_key=settings.cohere_api_key,
-    )
-
-    # Build context from product data and knowledge bases
-    product_data = state["product_data"]
-    allergen_db = state.get("allergen_database", [])
-    pfas_db = state.get("pfas_database", [])
-
-    # Format knowledge bases compactly
-    allergen_names = [a.get("name", "") for a in allergen_db]
-    pfas_names = [p.get("name", "") for p in pfas_db]
-
-    # Get pre-flagged concerns from preprocessing (must include in output)
-    known_concerns = product_data.get('_known_concerns', [])
-    preflagged_section = ""
-    if known_concerns:
-        preflagged_section = f"""
-
-PRE-FLAGGED CONCERNS (MUST include in other_concerns):
-{json.dumps(known_concerns, indent=2)}
-These were identified by rule-based preprocessing. Include them in your output's other_concerns array."""
-
-    # Build analysis prompt - exclude internal fields from product_data
-    clean_product_data = {k: v for k, v in product_data.items() if not k.startswith('_')}
-    analysis_prompt = f"""Based on the research conversation above, provide a comprehensive safety analysis.
-
-PRODUCT DATA:
-{json.dumps(clean_product_data, indent=2)}{preflagged_section}
-
-ALLERGEN KNOWLEDGE BASE (only these can go in allergens_detected):
-{', '.join(allergen_names[:50])}... ({len(allergen_names)} total)
-
-PFAS KNOWLEDGE BASE (only these can go in pfas_detected):
-{', '.join(pfas_names[:30])}... ({len(pfas_names)} total)
-
-Analyze the product and provide your assessment as a JSON object."""
-
-    # Get full message history and add analysis prompt
-    messages = list(state["messages"]) + [HumanMessage(content=analysis_prompt)]
-
-    # Call Cohere for analysis (async)
-    response = await model.ainvoke(
-        [SystemMessage(content=ANALYSIS_SYSTEM_PROMPT)] + messages
-    )
-
-    # Parse the JSON response
-    analysis_result = _parse_analysis_json(response.content)
-
-    logger.info(f"   Analysis result: {analysis_result.get('product_name', 'Unknown')}")
-    logger.info(f"   Allergens: {len(analysis_result.get('allergens_detected', []))}")
-    logger.info(f"   PFAS: {len(analysis_result.get('pfas_detected', []))}")
-    logger.info(f"   Other concerns: {len(analysis_result.get('other_concerns', []))}")
-
-    return {
-        "messages": [response],
-        "analysis_result": analysis_result,
-    }
-
-
-async def verify_node(state: SafetyAgentState) -> Dict[str, Any]:
-    """Verification node - Claude Haiku checks analysis quality.
-
-    This node uses Claude Haiku (cheaper, faster) to perform adversarial
-    verification of the Cohere-generated analysis.
-    """
-    logger.info("✓ Verify node - Claude Haiku adversarial check")
-
-    client = Anthropic(api_key=settings.anthropic_api_key)
-
-    # Build verification prompt with knowledge bases
-    allergen_db = state.get("allergen_database", [])
-    pfas_db = state.get("pfas_database", [])
-    allergen_names = [a.get("name", "") for a in allergen_db]
-    pfas_names = [p.get("name", "") for p in pfas_db]
-
-    verification_prompt = VERIFICATION_PROMPT_TEMPLATE.format(
-        product_data=json.dumps(state["product_data"], indent=2),
-        analysis_result=json.dumps(state["analysis_result"], indent=2),
-        allergen_names=", ".join(allergen_names[:100]),
-        pfas_names=", ".join(pfas_names[:50]),
-    )
-
-    # Call Claude Haiku for verification (run sync client in thread)
-    response = await asyncio.to_thread(
-        client.messages.create,
-        model="claude-3-5-haiku-20241022",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": verification_prompt}],
-    )
-
-    # Parse verification response
-    verification_text = response.content[0].text
-    verification_result = _parse_verification_json(verification_text)
-
-    status = verification_result.get("status", "fail")
-    issues = verification_result.get("issues", [])
-
-    logger.info(f"   Verification status: {status}")
-    logger.info(f"   Issues found: {len(issues)}")
-
-    # Apply corrections if needed
-    if verification_result.get("corrections"):
-        corrections = verification_result["corrections"]
-        analysis = state["analysis_result"].copy()
-
-        # Remove invalid allergens
-        if corrections.get("allergens_to_remove"):
-            to_remove = set(corrections["allergens_to_remove"])
-            analysis["allergens_detected"] = [
-                a for a in analysis.get("allergens_detected", [])
-                if a.get("name") not in to_remove
-            ]
-            logger.info(f"   Removed {len(to_remove)} invalid allergens")
-
-        # Remove invalid PFAS
-        if corrections.get("pfas_to_remove"):
-            to_remove = set(corrections["pfas_to_remove"])
-            analysis["pfas_detected"] = [
-                p for p in analysis.get("pfas_detected", [])
-                if p.get("name") not in to_remove
-            ]
-            logger.info(f"   Removed {len(to_remove)} invalid PFAS")
-
-        return {
-            "messages": [AIMessage(content=verification_text)],
-            "verification_status": status,
-            "analysis_result": analysis,
-        }
-
-    # If needs_research, add a HumanMessage with feedback so Cohere can continue
-    # (Cohere requires last message to be HumanMessage or ToolMessage)
-    if status == "needs_research":
-        issues_summary = "\n".join([f"- {i.get('type', 'issue')}: {i.get('details', '')}" for i in issues[:5]])
-        research_prompt = f"""Based on verification feedback, please conduct additional research:
-
-ISSUES FOUND:
-{issues_summary}
-
-Please use the available tools to gather more information about these issues, then provide an updated analysis."""
-
-        return {
-            "messages": [HumanMessage(content=research_prompt)],
-            "verification_status": status,
-        }
-
-    return {
-        "messages": [AIMessage(content=verification_text)],
-        "verification_status": status,
-    }
-
-
-async def tools_node(state: SafetyAgentState) -> Dict[str, Any]:
-    """Execute tool calls from the last message.
-
-    This node handles executing the tools requested by Cohere
-    and returning results.
-    """
-    logger.info("🔧 Tools node - executing tool calls")
-
-    last_message = state["messages"][-1]
-
-    if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
-        logger.warning("   No tool calls found")
-        return {"messages": []}
-
-    tool_results = []
-    tool_map = {
-        "web_search": web_search,
-        "lookup_ingredient_research": lookup_ingredient_research,
-    }
-
-    # Execute tools in parallel for efficiency
-    async def execute_tool(tool_call):
-        tool_name = tool_call["name"]
-        tool_args = tool_call["args"]
-
-        logger.info(f"   Executing: {tool_name}")
-
-        if tool_name in tool_map:
-            try:
-                # Tools are async, invoke them directly
-                result = await tool_map[tool_name].ainvoke(tool_args)
-                return ToolMessage(
-                    content=result,
-                    tool_call_id=tool_call["id"],
-                    name=tool_name,
-                )
-            except Exception as e:
-                logger.error(f"   Tool execution failed: {e}")
-                return ToolMessage(
-                    content=f"Error: {e}",
-                    tool_call_id=tool_call["id"],
-                    name=tool_name,
-                )
-        else:
-            return ToolMessage(
-                content=f"Unknown tool: {tool_name}",
-                tool_call_id=tool_call["id"],
-                name=tool_name,
-            )
-
-    # Run all tool calls in parallel
-    tool_results = await asyncio.gather(*[
-        execute_tool(tc) for tc in last_message.tool_calls
-    ])
-
-    return {"messages": list(tool_results)}
-
-
-# =============================================================================
-# ROUTING FUNCTIONS
-# =============================================================================
-
-def should_continue_research(state: SafetyAgentState) -> Literal["tools", "analyze"]:
-    """Determine if research node should continue with tools or move to analysis.
-
-    Returns "tools" if the last message has tool calls, "analyze" otherwise.
-    """
-    last_message = state["messages"][-1]
-
-    # Check for tool calls
-    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-        # Respect max iterations to prevent infinite loops
-        if state["iteration_count"] >= state["max_iterations"]:
-            logger.warning(f"   Max iterations ({state['max_iterations']}) reached, moving to analyze")
-            return "analyze"
-        return "tools"
-
-    return "analyze"
-
-
-def verification_router(state: SafetyAgentState) -> Literal["research", "end"]:
-    """Route based on verification result.
+        logger.error(f"Database lookup failed: {e}")
+        return json.dumps({"ingredient": ingredient, "found": False, "error": str(e)})
+
+
+@tool
+def save_analysis(analysis_json: str) -> str:
+    """Save the final safety analysis. Call this when you have completed all research.
+
+    This is a TERMINAL action - the agent loop will end after this.
+
+    Args:
+        analysis_json: JSON string with the complete safety analysis containing:
+            - product_name: string
+            - brand: string
+            - allergens_detected: list of {name, severity, source, confidence}
+            - pfas_detected: list of {name, cas_number, source, confidence}
+            - other_concerns: list of {name, category, severity, description, confidence}
+            - research_sources: list of {type, url, finding}
+            - confidence: float 0-1
 
     Returns:
-        "research" if verification failed and we haven't hit max iterations
-        "end" if verification passed or we've hit max iterations
+        Confirmation that analysis was saved
     """
-    status = state["verification_status"]
+    logger.info("💾 save_analysis called - ending agent loop")
+    logger.info(f"   Input length: {len(analysis_json)} chars")
+    logger.debug(f"   Raw input: {analysis_json[:500]}...")
 
-    if status == "pass":
-        logger.info("   ✅ Verification passed - ending")
-        return "end"
+    try:
+        analysis = json.loads(analysis_json)
+        logger.info(f"   Parsed: {len(analysis.get('other_concerns', []))} concerns, {len(analysis.get('research_sources', []))} sources")
+        # Mark as terminal
+        analysis["_terminal"] = True
+        analysis["_saved"] = True
+        return json.dumps(analysis)
+    except json.JSONDecodeError as e:
+        logger.error(f"   JSON parse error: {e}")
+        logger.error(f"   Raw: {analysis_json[:200]}")
+        return json.dumps({
+            "error": f"Invalid JSON: {e}",
+            "_terminal": True,
+            "_saved": False
+        })
 
-    if state["iteration_count"] >= state["max_iterations"]:
-        logger.warning(f"   ⚠️  Max iterations reached - ending with status: {status}")
-        return "end"
 
-    if status == "needs_research":
-        logger.info("   🔄 Needs more research - returning to research node")
-        return "research"
+@tool
+def report_failure(reason: str) -> str:
+    """Report that the analysis cannot be completed. Call only after genuinely trying.
 
-    # "fail" status - end with current results (corrections already applied)
-    logger.info("   ⚠️  Verification failed but corrections applied - ending")
-    return "end"
+    This is a TERMINAL action - the agent loop will end after this.
 
+    Args:
+        reason: Explanation of why analysis failed
 
-# =============================================================================
-# GRAPH BUILDER
-# =============================================================================
-
-def build_safety_agent() -> StateGraph:
-    """Build the LangGraph safety analysis state machine.
-
-    Graph structure:
-        START → research → (tools ↔ research) → analyze → verify → END
-                                                              ↓
-                                                          research (if needs_research)
+    Returns:
+        Failure acknowledgment
     """
-    workflow = StateGraph(SafetyAgentState)
-
-    # Add nodes
-    workflow.add_node("research", research_node)
-    workflow.add_node("tools", tools_node)
-    workflow.add_node("analyze", analyze_node)
-    workflow.add_node("verify", verify_node)
-
-    # Set entry point
-    workflow.set_entry_point("research")
-
-    # Add edges
-    workflow.add_conditional_edges(
-        "research",
-        should_continue_research,
-        {
-            "tools": "tools",
-            "analyze": "analyze",
-        }
-    )
-    workflow.add_edge("tools", "research")  # Loop back after tool execution
-    workflow.add_edge("analyze", "verify")
-    workflow.add_conditional_edges(
-        "verify",
-        verification_router,
-        {
-            "research": "research",
-            "end": END,
-        }
-    )
-
-    return workflow.compile()
+    logger.warning(f"❌ report_failure: {reason}")
+    return json.dumps({
+        "status": "failed",
+        "reason": reason,
+        "_terminal": True,
+        "_saved": False
+    })
 
 
 # =============================================================================
-# HELPER FUNCTIONS
-# =============================================================================
-
-def _parse_analysis_json(text: str) -> Dict[str, Any]:
-    """Parse JSON from analysis response, handling various formats."""
-    try:
-        # Try direct JSON parse
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-
-    # Try to extract JSON from markdown code blocks
-    if "```json" in text:
-        start = text.find("```json") + 7
-        end = text.find("```", start)
-        try:
-            return json.loads(text[start:end].strip())
-        except json.JSONDecodeError:
-            pass
-
-    if "```" in text:
-        start = text.find("```") + 3
-        end = text.find("```", start)
-        try:
-            return json.loads(text[start:end].strip())
-        except json.JSONDecodeError:
-            pass
-
-    # Try to find JSON object
-    start = text.find("{")
-    end = text.rfind("}") + 1
-    if start != -1 and end > start:
-        try:
-            return json.loads(text[start:end])
-        except json.JSONDecodeError:
-            pass
-
-    logger.error(f"Failed to parse analysis JSON: {text[:500]}")
-    return {
-        "product_name": "Unknown",
-        "brand": "Unknown",
-        "ingredients": [],
-        "allergens_detected": [],
-        "pfas_detected": [],
-        "other_concerns": [],
-        "confidence": 0.3,
-        "error": "Failed to parse analysis response",
-    }
-
-
-def _parse_verification_json(text: str) -> Dict[str, Any]:
-    """Parse JSON from verification response."""
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-
-    # Try to extract from code blocks
-    if "```json" in text:
-        start = text.find("```json") + 7
-        end = text.find("```", start)
-        try:
-            return json.loads(text[start:end].strip())
-        except json.JSONDecodeError:
-            pass
-
-    # Try to find JSON object
-    start = text.find("{")
-    end = text.rfind("}") + 1
-    if start != -1 and end > start:
-        try:
-            return json.loads(text[start:end])
-        except json.JSONDecodeError:
-            pass
-
-    logger.error(f"Failed to parse verification JSON: {text[:500]}")
-    return {
-        "status": "fail",
-        "issues": [{"type": "parse_error", "details": "Could not parse verification response"}],
-        "summary": "Verification response parsing failed",
-    }
-
-
-# =============================================================================
-# ASYNC WRAPPER
+# LANGGRAPH AGENT
 # =============================================================================
 
 class LangGraphSafetyAgent:
-    """Async wrapper for the LangGraph safety agent.
+    """Product safety agent using LangGraph's create_react_agent.
 
-    This class provides an interface compatible with the existing
-    ProductSafetyAgent for easy integration.
+    Uses the same pattern as scraper-agent for reliable tool calling.
+    Now with FEATURE PARITY: same knowledge bases and classification rules as Claude agent.
     """
 
     def __init__(
@@ -878,25 +326,92 @@ class LangGraphSafetyAgent:
         token_tracker: Optional[TokenTracker] = None,
         search_service: Optional[SearchToolService] = None,
         supabase_client: Any = None,
+        max_iterations: int = 15,
+        temperature: float = 0.3,
     ):
-        """Initialize the LangGraph agent.
+        """Initialize the safety agent.
 
         Args:
-            token_tracker: Token usage tracker
-            search_service: Search service for web searches
-            supabase_client: Supabase client for database operations
+            token_tracker: Token tracking service
+            search_service: Web search service
+            supabase_client: Supabase client for database lookups
+            max_iterations: Maximum tool-calling iterations
+            temperature: Temperature for model responses (0.0-1.0). Default 0.3.
         """
-        self.token_tracker = token_tracker or TokenTracker()
+        self.token_tracker = token_tracker
         self.search_service = search_service
         self.supabase_client = supabase_client
-        self.graph = build_safety_agent()
+        self.max_iterations = max_iterations
+        self.temperature = temperature
 
-        # Set tool context
-        set_tool_context(LangGraphToolContext(
-            search_service=search_service,
-            supabase_client=supabase_client,
-            token_tracker=token_tracker,
-        ))
+        # Initialize Cohere LLM
+        self.llm = ChatCohere(
+            model="command-a-03-2025",
+            temperature=self.temperature,
+            cohere_api_key=settings.cohere_api_key,
+        )
+
+        # Build tools - Both agents now have lookup_ingredient_research for TRUE parity test
+        # Testing whether Claude also takes the "shortcut" or follows the warning
+        self.tools = [
+            web_search,
+            lookup_ingredient_research,  # RE-ENABLED: Testing if Claude also ignores the warning
+            save_analysis,
+            report_failure,
+        ]
+
+        logger.info("🤖 LangGraphSafetyAgent initialized (dynamic prompt per request)")
+
+    def _build_system_prompt(
+        self,
+        allergen_database: List[Dict[str, Any]] = None,
+        pfas_database: List[Dict[str, Any]] = None,
+        allergen_profile: List[str] = None,
+    ) -> str:
+        """Build system prompt with embedded knowledge bases.
+
+        This mirrors Claude's _build_analysis_prompt_for_extracted_data() for feature parity.
+        """
+        prompt = SAFETY_AGENT_PROMPT_BASE
+
+        # Add allergen knowledge base
+        if allergen_database:
+            prompt += f"\n\n## ALLERGEN KNOWLEDGE BASE ({len(allergen_database)} priority allergens)\n"
+            prompt += "ONLY these substances can be classified as allergens. If not on this list, use other_concerns instead.\n\n"
+            for allergen in allergen_database:
+                name = allergen.get('name', '')
+                synonyms = allergen.get('synonyms', [])
+                if synonyms:
+                    prompt += f"- {name} (synonyms: {', '.join(synonyms[:3])})\n"
+                else:
+                    prompt += f"- {name}\n"
+
+        # Add PFAS knowledge base
+        if pfas_database:
+            prompt += f"\n\n## PFAS KNOWLEDGE BASE ({len(pfas_database)} compounds)\n"
+            prompt += "ONLY these substances can be classified as PFAS. If not on this list, use other_concerns instead.\n\n"
+            for pfas in pfas_database:
+                name = pfas.get('name', '')
+                cas = pfas.get('cas_number', '')
+                if cas:
+                    prompt += f"- {name} (CAS: {cas})\n"
+                else:
+                    prompt += f"- {name}\n"
+
+        # Add user allergen profile
+        if allergen_profile:
+            prompt += f"\n\n## USER'S ALLERGEN PROFILE\n"
+            prompt += f"Pay special attention to: {', '.join(allergen_profile)}\n"
+
+        return prompt
+
+    def _create_agent_with_prompt(self, system_prompt: str):
+        """Create a new agent instance with the given system prompt."""
+        return create_react_agent(
+            model=self.llm,
+            tools=self.tools,
+            prompt=system_prompt,
+        )
 
     async def analyze_extracted_product(
         self,
@@ -911,44 +426,141 @@ class LangGraphSafetyAgent:
         Args:
             product_data: Extracted product data
             product_url: Product URL
-            allergen_profile: User's allergen concerns (unused, for compatibility)
+            allergen_profile: User's allergen concerns
             pfas_database: PFAS knowledge base
             allergen_database: Allergen knowledge base
 
         Returns:
             Analysis result dictionary
         """
-        logger.info(f"🚀 Starting LangGraph analysis for: {product_data.get('product_name', 'Unknown')}")
+        product_name = product_data.get("product_name", "Unknown")
+        brand = product_data.get("brand", "Unknown")
+        ingredients = product_data.get("ingredients", [])
 
-        # Initialize state
-        initial_state: SafetyAgentState = {
-            "messages": [
-                HumanMessage(content=f"Analyze this product for safety concerns: {product_data.get('product_name', 'Unknown')}")
-            ],
-            "product_data": product_data,
-            "product_url": product_url,
-            "allergen_database": allergen_database or [],
-            "pfas_database": pfas_database or [],
-            "research_findings": {},
-            "analysis_result": {},
-            "verification_status": "pending",
-            "iteration_count": 0,
-            "max_iterations": 10,
-        }
+        logger.info(f"🚀 Starting LangGraph analysis for: {product_name}")
+        logger.info(f"   Knowledge bases: {len(allergen_database or [])} allergens, {len(pfas_database or [])} PFAS")
 
-        # Run the graph (async)
+        # Build dynamic system prompt with knowledge bases (FEATURE PARITY with Claude)
+        system_prompt = self._build_system_prompt(
+            allergen_database=allergen_database,
+            pfas_database=pfas_database,
+            allergen_profile=allergen_profile,
+        )
+
+        # Create agent with the dynamic prompt
+        agent = self._create_agent_with_prompt(system_prompt)
+
+        # Build the task prompt with specific instructions for this product
+        # Include guidance to search EACH ingredient individually like Claude does
+        ingredient_searches = ""
+        if ingredients:
+            for ing in ingredients[:5]:  # Top 5 ingredients
+                ingredient_searches += f'   - web_search(query="{ing} safety toxicity contact dermatitis", search_type="ingredient")\n'
+
+        task_prompt = f"""Analyze this product for safety concerns:
+
+PRODUCT: {product_name}
+BRAND: {brand}
+URL: {product_url}
+INGREDIENTS: {', '.join(ingredients[:20]) if ingredients else 'Not listed - search for them'}
+
+Execute ALL of these searches (you can call multiple tools at once for efficiency):
+
+- MANUFACTURER: web_search(query="{brand} {product_name[:30]} ingredients MSDS", search_type="manufacturer")
+- REGULATORY: web_search(query="{brand} {product_name[:30]} FDA recall warning Health Canada", search_type="regulatory")
+- LEGAL: web_search(query="{brand} lawsuit settlement class action", search_type="legal")
+- CONSUMER: web_search(query="{brand} {product_name[:30]} reddit reaction allergy", search_type="consumer")
+- PER-INGREDIENT RESEARCH (search EACH ingredient individually):
+{ingredient_searches if ingredient_searches else '   - web_search for each ingredient safety'}
+
+After completing ALL searches, call save_analysis with COMPLETE JSON including ALL findings.
+
+CRITICAL REMINDERS:
+- You CAN and SHOULD call multiple web_search tools in a single response for efficiency
+- Search EACH ingredient individually (tea tree oil, salicylic acid, etc.)
+- Only classify as allergen if in the ALLERGEN KNOWLEDGE BASE
+- Only classify as PFAS if in the PFAS KNOWLEDGE BASE
+- Use other_concerns for anything not in knowledge bases
+- Include source citations (PubMed, .gov, etc.) in descriptions"""
+
+        # Run the agent
+        iteration = 0
+        final_result = None
+
         try:
-            final_state = await self.graph.ainvoke(initial_state)
+            async for event in agent.astream_events(
+                {"messages": [("user", task_prompt)]},
+                version="v2",
+            ):
+                event_type = event.get("event", "")
 
-            logger.info(f"✅ LangGraph analysis complete")
-            logger.info(f"   Iterations: {final_state.get('iteration_count', 0)}")
-            logger.info(f"   Verification: {final_state.get('verification_status', 'unknown')}")
+                if event_type == "on_tool_start":
+                    tool_name = event.get("name", "")
+                    logger.info(f"   🔧 Tool: {tool_name}")
+                    iteration += 1
 
-            return final_state.get("analysis_result", {})
+                    if iteration > self.max_iterations:
+                        logger.warning(f"Max iterations ({self.max_iterations}) reached")
+                        break
+
+                elif event_type == "on_tool_end":
+                    # Get the output - may be ToolMessage object or string
+                    raw_output = event.get("data", {}).get("output", "")
+
+                    # Extract content from ToolMessage if needed
+                    if hasattr(raw_output, "content"):
+                        output = raw_output.content
+                    else:
+                        output = raw_output
+
+                    # Check for terminal action
+                    try:
+                        parsed = json.loads(output) if isinstance(output, str) else output
+                        if isinstance(parsed, dict):
+                            if parsed.get("_terminal"):
+                                if parsed.get("_saved"):
+                                    final_result = parsed
+                                    logger.info("✅ Analysis saved - ending loop")
+                                else:
+                                    logger.warning(f"❌ Analysis failed: {parsed.get('reason', 'Unknown')}")
+                                    final_result = parsed
+                                break
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+            # If no terminal action, try to extract from final state
+            if final_result is None:
+                logger.warning("No terminal action called - returning default result")
+                final_result = {
+                    "product_name": product_name,
+                    "brand": brand,
+                    "allergens_detected": [],
+                    "pfas_detected": [],
+                    "other_concerns": [],
+                    "research_sources": [],
+                    "confidence": 0.3,
+                    "error": "Agent did not call save_analysis",
+                }
+
+            # Clean up internal fields
+            final_result.pop("_terminal", None)
+            final_result.pop("_saved", None)
+
+            logger.info(f"✅ LangGraph analysis complete after {iteration} tool calls")
+            return final_result
 
         except Exception as e:
             logger.error(f"❌ LangGraph analysis failed: {e}")
-            raise
+            return {
+                "product_name": product_name,
+                "brand": brand,
+                "allergens_detected": [],
+                "pfas_detected": [],
+                "other_concerns": [],
+                "research_sources": [],
+                "confidence": 0.0,
+                "error": str(e),
+            }
 
     async def close(self) -> None:
         """Cleanup resources."""

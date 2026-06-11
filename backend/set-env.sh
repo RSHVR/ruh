@@ -31,7 +31,7 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/0,\
 API_HOST=0.0.0.0,\
 API_PORT=8080,\
 DEBUG=false,\
-ALLOWED_ORIGINS=*,\
+ALLOWED_ORIGINS=https://ruh-api-948739110049.us-central1.run.app,\
 LOG_LEVEL=INFO"
 
 echo "✅ Environment variables set!"
