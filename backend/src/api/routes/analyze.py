@@ -245,12 +245,10 @@ async def analyze_product(
         # Step 4a: Use client-provided HTML or fall back to scraping
         scraped_html = None
         if client_product_html:
-            # Process client HTML using selector-based extraction
-            # This compresses ~2MB raw HTML to ~20KB clean text
+            # Process client HTML using the URL-appropriate scraper (ADR-002).
+            # Selector-based extraction compresses ~2MB raw HTML to ~20KB clean text.
             logger.info("✅ Processing client-provided HTML with selector extraction")
-            from ...infrastructure.scrapers.amazon import AmazonScraper
-            amazon_scraper = AmazonScraper()
-            scraped_html = amazon_scraper.process_client_html(
+            scraped_html = await scraper_service.process_client_html(
                 url=analysis_request.product_url,
                 product_html=client_product_html,
                 reviews_html=client_reviews_html or "",

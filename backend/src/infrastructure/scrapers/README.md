@@ -2,7 +2,7 @@
 
 ## Overview
 
-The scrapers module provides web scraping functionality for extracting product data from e-commerce websites. It implements a factory pattern with an abstract base class to support multiple retailer-specific scrapers. Currently only Amazon is implemented.
+The scrapers module provides web scraping functionality for extracting product data from e-commerce websites. It implements a factory pattern with a **config-driven** abstract base class (template method — see repo-root `LORE.md` ADR-001): generic mechanics live in `BaseScraper`, and each retailer is a subclass that declares selector configuration only. 12 retailers are implemented — Amazon (reference, with structured-review overrides) plus Walmart, Costco, Instacart, Sephora, H&M, Uniqlo, SHEIN, Aritzia, Garage, IKEA, and Temu. The primary data path is `process_client_html` (the extension sends the user's authenticated DOM); server-side Playwright `scrape()` is a fallback. Adding a retailer = a config subclass + a `factory.py` registration + tests (see repo-root `INDEX.md` §5).
 
 ## Architecture
 

@@ -1,18 +1,5 @@
-import { extractASIN, fetchReviews, type ReviewsFetchResult } from '../lib/amazon';
+import { getAdapter, type SiteAdapter } from '../lib/retailers';
 import type { AnalysisRequest } from '../types';
-
-// Inline utility function to avoid imports
-function isAmazonProductPage(url: string): boolean {
-  try {
-    const urlObj = new URL(url);
-    const isAmazon =
-      urlObj.hostname.includes('amazon.com') || urlObj.hostname.includes('amazon.ca');
-    const hasDP = urlObj.pathname.includes('/dp/') || urlObj.pathname.includes('/gp/product/');
-    return isAmazon && hasDP;
-  } catch {
-    return false;
-  }
-}
 
 // Get score color based on harm level
 function getScoreColor(score: number): string {
@@ -92,22 +79,25 @@ window.addEventListener('focus', () => {
  * Initialize the extension on Amazon product pages
  */
 function init() {
-  if (!isAmazonProductPage(window.location.href)) {
-    console.log('[Ruh Content] Not a product page, skipping analysis');
+  const url = window.location.href;
+  const adapter = getAdapter(url);
+
+  if (!adapter || !adapter.isProductPage(url)) {
+    console.log('[Ruh Content] Not a supported product page, skipping analysis');
     return;
   }
 
-  currentProductUrl = window.location.href;
-  console.log('[Ruh Content] Product page detected:', currentProductUrl);
+  currentProductUrl = url;
+  console.log(`[Ruh Content] Product page detected (${adapter.name}):`, currentProductUrl);
 
   // Start analysis in background
-  startAnalysis();
+  startAnalysis(adapter);
 }
 
 /**
  * Start product analysis in background
  */
-async function startAnalysis() {
+async function startAnalysis(adapter: SiteAdapter) {
   if (!currentProductUrl) return;
 
   console.log('[ruh] Starting analysis for:', currentProductUrl);
@@ -142,34 +132,38 @@ async function startAnalysis() {
     // Capture product page HTML directly from the DOM (user's session)
     // This bypasses bot detection since we're on the actual page
 
+    // Let the adapter prepare the page (e.g. scroll to trigger lazily-rendered
+    // sections like Instacart nutrition facts) before we snapshot the DOM.
+    if (adapter.prepareForCapture) {
+      try {
+        await adapter.prepareForCapture();
+      } catch (err) {
+        console.warn('[ruh] prepareForCapture failed (continuing):', err);
+      }
+    }
+
     // Capture product page HTML
     const productHtml = document.documentElement.outerHTML;
     console.log(`[ruh] Product page captured: ${(productHtml.length / 1024).toFixed(1)}KB`);
 
-    // Fetch reviews using user's Amazon session (cookies included automatically)
+    // Fetch reviews via the retailer adapter, using the user's logged-in session.
+    // Adapters without a usable reviews endpoint omit fetchReviews entirely.
     let reviewsHtml: string | undefined;
-    const asin = extractASIN(currentProductUrl);
 
-    if (asin) {
-      console.log('[ruh] Fetching reviews for ASIN:', asin);
-
-      const reviewsResult: ReviewsFetchResult = await fetchReviews(asin, {
-        pages: 5,           // Fetch 5 pages (~50 reviews)
-        filter: 'all',      // All star ratings
-        sortBy: 'helpful',  // Most helpful first
-        delayMs: 300,       // 300ms between pages to avoid rate limiting
-      });
-
-      if (reviewsResult.success) {
-        reviewsHtml = reviewsResult.html;
-        // Count reviews by counting data-hook="review" occurrences
-        const reviewCount = (reviewsHtml.match(/data-hook="review"/g) || []).length;
-        console.log(`[ruh] Reviews fetched: ${reviewCount} reviews from ${reviewsResult.pagesLoaded} pages (${(reviewsHtml.length / 1024).toFixed(1)}KB)`);
-      } else {
-        console.warn('[ruh] Unable to read reviews');
+    if (adapter.fetchReviews) {
+      try {
+        const reviewsResult = await adapter.fetchReviews(currentProductUrl);
+        if (reviewsResult && reviewsResult.html) {
+          reviewsHtml = reviewsResult.html;
+          console.log(
+            `[ruh] Reviews fetched (${adapter.name}): ${reviewsResult.count} reviews (${(reviewsHtml.length / 1024).toFixed(1)}KB)`
+          );
+        } else {
+          console.warn('[ruh] Unable to read reviews');
+        }
+      } catch (err) {
+        console.warn('[ruh] Reviews fetch failed:', err);
       }
-    } else {
-      console.warn('[ruh] Could not extract ASIN from URL');
     }
 
     // Build request payload

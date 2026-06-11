@@ -4,6 +4,103 @@
 
 This document provides comprehensive documentation for the entire Ruh codebase, including all function-level flows, file relationships, and architectural decisions.
 
+> **Companion docs (read these too):**
+> - [`INDEX.md`](./INDEX.md) — feature → file map; **start here** to find where something lives.
+> - [`LORE.md`](./LORE.md) — architecture decision records + invariants (the "why").
+> - [`MEMORY.md`](./MEMORY.md) — log of mistakes & solutions; check before re-solving a problem.
+
+---
+
+## How To Work In This Workspace
+
+**Repo shape:** monorepo with `backend/` (Python FastAPI, managed by `uv`) and `extension/`
+(Svelte 5 + TS Chrome MV3, managed by `npm`). Always run backend commands from `backend/` and
+extension commands from `extension/`.
+
+**Backend commands (use `uv`, never bare pip/python):**
+```bash
+cd backend
+uv sync                      # install deps
+uv run pytest tests/unit -v  # fast unit tests (TDD loop)
+uv run pytest -v             # all tests
+uv run ruff check .          # lint
+uv run mypy src              # types
+uv run python run.py         # run server
+```
+
+**Extension commands:**
+```bash
+cd extension
+npm install
+npm run check                # svelte-check / tsc
+npm run build                # production build
+npm run dev                  # watch build
+```
+
+**Before you start any feature:** read `INDEX.md` to locate the touch-points, skim `LORE.md`
+invariants, and grep `MEMORY.md` for related past mistakes.
+
+**When you finish a unit of work:** update `INDEX.md` (new/moved features), append to `LORE.md`
+(architecture decisions), and append to `MEMORY.md` (any mistake you hit + its fix).
+
+---
+
+## Engineering Standards (NON-NEGOTIABLE)
+
+All code in this repo follows **Spec-Driven Development + Test-Driven Development + SOLID**.
+
+### Spec-Driven Development (SDD)
+1. **Specify** before coding: write a short spec (behavior, inputs/outputs, acceptance criteria,
+   edge cases) — for retailers, one spec section per site in its recon notes / the site spec.
+   Specs describe *what*, not *how*.
+2. **Plan**: translate the spec into the concrete files to touch (use `INDEX.md` §5 for retailers).
+3. **Tasks**: decompose into testable units.
+4. **Implement** against the spec; the spec is the source of truth. **A separate reviewer/verifier
+   checks the implementation against the spec** before it's considered done (when delegating, the
+   orchestrator is the verifier — never let the same agent be sole author and sole judge).
+
+### Test-Driven Development (TDD) — Red → Green → Refactor
+- **Red:** write a failing test that encodes the spec's acceptance criteria first.
+- **Green:** write the minimum code to pass.
+- **Refactor:** clean up with tests green.
+- New scrapers: start from a **saved HTML fixture** under `backend/tests/fixtures/<retailer>.html`,
+  write tests asserting `can_scrape()` and that `process_client_html()` extracts the expected
+  sections (title/brand/ingredients/materials), *then* implement the selector config.
+- Refactors of shared code must be guarded by **characterization tests** capturing current behavior
+  first (this is how we keep Amazon green — see `LORE.md` INV-4).
+- Do not delete or weaken a test to make it pass. Fix the code or fix the spec, then the test.
+
+### SOLID
+- **S**ingle responsibility: scrapers extract; the route orchestrates; Claude layers reason; scoring
+  scores. Don't blend these.
+- **O**pen/closed: adding a retailer must not require editing route branching, the factory's
+  *algorithm*, or the content script's logic — only adding a config/registry entry. (See ADR-001/002/003.)
+- **L**iskov: every scraper is substitutable through `BaseScraper`; every extension adapter through
+  `SiteAdapter`. Don't add retailer-specific special-casing in callers.
+- **I**nterface segregation: `SiteAdapter.fetchReviews` is optional — sites without a usable session
+  reviews endpoint simply omit it.
+- **D**ependency inversion: high-level code depends on `BaseScraper`/`ScraperFactory` abstractions,
+  not concrete retailer classes. (The old `from ...scrapers.amazon import AmazonScraper` inside the
+  route was a violation — fixed in ADR-002.)
+
+---
+
+## How To Delegate (for the orchestrating agent)
+
+This is a large multi-retailer build. The lead agent **orchestrates and verifies**; implementation
+is delegated to sub-agents to protect context. Rules:
+
+1. **Every delegated agent is instructed to `ultrathink` on every turn.**
+2. Give each agent: the spec, the exact files to touch (from `INDEX.md` §5), the reference pattern
+   (Amazon), and the TDD requirement (tests first). Ask for a **concise structured summary** back
+   (files changed, tests added, test results) — not file dumps — to keep orchestrator context lean.
+3. **Verify every agent's work** against the spec (SDD verifier role): re-run tests, spot-check
+   selectors, confirm Amazon still green. The author agent is never the sole judge.
+4. One retailer (or one tight refactor) per agent. Don't fan out conflicting edits to the same file;
+   serialize shared-file edits (e.g. `factory.py`, `manifest.json`, `retailers/index.ts`) or have the
+   orchestrator make them.
+5. Record decisions in `LORE.md`, mistakes in `MEMORY.md`, feature locations in `INDEX.md`.
+
 ---
 
 ## Project Overview
