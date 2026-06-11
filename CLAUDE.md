@@ -457,14 +457,15 @@ The plugin runs in the `closeBundle` hook, reads `public/manifest.json`, conditi
 
 API configuration is provided via `VITE_*` env vars, baked into JS at build time by Vite:
 
-| Variable | Local Dev (`.env`) | CI (workflow env) |
-|----------|-------------------|-------------------|
-| `VITE_API_BASE_URL` | `http://localhost:8000` | `https://ruh-api-948739110049.us-central1.run.app` |
-| `VITE_API_KEY` | dev key in `.env` | `${{ secrets.VITE_API_KEY }}` |
-| `VITE_SUPABASE_URL` | Supabase project URL | `${{ secrets.VITE_SUPABASE_URL }}` |
-| `VITE_SUPABASE_ANON_KEY` | Supabase anon key | `${{ secrets.VITE_SUPABASE_ANON_KEY }}` |
+| Variable                 | Local Dev (`.env`)      | CI (workflow env)                                  |
+| ------------------------ | ----------------------- | -------------------------------------------------- |
+| `VITE_API_BASE_URL`      | `http://localhost:8000` | `https://ruh-api-948739110049.us-central1.run.app` |
+| `VITE_API_KEY`           | dev key in `.env`       | `${{ secrets.VITE_API_KEY }}`                      |
+| `VITE_SUPABASE_URL`      | Supabase project URL    | `${{ secrets.VITE_SUPABASE_URL }}`                 |
+| `VITE_SUPABASE_ANON_KEY` | Supabase anon key       | `${{ secrets.VITE_SUPABASE_ANON_KEY }}`            |
 
 **There are no hardcoded localhost fallbacks in the TypeScript source.** If `VITE_API_BASE_URL` is missing at build time, the extension fails explicitly rather than silently sending credentials to `localhost` over HTTP:
+
 - `background.ts` returns an error response (`'API URL not configured'`)
 - `api.ts` falls back to empty string (fetch will fail naturally)
 
@@ -480,12 +481,12 @@ The workflow sets `VITE_API_BASE_URL` and `VITE_API_KEY` as env vars on the buil
 
 Analysis auto-runs on every Amazon product page for ALL tiers (backend cost absorbed as growth investment). The harm score donut is always visible for free. Credits gate the **detailed results view** (allergens, PFAS, concerns list), not the analysis itself.
 
-| Tier | Credits/month | Trigger | Detail View |
-|------|--------------|---------|-------------|
-| Free | 5 | Manual (click donut → side panel → "Unlock" button) | Gated |
-| Basic | 15 | Manual | Gated |
-| Middle | 30 | Manual | Gated |
-| Unlimited | Unlimited | Auto (full results shown immediately) | Always visible |
+| Tier      | Credits/month | Trigger                                             | Detail View    |
+| --------- | ------------- | --------------------------------------------------- | -------------- |
+| Free      | 5             | Manual (click donut → side panel → "Unlock" button) | Gated          |
+| Basic     | 15            | Manual                                              | Gated          |
+| Middle    | 30            | Manual                                              | Gated          |
+| Unlimited | Unlimited     | Auto (full results shown immediately)               | Always visible |
 
 1 credit = 1 detailed analysis view. Once unlocked, a product stays unlocked permanently (no re-charge on revisit).
 
@@ -533,17 +534,17 @@ RLS: users can `SELECT` their own rows, `service_role` can manage all.
 
 `backend/src/api/routes/credits.py`:
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/credits/me` | GET | Returns tier, balance, monthly_credits, total_used, cycle_end |
-| `/api/credits/deduct` | POST | Body: `{url_hash}`. Deducts 1 credit. Returns 402 if empty |
-| `/api/credits/check/{url_hash}` | GET | Returns `{unlocked, tier, credits_remaining}` |
+| Endpoint                        | Method | Purpose                                                       |
+| ------------------------------- | ------ | ------------------------------------------------------------- |
+| `/api/credits/me`               | GET    | Returns tier, balance, monthly_credits, total_used, cycle_end |
+| `/api/credits/deduct`           | POST   | Body: `{url_hash}`. Deducts 1 credit. Returns 402 if empty    |
+| `/api/credits/check/{url_hash}` | GET    | Returns `{unlocked, tier, credits_remaining}`                 |
 
 `backend/src/api/routes/user.py`:
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/user/me` | GET | User profile (auto-creates on first JWT request) |
+| Endpoint       | Method | Purpose                                          |
+| -------------- | ------ | ------------------------------------------------ |
+| `/api/user/me` | GET    | User profile (auto-creates on first JWT request) |
 
 All credit endpoints require JWT auth (return 401 for legacy API key callers).
 
@@ -591,6 +592,7 @@ loading → auth check →
 ```
 
 Components:
+
 - **`LoginView.svelte`**: Google OAuth (primary) + email/password (secondary)
 - **`CreditBadge.svelte`**: Sticky header showing tier + remaining credits
 - **`ScoreSummaryView.svelte`**: Score donut + finding counts (teaser) + "Unlock Full Report (1 credit)" button
@@ -619,6 +621,7 @@ Components:
 **Location**: `/backend/migrations/`
 
 **Evidence**:
+
 - Contains outdated SQL files: `001_create_tables.sql`, `002_seed_knowledge_base.sql`
 - Superseded by `/backend/supabase/migrations/`
 - Old schema missing tables (toxic_substances) and columns
@@ -630,6 +633,7 @@ Components:
 **Location**: `/backend/src/application/`
 
 **Evidence**:
+
 - Directory contains only empty `__init__.py`
 - No code implements application layer pattern
 - Business logic exists in `domain/` and `infrastructure/`
@@ -639,10 +643,12 @@ Components:
 ### ⚠️ DEVELOPMENT SCAFFOLDING: Empty Test Directories
 
 **Locations**:
+
 - `/backend/tests/unit/` (empty except `__init__.py`)
 - `/backend/tests/integration/` (empty except `__init__.py`)
 
 **Evidence**:
+
 - Only E2E tests implemented (`tests/e2e/test_product_analysis.py`)
 - Unit and integration test directories created but unused
 
@@ -653,9 +659,11 @@ Components:
 ## Subdirectory Documentation
 
 ### Backend
+
 - [Backend Overview](./backend/CLAUDE.md) - FastAPI server, clean architecture, Claude AI integration
 
 ### Extension
+
 - [Extension Overview](./extension/CLAUDE.md) - Svelte 5 Chrome extension, Manifest V3, UI components
 
 ---
@@ -663,6 +671,7 @@ Components:
 ## Essential Files Summary
 
 **Total Source Files**: 63
+
 - **Backend**: 24 Python files (added auth.py rewrite, credit_service.py, credits.py, user.py)
 - **Extension**: 18 TypeScript/Svelte files (added supabase.ts, auth-store.svelte.ts, LoginView, CreditBadge, ScoreSummaryView, auth-callback.html)
 - **Database**: 5 SQL migration files (active, added 013_add_auth_and_credits.sql)
@@ -674,6 +683,7 @@ Components:
 ## Key Technologies
 
 ### Backend Stack
+
 - **Framework**: FastAPI (Python)
 - **AI**: Anthropic Claude Sonnet 4.5 with Agent SDK
 - **Database**: Supabase (PostgreSQL)
@@ -682,6 +692,7 @@ Components:
 - **Testing**: pytest
 
 ### Extension Stack
+
 - **Framework**: Svelte 5
 - **Language**: TypeScript
 - **Build**: Vite

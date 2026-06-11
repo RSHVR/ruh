@@ -17,23 +17,27 @@ pronounced [ˈɹu] - rooh
 ## Quick Start - Try the Extension
 
 ### Prerequisites
+
 - Node.js 18+ and npm installed
 - Google Chrome browser
 
 ### Build & Install
 
 1. **Clone the repository**
+
    ```bash
    git clone https://github.com/RSHVR/ruh.git
    cd ruh/extension
    ```
 
 2. **Install dependencies**
+
    ```bash
    npm install
    ```
 
 3. **Set up environment variables**
+
    ```bash
    cp .env.example .env
    ```
@@ -43,9 +47,11 @@ pronounced [ˈɹu] - rooh
    - API Key: Pre-configured for demo access
 
 4. **Build the extension**
+
    ```bash
    npm run build
    ```
+
    This creates a `dist` folder with the compiled extension.
 
 5. **Load into Chrome**

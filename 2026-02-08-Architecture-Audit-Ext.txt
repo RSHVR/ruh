@@ -1,0 +1,520 @@
+
+           Claude Code v2.1.34
+ ▐▛███▜▌   Opus 4.6 · Claude Max
+▝▜█████▛▘  ~/Desktop/GitHub Repos/ruh
+  ▘▘ ▝▝    Opus 4.6 is here · $50 free extra usage · /extra-usage to enable
+
+✻ Conversation compacted (ctrl+o for history)
+
+  ⎿  Read backend/docs/BUGS_2026-02-08.md (195 lines)
+  ⎿  Referenced file backend/docs/RAW_LOGS_2026-02-08.md
+  ⎿  Read ROADMAP.md (65 lines)
+  ⎿  Referenced file backend/src/infrastructure/claude_agent.py
+  ⎿  Read backend/src/domain/extraction_schemas.py (314 lines)
+  ⎿  Plan file referenced (~/.claude/plans/lovely-stargazing-nova.md)
+
+⏺ Correct — Cohere is installed but never executes in production. Here's the
+  full picture:
+
+  Two integration points, both dead:
+
+  1. LangGraph agent (backend/src/infrastructure/langgraph_agent.py) — Uses
+  Cohere's command-a model as an alternative to Claude. But config.py has
+  use_langgraph_agent: bool = False, and safety_agent.py routes all traffic to
+  the Claude path. The production logs confirm: SafetyAgent: Claude mode (Claude
+   Sonnet) — LangGraph never fires.
+  2. Review vector embeddings
+  (backend/src/infrastructure/review_vector_service.py) — Uses Cohere embed-v4.0
+   for review embeddings and rerank-v4.0-fast for semantic search. But this code
+   never executes because of BUG-3: the review HTML parsing step upstream always
+   returns 0 reviews, so store_reviews() has nothing to embed. Step 8 (review
+  health analysis) is always skipped: SKIP STEP 8: No reviews stored 
+  (reviews_stored=0 or None).
+
+  Additionally, cohere_api_key: str = "" in config — so even if the code paths
+  were reached, _init_cohere() would find an empty key and bail.
+
+  ★ Insight ─────────────────────────────────────
+  Dead dependency chain: Cohere sits at the end of a 3-link chain where every
+  link is broken independently — (1) feature flag off, (2) API key empty, (3)
+  upstream data pipeline fails. Any one of these would prevent execution; all
+  three being broken simultaneously means this has likely never worked in
+  production. This is a common pattern in fast-moving codebases where features
+  are partially built, flagged off, and then the surrounding infrastructure
+  shifts without anyone noticing the integration was never completed.
+  ─────────────────────────────────────────────────
+
+  The cohere>=5.0.0 dependency in requirements.txt adds ~15MB to the deployment
+  for zero runtime value. It's safe to remove alongside langgraph until the
+  review pipeline (BUG-3) and feature flag are both addressed.
+
+✻ Worked for 2m 18s
+
+❯ wait does config file have the api keys? is it being ignored by git? 
+
+⏺ Good instinct — let me check.
+
+⏺ Read 2 files (ctrl+o to expand)
+
+⏺ No .gitignore at the repo root. Let me check if there's one in the backend
+  directory or if a .env file exists.
+
+⏺ Searched for 2 patterns, read 1 file (ctrl+o to expand)
+
+⏺ Bash(cd "/Users/arshveergahir/Desktop/GitHub Repos/ruh" && git ls-files
+      --cached backend/.env extension/.env 2>/dev/null)
+  ⎿  (No content)
+
+⏺ You're safe. Here's the breakdown:
+
+  No secrets in the config file. config.py doesn't contain any actual keys —
+  it's a Pydantic BaseSettings class that reads values from environment
+  variables at runtime. The actual keys live in .env files:
+
+  backend/.env      ← real keys here
+  extension/.env    ← real keys here
+
+  Both .env files are gitignored. backend/.gitignore line 30 has .env explicitly
+   listed. The git ls-files --cached check returned empty — neither .env file is
+   tracked by git. Only the .env.example templates (which contain placeholder
+  values) are committed.
+
+  How it works at runtime — config.py:56-61:
+  model_config = SettingsConfigDict(
+      env_file=".env",          # ← reads from .env file
+      case_sensitive=False,
+      extra="ignore",
+  )
+
+  Pydantic Settings loads values in this priority order: environment variables >
+   .env file > default values in the class. So anthropic_api_key: str (no
+  default) will raise a validation error on startup if neither the env var nor
+  .env provides it — which is the correct behavior.
+
+  ★ Insight ─────────────────────────────────────
+  Why BaseSettings and not a plain dict: Pydantic Settings gives you type
+  validation at startup. If anthropic_api_key is missing, the app crashes
+  immediately with a clear error instead of failing later at the first API call
+  with a cryptic 401. Fields with defaults (like cohere_api_key: str = "") are
+  optional — the app starts without them, and the code checks for empty strings
+  before using them.
+  ─────────────────────────────────────────────────
+
+  One thing to note: set-env.sh is tracked by git (it's in your modified files
+  list). Make sure that file doesn't contain actual key values — just variable
+  references.
+
+✻ Churned for 34s
+
+❯ add this to bugs for https://www.amazon.ca/dp/B081DJ9KN6 
+  ⎿  [Image #1]
+
+⏺ Clear bug — the ingredient list isn't being split into individual ingredients.
+   The extension shows "Ingredients Analyzed (2)" where those 2 entries are the
+  entire "Active ingredients: ..." and "Inactive ingredients: ..." blocks as
+  single strings, instead of ~20 individual ingredients. Let me read the current
+   bugs file and add this.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Now let me look at where the ingredient list gets built to pinpoint the exact
+  failure location.
+
+⏺ Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+⏺ Now let me look at the key lines where Claude's response gets mapped to
+  ProductAnalysis to see where the ingredient list comes from.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ So analyze.py:520 passes ingredients=analysis_data.get("ingredients", [])
+  straight from Claude's output. The bug is that Claude returns the ingredient
+  list as 2 unparsed blocks instead of individual ingredients. Let me check the
+  agent prompt to see how it's instructed.
+
+⏺ Searched for 1 pattern (ctrl+o to expand)
+
+⏺ Now let me check the Pydantic schema — ProductSafetyAnalysis.ingredients is
+  List[str], so Claude is supposed to return individual strings. Let me also
+  look at what trafilatura_extractor and section_parser do with the extracted
+  data for this specific type of product (sunscreens with "Active/Inactive
+  ingredients" format).
+
+⏺ Searched for 3 patterns, read 1 file (ctrl+o to expand)
+
+⏺ Now I can see the full picture. Let me also check what the
+  ProductSafetyAnalysis schema tells Claude about the ingredients field — it
+  says "Complete ingredient list" (line 290 of extraction_schemas.py), and the
+  prompt at line 953 says "ingredients": ["complete list from manufacturer 
+  website if found, else from product page"]. Let me check the
+  AMAZON_SELECTORS["ingredients_section"] to understand what HTML is being
+  matched.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Now I have everything. The issue spans two layers. Let me add the bug.
+
+⏺ Update(backend/docs/BUGS_2026-02-08.md)
+  ⎿  Added 28 lines
+      180  
+      181  ---
+      182  
+      183 +## BUG-7: Ingredient list not split — "Active ingredients: ...
+          +" treated as a single ingredient                              
+      184 +                                                              
+      185 +**Severity**: High — breaks ingredient-level cross-referencing
+          + in the extension UI                                          
+      186 +**Location**: `backend/src/infrastructure/claude_agent.py:950-
+          +953`, `backend/src/infrastructure/trafilatura_extractor.py:84-
+          +88,206-229`                                                   
+      187 +**Product**: [Neutrogena Hydro Boost SPF 50 — amazon.ca/dp/B08
+          +1DJ9KN6](https://www.amazon.ca/dp/B081DJ9KN6)                 
+      188 +                                                              
+      189 +**What happens**: The extension displays "Ingredients Analyzed
+          + (2)" for a product with ~20 individual ingredients. The two "
+          +ingredients" are:                                             
+      190 +                                                              
+      191 +1. `"Active ingredients (w/w): Homosalate 4%, Octisalate 4%, A
+          +vobenzone 2%, Octocrylene 2%"`                                
+      192 +2. `"Inactive ingredients: Blue 1, Caprylyl Methicone, Chlorph
+          +enesin, Disodium EDTA, Ethylhexylglycerin, Glycerin, Glyceryl 
+          +Stearate, Methyl Methacrylate Crosspolymer, Parfum, Pentylene 
+          +Glycol, Phenoxyethanol, Red 40, Sodium Acryloyldimethyltaurate
+          +/VP Crosspolymer, Sodium Hyaluronate, Sodium Hydroxide, Tocoph
+          +eryl Acetate, Water (eau)"`                                   
+      193 +                                                              
+      194 +The entire comma-separated block is treated as one ingredient 
+          +entry. This can fail at two layers:                           
+      195 +                                                              
+      196 +**Layer 1 — Trafilatura extraction** (`trafilatura_extractor.p
+          +y:206-229`): `_parse_ingredients_text()` strips "Active ingred
+          +ients:" and "Inactive ingredients:" prefixes via regex (line 2
+          +12), then splits on `", "` (line 215-217). But for sunscreens,
+          + the Amazon HTML has the "Active/Inactive ingredients" format 
+          +as two separate text nodes in `#important-information .content
+          +`. If the selector pulls each node individually, `_parse_ingre
+          +dients_text` receives `"Active ingredients (w/w): Homosalate 4
+          +%, Octisalate 4%, Avobenzone 2%, Octocrylene 2%"` — the regex 
+          +`active\s+ingredients?\s*[:\-]\s*` (line 212) doesn't match `"
+          +Active ingredients (w/w):"` because the `(w/w)` sits between t
+          +he label and the colon. The prefix isn't stripped, and the ent
+          +ire string is treated as one ingredient.                      
+      197 +                                                              
+      198 +**Layer 2 — Claude agent** (`claude_agent.py:950-953`): When t
+          +he extraction pipeline fails to parse ingredients (BUG-5), Cla
+          +ude itself must populate the `ingredients` field. The prompt s
+          +ays `"ingredients": ["complete list from manufacturer website 
+          +if found, else from product page"]`. Claude sometimes returns 
+          +the Amazon "Active/Inactive ingredients" text blocks verbatim 
+          +as 2 array items rather than splitting them into individual in
+          +gredients.                                                    
+      199 +                                                              
+      200 +**Impact**:                                                   
+      201 +- The ingredient grid in `AnalysisView.svelte` renders 2 huge 
+          +text blocks instead of 20 individual badges                   
+      202 +- Bidirectional cross-referencing (lines 155-178 of `AnalysisV
+          +iew.svelte`) matches ingredient names against allergens/PFAS/c
+          +oncerns using `.includes()` — a massive string like `"Inactive
+          + ingredients: ...Phenoxyethanol..."` will match against `"Phen
+          +oxyethanol"` in the concerns list, but the *entire block* gets
+          + the `badge-toxic` class, not just that ingredient. All 16 ina
+          +ctive ingredients appear flagged because they share one badge 
+      203 +- The "(2)" count misleads users into thinking only 2 ingredie
+          +nts were analyzed                                             
+      204 +                                                              
+      205 +**Fix**: Two fixes needed:                                    
+      206 +1. **Trafilatura**: Update the prefix regex in `_parse_ingredi
+          +ents_text()` to handle `"Active ingredients (w/w):"` format — 
+          +add `(?:\s*\([^)]*\))?` between the label and colon pattern   
+      207 +2. **Claude agent prompt**: Change the `ingredients` instructi
+          +on from `"complete list"` to explicitly require individual ent
+          +ries: `"ingredients": ["ingredient1", "ingredient2", ...]` wit
+          +h a note: "Each array element must be a single ingredient name
+          +. Do NOT include 'Active ingredients:' or 'Inactive ingredient
+          +s:' prefixes. Split comma-separated lists into individual entr
+          +ies."                                                         
+      208 +                                                              
+      209 +---                                                           
+      210 +                                                              
+      211  ## Summary
+      212  
+      213  | Bug | Severity | Category | Cost |
+
+⏺ Now update the summary table.
+
+⏺ Update(backend/docs/BUGS_2026-02-08.md)
+  ⎿  Added 3 lines
+      218  | BUG-4: No separately-fetched reviews | Medium | Data collect
+           ion | Review pool limited to ~10 vs ~50 |
+      219  | BUG-5: 0 ingredients extracted | High | Extraction failure |
+            ~$0.30/analysis in unnecessary Claude iterations |
+      220  | BUG-6: Confidence default mismatch | Low | Scoring inconsist
+           ency | Up to 2x score variance on edge cases |
+      221 +| BUG-7: Ingredient list not split | High | Extraction + UI | 
+          +Entire ingredient grid useless, false-positive flagging |     
+      222  
+      223  **Combined cost impact**: BUG-3 + BUG-5 together mean the two 
+           most expensive optimizations in the pipeline (DB matching and 
+           review analysis) are both non-functional. Every analysis pays 
+           full Claude price with no cost savings from the extraction/mat
+           ching pipeline.
+      224 +                                                              
+      225 +**BUG-5 → BUG-7 cascade**: When BUG-5 (0 ingredients extracted
+          +) forces Claude to populate the ingredient list from scratch, 
+          +Claude hits BUG-7 (returning unparsed blocks). The extension t
+          +hen renders an ingredient grid that cross-references incorrect
+          +ly — one massive string matches multiple concerns, flagging th
+          +e entire block instead of individual ingredients.             
+
+⏺ Added as BUG-7. Here's the core issue:
+
+  Two failure points producing the same symptom:
+
+  1. Trafilatura regex miss — _parse_ingredients_text() strips prefixes like
+  "Active ingredients:" but the regex doesn't handle "Active ingredients (w/w):"
+   — the (w/w) between the label and colon causes the regex to not match. The
+  prefix stays, and the entire block becomes one "ingredient."
+  2. Claude prompt ambiguity — When Claude populates ingredients itself (because
+   BUG-5 means it gets 0 pre-extracted ingredients), the prompt says "complete 
+  list" without specifying that each array entry must be a single ingredient.
+  Claude returns the Amazon format verbatim as 2 array items.
+
+  ★ Insight ─────────────────────────────────────
+  Why the cross-referencing makes this worse than just a display bug:
+  AnalysisView.svelte:155-178 uses bidirectional .includes() —
+  ingredient.toLowerCase().includes(concern.name.toLowerCase()). When the
+  "ingredient" is a 200-character string containing all 16 inactive ingredients,
+   any single flagged substance (like Phenoxyethanol) causes the entire block to
+   get the badge-toxic CSS class. Every ingredient in that block appears flagged
+   to the user, even if only one is a concern. This is a false-positive
+  multiplier — 1 real concern → 16 apparent concerns.
+  ─────────────────────────────────────────────────
+
+✻ Brewed for 1m 49s
+
+❯ also looks like we can't handle simultaneous requests from either the     
+  same user on various pages, or different users all at the same time       
+
+⏺ Let me trace the concurrency bottlenecks across the pipeline.
+
+⏺ Searched for 2 patterns, read 3 files (ctrl+o to expand)
+
+⏺ Now let me check how the agent is instantiated per request, and whether
+  there's any synchronous blocking in the async handler.
+
+⏺ Searched for 2 patterns (ctrl+o to expand)
+
+⏺ Now let me check if the Anthropic client calls are actually blocking
+  (synchronous) inside the async handler.
+
+⏺ Searched for 2 patterns (ctrl+o to expand)
+
+⏺ There it is. Now let me also check if there's a run.py / Gunicorn / Uvicorn
+  worker config.
+
+⏺ Searched for 3 patterns, read 2 files (ctrl+o to expand)
+
+⏺ Now let me also quickly check the Supabase client — it's a sync client used
+  inside async handlers.
+
+⏺ Searched for 1 pattern (ctrl+o to expand)
+
+⏺ Got all the evidence. Now let me add this as BUG-8.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(backend/docs/BUGS_2026-02-08.md)
+  ⎿  Added 85 lines
+      208  
+      209  ---
+      210  
+      211 +## BUG-8: Synchronous Anthropic client blocks the event loop —
+          + no concurrent request handling                               
+      212 +                                                              
+      213 +**Severity**: Critical — server processes one analysis at a ti
+          +me, all other requests queue                                  
+      214 +**Location**: `backend/src/infrastructure/claude_agent.py:9,11
+          +0,205,296,721,789`, `backend/src/infrastructure/database.py:9,
+          +26`, `backend/Dockerfile:33`, `backend/run.py:7-13`           
+      215 +                                                              
+      216 +**What happens**: Three independent issues combine to make con
+          +current request handling impossible:                          
+      217 +                                                              
+      218 +### Issue 1: Synchronous Anthropic client in async handler    
+      219 +                                                              
+      220 +The Claude agent uses the **synchronous** `Anthropic` client: 
+      221 +                                                              
+      222 +```python                                                     
+      223 +# claude_agent.py:9                                           
+      224 +from anthropic import Anthropic, RateLimitError, APIError     
+      225 +                                                              
+      226 +# claude_agent.py:110                                         
+      227 +self.client = Anthropic(api_key=settings.anthropic_api_key)   
+      228 +                                                              
+      229 +# claude_agent.py:205, 296, 721, 789 — all calls are synchrono
+          +us                                                            
+      230 +response = self.client.messages.create(...)  # ← BLOCKS the ev
+          +ent loop                                                      
+      231 +```                                                           
+      232 +                                                              
+      233 +The route handler is `async def analyze_product()` (analyze.py
+          +:177), which runs on uvicorn's asyncio event loop. When `self.
+          +client.messages.create()` is called, it performs **synchronous
+          + HTTP I/O** — the entire event loop freezes for 10-60 seconds 
+          +per Claude API call. During an agentic loop with 5-10 iteratio
+          +ns, the event loop is blocked for **minutes**.                
+      234 +                                                              
+      235 +Every other request — including health checks, cache hits, and
+          + other users' analyses — waits in the queue until the current 
+          +Claude call returns.                                          
+      236 +                                                              
+      237 +Anthropic provides `AsyncAnthropic` for exactly this case:    
+      238 +                                                              
+      239 +```python                                                     
+      240 +from anthropic import AsyncAnthropic                          
+      241 +self.client = AsyncAnthropic(api_key=settings.anthropic_api_ke
+          +y)                                                            
+      242 +response = await self.client.messages.create(...)  # ← non-blo
+          +cking                                                         
+      243 +```                                                           
+      244 +                                                              
+      245 +### Issue 2: Synchronous Supabase client                      
+      246 +                                                              
+      247 +```python                                                     
+      248 +# database.py:9                                               
+      249 +from supabase import create_client, Client  # ← sync client   
+      250 +                                                              
+      251 +# database.py:26                                              
+      252 +self.client = create_client(settings.supabase_url, settings.su
+          +pabase_key)                                                   
+      253 +```                                                           
+      254 +                                                              
+      255 +All database calls (`self.client.table(...).select(...).execut
+          +e()`) are synchronous HTTP calls to the Supabase REST API, als
+          +o blocking the event loop. The `async def` on the DatabaseServ
+          +ice methods is misleading — the methods are declared `async` b
+          +ut contain no `await` on actual I/O. They block just like the 
+          +Anthropic client.                                             
+      256 +                                                              
+      257 +Supabase provides `create_async_client` for async contexts.   
+      258 +                                                              
+      259 +### Issue 3: Single uvicorn worker, no worker configuration   
+      260 +                                                              
+      261 +```dockerfile                                                 
+      262 +# Dockerfile:33                                               
+      263 +CMD uvicorn src.api.main:app --host 0.0.0.0 --port ${PORT}    
+      264 +```                                                           
+      265 +                                                              
+      266 +```python                                                     
+      267 +# run.py:7-13                                                 
+      268 +uvicorn.run(                                                  
+      269 +    "src.api.main:app",                                       
+      270 +    host=settings.api_host,                                   
+      271 +    port=settings.api_port,                                   
+      272 +    reload=settings.debug,                                    
+      273 +)                                                             
+      274 +```                                                           
+      275 +                                                              
+      276 +No `--workers` flag. Uvicorn defaults to **1 worker process**.
+          + Even if the async issues were fixed, a single worker limits C
+          +PU-bound throughput. Cloud Run can scale containers, but each 
+          +container runs only one worker.                               
+      277 +                                                              
+      278 +**Impact**:                                                   
+      279 +                                                              
+      280 +- **Same user, multiple tabs**: User opens 3 Amazon products s
+          +imultaneously. First analysis starts (takes ~45 seconds of Cla
+          +ude calls). Second and third requests queue behind it. User se
+          +es 45s, 90s, 135s response times. The 30/minute rate limit at 
+          +analyze.py:176 allows the requests through, but they serialize
+          +.                                                             
+      281 +                                                              
+      282 +- **Multiple users**: User A and User B both click "Analyze" a
+          +t the same time. User B waits for User A's entire analysis pip
+          +eline (scraping + extraction + 5-10 Claude iterations + DB sto
+          +rage) to complete before their request even starts.           
+      283 +                                                              
+      284 +- **Health check failures**: Cloud Run sends health probes to 
+          +`/api/health`. During a 45-second event-loop block from a Clau
+          +de call, the health endpoint is unreachable. Cloud Run may mar
+          +k the instance as unhealthy and restart it, killing the in-fli
+          +ght analysis.                                                 
+      285 +                                                              
+      286 +**Evidence**: Each analysis involves 5-10 synchronous `client.
+          +messages.create()` calls (visible in the logs as iterations 1-
+          +8). Each call takes 3-8 seconds. Total blocking time per analy
+          +sis: 30-60+ seconds. During this entire window, the event loop
+          + cannot process any other request.                            
+      287 +                                                              
+      288 +**Fix**:                                                      
+      289 +1. **Anthropic client**: Switch from `Anthropic` to `AsyncAnth
+          +ropic`, change all `self.client.messages.create()` to `await s
+          +elf.client.messages.create()`                                 
+      290 +2. **Supabase client**: Switch from `create_client` to `create
+          +_async_client`, add `await` to all DB operations              
+      291 +3. **Uvicorn workers**: Add `--workers 2` (or use Gunicorn wit
+          +h uvicorn workers) to handle CPU-bound work in parallel. For C
+          +loud Run, match to vCPU count.                                
+      292 +4. **Request queuing**: Consider adding a background task queu
+          +e (the unused Celery/Redis in requirements) for long-running a
+          +nalyses, returning a job ID immediately and polling for result
+          +s                                                             
+      293 +                                                              
+      294 +---                                                           
+      295 +                                                              
+      296  ## Summary
+      297  
+      298  | Bug | Severity | Category | Cost |
+
+⏺ Now update the summary table.
+
+⏺ Update(backend/docs/BUGS_2026-02-08.md)
+  ⎿  Added 1 line
+      304  | BUG-5: 0 ingredients extracted | High | Extraction failure |
+            ~$0.30/analysis in unnecessary Claude iterations |
+      305  | BUG-6: Confidence default mismatch | Low | Scoring inconsist
+           ency | Up to 2x score variance on edge cases |
+      306  | BUG-7: Ingredient list not split | High | Extraction + UI | 
+           Entire ingredient grid useless, false-positive flagging |
+      307 +| BUG-8: Sync clients block event loop | Critical | Concurrenc
+          +y | Server handles 1 request at a time, ~45s blocking per anal
+          +ysis |                                                        
+      308  
+      309  **Combined cost impact**: BUG-3 + BUG-5 together mean the two 
+           most expensive optimizations in the pipeline (DB matching and 
+           review analysis) are both non-functional. Every analysis pays 
+           full Claude price with no cost savings from the extraction/mat
+           ching pipeline.
+      310  
+
+⏺ Added as BUG-8. Here's the summary of the three compounding issues:
+
+  The core problem: The server is a single-threaded async Python app where the
+  two heaviest I/O operations (Claude API and Supabase) both use synchronous
+  clients inside async def handlers. This blocks the event loop entirely.
+
+  ★ Insight ─────────────────────────────────────
+  Why async def + synchronous I/O is worse than just using def: If the handler
+  were a regular def, FastAPI would automatically run it in a thread pool —
+  other requests could still be processed on the event loop while the sync call
+  blocks a thread. But because it's async def, FastAPI runs it directly on the 
+  event loop, trusting that all I/O is awaited. The synchronous
+  client.messages.create() call freezes the entire loop. It's the worst of both
+  worlds — declared async but behaving synchronous, with no thread pool escape
+  hatch.
+
+  The three layers:
+  1. Anthropic() (sync) — each Claude iteration blocks 3-8s, agentic loops block
+   30-60s total
+  2. create_client() (sync Supabase) — every DB call blocks, including cache
+  checks and knowledge base loads
+  3. Single uvicorn worker — no process-level parallelism either
+  ─────────────────────────────────────────────────
+
+  Ironically, you already have redis and celery in your requirements (noted as
+  unused in the audit) — those are exactly the tools for offloading long-running
+   analyses to a background queue. The fix is either (a) switch to
+  AsyncAnthropic + create_async_client for true async, or (b) use Celery to
+  process analyses in background workers and return a job ID to poll.
+
+✻ Cogitated for 1m 40s
