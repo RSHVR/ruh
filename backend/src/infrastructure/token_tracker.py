@@ -37,6 +37,18 @@ PRICING = {
         "cache_write": 6.00,
         "cache_read": 0.30,
     },
+    "claude-sonnet-4-6": {
+        "input": 3.00,
+        "output": 15.00,
+        "cache_write": 6.00,   # 1hr cache write (2x base input)
+        "cache_read": 0.30,    # cache read (0.1x base input)
+    },
+    "claude-haiku-4-5": {
+        "input": 1.00,
+        "output": 5.00,
+        "cache_write": 2.00,   # 1hr cache write (2x base input)
+        "cache_read": 0.10,    # cache read (0.1x base input)
+    },
     "claude-opus-4-7": {
         "input": 15.00,
         "output": 75.00,
@@ -57,6 +69,16 @@ PRICING = {
     },
     # Cohere models — no prompt caching support
     "command-a-03-2025": {
+        "input": 2.50,
+        "output": 10.00,
+        "cache_write": None,
+        "cache_read": None,
+    },
+    # WARNING: PLACEHOLDER PRICING — Command A+ has no public per-token rate as
+    # of 2026-06-10 (open-weights Apache 2.0 release; hosted via Cohere API /
+    # Foundry without a published rate card). Rates copied from command-a-03-2025;
+    # every cost cell for this model is an ESTIMATE until Cohere publishes pricing.
+    "command-a-plus-05-2026": {
         "input": 2.50,
         "output": 10.00,
         "cache_write": None,

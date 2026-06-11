@@ -15,12 +15,20 @@ class HarmScoreCalculator:
     - 61-80: High risk
     - 81-100: Dangerous
 
-    Optimized formula philosophy:
-    - Be aggressive with scoring dangerous products (database-validated)
-    - Each severe toxin should significantly impact score
-    - Product categories (pesticides, cleaners) get multipliers
-    - "under_investigation" substances get capped low scores (max 5 points)
-    - Confidence weighting to prevent false positives from inflating scores
+    Formula philosophy (tuned 2026-06-11 against benchmark ground-truth bands):
+    - Each finding contributes points (severity/category based, confidence
+      weighted); the product-category multiplier is applied per finding.
+    - Findings combine as a *risk union* — 100 * (1 - prod(1 - c_i/100)) —
+      so the worst finding dominates, stacked findings add with diminishing
+      returns, and the score approaches 100 asymptotically instead of
+      truncating (a true multi-hazard product still reads near-maximal).
+    - other_concerns category points are scaled by the concern's own severity
+      (a trace/low finding in a category scores well below a confirmed
+      high-severity one); "under_investigation" stays capped low.
+    - No unconditional score floor: genuinely hazardous findings (high or
+      severe severity, PFAS, carcinogens) clear 25 on their own points, so
+      low-grade trace findings may legitimately score in the 0-20 safe band.
+    - Low global confidence adds precautionary points.
     """
 
     # Base points per concern severity
@@ -31,6 +39,12 @@ class HarmScoreCalculator:
         "severe": 50,
     }
 
+    # Points per detected PFAS compound. PFAS are persistent "forever
+    # chemicals": one confirmed compound alone reads moderate-high (45), and
+    # three at full confidence still reach the Dangerous band (>80) under the
+    # risk-union combination.
+    PFAS_POINTS = 45
+
     # Category-specific scoring for other_concerns
     CATEGORY_POINTS = {
         "under_investigation": 5,  # Capped: substances not in database
@@ -39,6 +53,17 @@ class HarmScoreCalculator:
         "heavy_metal": 25,         # Heavy metals (lead, mercury, etc.)
         "endocrine_disruptor": 25, # Hormone disruptors
         "other": 15,               # Other credible concerns
+    }
+
+    # Scales CATEGORY_POINTS by the concern's own reported severity, so a
+    # trace ("low") finding in a category does not score like a confirmed
+    # high-severity one. Missing/unknown severity keeps the full category
+    # points (conservative).
+    CONCERN_SEVERITY_FACTORS = {
+        "low": 0.4,
+        "moderate": 0.7,
+        "high": 1.0,
+        "severe": 1.2,
     }
 
     # Product category multipliers
@@ -55,14 +80,17 @@ class HarmScoreCalculator:
     def calculate(analysis_data: Dict[str, Any]) -> int:
         """Calculate harm score from analysis data.
 
-        Optimized formula:
-        1. Start with base score of 0
-        2. Add points for allergens (severity-based, confidence-weighted)
-        3. Add points for PFAS (fixed 40 points each, confidence-weighted)
-        4. Add points for other_concerns (category-based scoring)
-        5. Apply product category multiplier
-        6. Apply confidence adjustment
-        7. Cap at 100
+        Formula:
+        1. Compute per-finding contributions:
+           - allergens: severity points x confidence
+           - PFAS: PFAS_POINTS x confidence
+           - other_concerns: category points x severity factor x confidence
+             (falls back to severity points for unknown categories)
+        2. Apply the product category multiplier to each contribution.
+        3. Combine contributions as a risk union:
+           100 * (1 - prod(1 - c_i / 100))
+        4. Add precautionary points when global confidence < 0.7.
+        5. Clamp to [0, 100].
 
         Args:
             analysis_data: Dict with 'allergens_detected', 'pfas_detected', 'other_concerns',
@@ -71,7 +99,7 @@ class HarmScoreCalculator:
         Returns:
             Harm score (0-100)
         """
-        base_score = 0.0
+        contributions = []
         breakdown = {
             "allergens": 0.0,
             "pfas": 0.0,
@@ -80,7 +108,7 @@ class HarmScoreCalculator:
             "confidence_penalty": 0.0
         }
 
-        # Add points for allergens (severity-based)
+        # Points for allergens (severity-based)
         allergens = analysis_data.get("allergens_detected", [])
         for allergen in allergens:
             severity = allergen.get("severity", "low")
@@ -88,26 +116,28 @@ class HarmScoreCalculator:
             confidence = allergen.get("confidence", 1.0)
             contribution = points * confidence
             breakdown["allergens"] += contribution
-            base_score += contribution
+            contributions.append(contribution)
 
-        # Add points for PFAS (each PFAS is inherently high risk)
+        # Points for PFAS (each PFAS is inherently high risk)
         pfas_compounds = analysis_data.get("pfas_detected", [])
         for pfas in pfas_compounds:
             confidence = pfas.get("confidence", 1.0)
-            # PFAS are forever chemicals - high base score
-            contribution = 40 * confidence
+            contribution = HarmScoreCalculator.PFAS_POINTS * confidence
             breakdown["pfas"] += contribution
-            base_score += contribution
+            contributions.append(contribution)
 
-        # Add points for other_concerns (category-based scoring)
+        # Points for other_concerns (category-based, scaled by the concern's
+        # own severity)
         other_concerns = analysis_data.get("other_concerns", [])
         for concern in other_concerns:
             category = concern.get("category", "other")
             confidence = concern.get("confidence", 1.0)
 
-            # Use category-specific points (with "under_investigation" capped at 5)
             if category in HarmScoreCalculator.CATEGORY_POINTS:
-                points = HarmScoreCalculator.CATEGORY_POINTS[category]
+                severity_factor = HarmScoreCalculator.CONCERN_SEVERITY_FACTORS.get(
+                    concern.get("severity"), 1.0
+                )
+                points = HarmScoreCalculator.CATEGORY_POINTS[category] * severity_factor
             else:
                 # Fallback to severity-based if category not recognized
                 severity = concern.get("severity", "low")
@@ -115,15 +145,24 @@ class HarmScoreCalculator:
 
             contribution = points * confidence
             breakdown["other_concerns"] += contribution
-            base_score += contribution
+            contributions.append(contribution)
 
-        # Apply category multiplier for high-risk product types
+        # Apply category multiplier for high-risk product types (per finding,
+        # which preserves single-finding semantics under the risk union).
         category_multiplier = HarmScoreCalculator._get_category_multiplier(
             analysis_data.get("product_name", ""),
             analysis_data.get("category", "")
         )
         breakdown["category_multiplier"] = category_multiplier
-        base_score *= category_multiplier
+
+        # Combine findings as a risk union: each contribution is an
+        # independent share of harm, so stacking is sub-linear (the worst
+        # finding dominates) and saturation at 100 is asymptotic.
+        survival = 1.0
+        for contribution in contributions:
+            boosted = min(contribution * category_multiplier, 100.0)
+            survival *= 1.0 - boosted / 100.0
+        base_score = 100.0 * (1.0 - survival)
 
         # Apply confidence adjustment (low confidence = add caution points)
         confidence = analysis_data.get("confidence", 1.0)
@@ -133,11 +172,9 @@ class HarmScoreCalculator:
             breakdown["confidence_penalty"] = caution_bonus
             base_score += caution_bonus
 
-        # Ensure minimum score if any concerns detected
-        if (allergens or pfas_compounds or other_concerns) and base_score < 25:
-            base_score = 25
-
-        final_score = min(100, int(base_score))
+        # Round away float epsilon from the survival product before the
+        # truncating int() (e.g. 8.0 computing as 7.99999999999):
+        final_score = max(0, min(100, int(round(base_score, 6))))
 
         # Log scoring breakdown for debugging
         logger.debug(
