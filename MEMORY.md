@@ -83,3 +83,17 @@ interaction). Added an `IkeaScraper._extract_sections` override that parses them
 (LORE.md ADR-005). Re-audit the other apparel/beauty sites (Sephora ingredients, Aritzia) the same way.
 
 _(append future entries above this line)_
+
+## 2026-07-20 — Cherry-pick 50611bb shipped a green-tests-but-broken prod path
+
+Commit 50611bb cherry-picked `analyze.py` from harness-eval but missed TWO files it
+depends on: `src/infrastructure/section_parser.py` (module missing → boot ImportError)
+and the updated `src/domain/ingredient_matcher.py` (new `toxic_database` kwarg →
+runtime TypeError → 500 on EVERY analyze request). The 143-test unit suite was fully
+green the whole time — unit tests import modules in isolation and never exercised the
+route's real call into the matcher.
+
+**Fix:** copied both files (+ matcher unit tests) from harness-eval.
+**Lesson:** after any cross-branch cherry-pick of route/orchestration code, run a true
+E2E smoke (`backend/verify-live.sh` against localhost) before calling it done. Green
+unit tests do not prove the request path works.

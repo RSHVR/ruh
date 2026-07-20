@@ -9,22 +9,23 @@ set -a; source .env; set +a
 echo "== health =="
 curl -s --max-time 30 "$BASE/api/health"; echo
 
-echo "== analyze (real product, may take 20-60s on cache miss) =="
-curl -s --max-time 180 -X POST "$BASE/api/analyze" \
+echo "== analyze (real IKEA product, may take 60-120s on cache miss) =="
+curl -s --max-time 300 -X POST "$BASE/api/analyze" \
   -H "Authorization: Bearer ${API_KEY}" \
   -H "Content-Type: application/json" \
-  -d '{"product_url": "https://www.amazon.com/dp/B004D24D0S"}' \
+  -d '{"product_url": "https://www.ikea.com/us/en/p/sniglar-crib-beech-50248541/"}' \
   | python3 -c "
 import json,sys
 try:
     d = json.load(sys.stdin)
 except Exception as e:
     print('❌ non-JSON response:', e); sys.exit(1)
-a = (d.get('analysis') or {}).get('product_analysis') or {}
+a = d.get('analysis') or {}
 print('product:', a.get('product_name'))
 print('overall_score:', a.get('overall_score'))
 print('allergens:', len(a.get('allergens_detected') or []))
 print('pfas:', len(a.get('pfas_detected') or []))
+print('other_concerns:', len(a.get('other_concerns') or []))
 print('cached:', d.get('cached'))
 ok = isinstance(a.get('overall_score'), (int, float))
 print('✅ E2E PASS' if ok else '❌ E2E FAIL — no score in response')
