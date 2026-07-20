@@ -33,13 +33,11 @@ tests/
 *.md
 docs/
 
-# Environment
-.env.example
-.env.local
-.env.development
+# Environment — NEVER bake secrets into the image
+.env
+.env.*
 
-# Lock files (we use pyproject.toml)
-uv.lock
+# uv.lock is REQUIRED by the Dockerfile (uv sync --frozen) — do not ignore it
 
 # CI/CD
 .github/
@@ -47,3 +45,13 @@ uv.lock
 # Misc
 .DS_Store
 *.log
+
+# Deploy tooling (not app code)
+node_modules/
+worker.js
+wrangler.jsonc
+package.json
+pnpm-lock.yaml
+.wrangler/
+benchmark_results/
+notebooks/

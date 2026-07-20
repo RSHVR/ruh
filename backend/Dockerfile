@@ -1,33 +1,25 @@
-# Use Python 3.13 slim image
+# Ruh backend — FastAPI on Cloudflare Containers / Cloud Run
 FROM python:3.13-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
+RUN apt-get update && apt-get install -y --no-install-recommends gcc g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv for fast package management
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Copy dependency files
-COPY pyproject.toml ./
+# Install locked dependencies first for layer caching.
+# Playwright browsers intentionally NOT installed: extraction_service (the only
+# Playwright consumer) is not in the boot path; primary analysis uses client HTML.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
 
-# Install dependencies using uv
-RUN uv pip install --system --no-cache fastapi uvicorn[standard] anthropic pydantic pydantic-settings psycopg[binary] redis celery python-dotenv httpx beautifulsoup4 lxml supabase slowapi
-
-# Copy application code
 COPY . .
 
-# Expose port (Cloud Run will set PORT env var)
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PORT=8080
+
 EXPOSE 8080
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV PORT=8080
-
-# Run uvicorn (Cloud Run handles health checking, no Docker HEALTHCHECK needed)
 CMD uvicorn src.api.main:app --host 0.0.0.0 --port ${PORT}

@@ -4,16 +4,15 @@
    *
    * Manages the Chrome Side Panel lifecycle, state synchronization,
    * and event coordination. This container component handles:
-   * - Auth gating (login required before viewing)
-   * - Credit-based access to detailed analysis
+   * - Credit-based access to detailed analysis (authenticated flow)
    * - Tab switching and URL navigation detection
    * - Analysis data loading from chrome.storage
    * - Empty states and error handling
    *
    * Rendering flow:
-   *   loading → auth check →
-   *     NOT logged in → LoginView
-   *     logged in →
+   *   loading →
+   *     NOT authenticated (launch default) → full analysis states, AnalysisView ungated
+   *     authenticated → auth header +
    *       no data → empty state
    *       loading → LoadingScreen
    *       error → error state
@@ -25,7 +24,6 @@
   import { onMount, onDestroy } from 'svelte';
   import AnalysisView from './components/AnalysisView.svelte';
   import LoadingScreen from './components/LoadingScreen.svelte';
-  import LoginView from './components/LoginView.svelte';
   import CreditBadge from './components/CreditBadge.svelte';
   import ScoreSummaryView from './components/ScoreSummaryView.svelte';
   import type { TabAnalysisState } from './lib/storage-sync';
@@ -49,9 +47,12 @@
   let tabActivatedListener: ((activeInfo: chrome.tabs.TabActiveInfo) => void) | null = null;
   let tabUpdatedListener: ((tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void) | null = null;
 
-  // Determine if user should see full analysis
+  // Determine if user should see full analysis.
+  // Launch default: unauthenticated users get the full report ungated.
   let showFullAnalysis = $derived(
-    authStore.userTier === 'unlimited' || analysisUnlocked,
+    !authStore.isAuthenticated ||
+      authStore.userTier === 'unlimited' ||
+      analysisUnlocked,
   );
 
   onMount(async () => {
@@ -223,16 +224,16 @@
       <div class="spinner"></div>
       <p>Loading...</p>
     </div>
-  {:else if !authStore.isAuthenticated}
-    <LoginView />
   {:else}
-    <!-- Auth header with credit badge and sign out -->
-    <div class="auth-header">
-      <CreditBadge />
-      <button class="signout-btn" onclick={() => authStore.signOut()}>
-        Sign Out
-      </button>
-    </div>
+    {#if authStore.isAuthenticated}
+      <!-- Auth header with credit badge and sign out (authenticated flow only) -->
+      <div class="auth-header">
+        <CreditBadge />
+        <button class="signout-btn" onclick={() => authStore.signOut()}>
+          Sign Out
+        </button>
+      </div>
+    {/if}
 
     {#if error}
       <div class="empty-state">

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Ruh",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "AI-powered product safety analysis - detect harmful substances and find safer alternatives",
   "permissions": [
     "storage",
@@ -22,11 +22,10 @@
     "https://*.garageclothing.com/*",
     "https://*.ikea.com/*",
     "https://*.temu.com/*",
-    "https://ruh-api-948739110049.us-central1.run.app/*",
-    "http://localhost:8000/*"
+    "https://api.rshvr.com/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://ruh-api-948739110049.us-central1.run.app https://*.supabase.co http://localhost:8000"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://api.rshvr.com https://*.supabase.co"
   },
   "background": {
     "service_worker": "background.js",
