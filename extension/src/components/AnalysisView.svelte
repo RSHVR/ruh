@@ -15,11 +15,47 @@
     getRiskClass,
     formatTimeAgo,
   } from "@/lib/utils";
-  import { extractSources, type SourceRef } from "../lib/sources";
+  import {
+    extractSources,
+    sourceRefFromUrl,
+    type SourceRef,
+  } from "../lib/sources";
   import { namesMatch } from "../lib/matching";
   import SourceStack from "./SourceStack.svelte";
   import SourcesSheet from "./SourcesSheet.svelte";
   import FeatureBoard from "./FeatureBoard.svelte";
+
+  /**
+   * Merge description-parsed URLs with the agent's structured
+   * research_sources whose key finding mentions this concern. The structured
+   * entries carry per-source notes ({finding}) for the sources sheet.
+   */
+  function findingSources(name: string, parsed: SourceRef[]): SourceRef[] {
+    const research = (productAnalysis?.research_sources ?? []) as {
+      url?: string;
+      finding?: string;
+    }[];
+    const merged: SourceRef[] = parsed.map((s) => ({ ...s }));
+    const seen = new Set(merged.map((s) => s.url));
+
+    for (const rs of research) {
+      if (!rs.url) continue;
+      if (seen.has(rs.url)) {
+        // Same URL already parsed from the description — attach the note.
+        const hit = merged.find((s) => s.url === rs.url);
+        if (hit && !hit.note && rs.finding) hit.note = rs.finding;
+        continue;
+      }
+      if (rs.finding && namesMatch(name, rs.finding)) {
+        const ref = sourceRefFromUrl(rs.url, rs.finding);
+        if (ref) {
+          merged.push(ref);
+          seen.add(ref.url);
+        }
+      }
+    }
+    return merged;
+  }
 
   // Sources sheet state: which finding's receipts are being viewed.
   let sourcesSheet = $state<{
@@ -367,6 +403,7 @@
               <div class="space-y-2">
                 {#each group.items as concern}
                   {@const parsed = extractSources(concern.description)}
+                  {@const cardSources = findingSources(concern.name, parsed.sources)}
                   <div class="item-card">
                     <div class="flex items-start justify-between gap-3">
                       <div class="flex-1">
@@ -375,12 +412,12 @@
                           {parsed.reason || concern.description}
                         </p>
                         <SourceStack
-                          sources={parsed.sources}
+                          sources={cardSources}
                           onOpen={() =>
                             (sourcesSheet = {
                               title: concern.name,
                               reason: parsed.reason,
-                              sources: parsed.sources,
+                              sources: cardSources,
                             })}
                         />
                       </div>

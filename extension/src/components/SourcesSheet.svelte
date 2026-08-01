@@ -58,6 +58,9 @@
           <img src={faviconUrl(source.domain)} alt="" class="row-favicon" />
           <span class="row-text">
             <span class="row-domain">{source.domain}</span>
+            {#if source.note}
+              <span class="row-note">{source.note}</span>
+            {/if}
             <span class="row-url">{source.url}</span>
           </span>
           <span class="row-open">↗</span>
@@ -175,6 +178,15 @@
     font-size: 13px;
     font-weight: 500;
     color: var(--color-text-primary, #3a3633);
+  }
+
+  .row-note {
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--color-text-primary, #3a3633);
+    margin: 2px 0;
+    overflow-wrap: anywhere;
   }
 
   .row-url {

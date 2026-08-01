@@ -14,6 +14,8 @@ export interface SourceRef {
   url: string;
   /** Registrable-ish host, used for favicons + display ("cdc.gov"). */
   domain: string;
+  /** Optional per-source note (the agent's key finding from this source). */
+  note?: string;
 }
 
 // Matches http(s) URLs and bare domain paths like "cdc.gov/niosh/x.pdf" or
@@ -76,6 +78,15 @@ export function extractSources(text: string): {
   if (reason && !/[.!?]$/.test(reason)) reason += ".";
 
   return { reason, sources };
+}
+
+/** Build a SourceRef from a raw URL string (null if unparseable). */
+export function sourceRefFromUrl(raw: string, note?: string): SourceRef | null {
+  const cleaned = raw.replace(/[.,;)\]]+$/, "");
+  const domain = toDomain(cleaned);
+  if (!domain) return null;
+  const url = cleaned.startsWith("http") ? cleaned : `https://${cleaned}`;
+  return note ? { url, domain, note } : { url, domain };
 }
 
 /** Favicon URL for a source domain (Google's public favicon service). */
