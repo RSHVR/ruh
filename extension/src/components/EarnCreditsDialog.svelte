@@ -72,7 +72,7 @@
     <p class="earn-sub">Help make ruh better — get detail unlocks in return.</p>
 
     <div class="offer-list">
-      {#each offers as offer (offer.credits)}
+      {#each offers as offer (offer.title)}
         <a
           class="offer-row"
           href="mailto:{SUPPORT_EMAIL}?subject={encodeURIComponent(offer.mailtoSubject)}"
