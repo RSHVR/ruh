@@ -116,11 +116,14 @@ async function startAnalysis(adapter: SiteAdapter) {
   const canonicalUrl =
     adapter.canonicalUrl?.(currentProductUrl) ?? currentProductUrl;
 
-  // Notify background worker that analysis started
-  chrome.runtime.sendMessage({
-    type: "ANALYSIS_STARTED",
-    productUrl: canonicalUrl,
-  });
+  // Notify background worker that analysis started (fire-and-forget; an
+  // orphaned script after an extension reload must not throw here)
+  chrome.runtime
+    .sendMessage({
+      type: "ANALYSIS_STARTED",
+      productUrl: canonicalUrl,
+    })
+    .catch(() => {});
 
   try {
     // ============================================
@@ -178,27 +181,81 @@ async function startAnalysis(adapter: SiteAdapter) {
     // The background worker runs in chrome-extension:// and is exempt.
     console.log("[ruh] Sending analysis request to background worker");
 
-    const result = await chrome.runtime.sendMessage({
-      type: "ANALYZE_PRODUCT",
-      productUrl: canonicalUrl,
-      requestBody,
+    // A cache-miss analysis takes 1-2 minutes — far longer than an MV3
+    // message channel survives (Chrome kills idle service workers after ~30s,
+    // closing the channel mid-flight). So the message is fire-and-forget and
+    // the OUTCOME arrives via chrome.storage, which the background worker
+    // writes in both the success and error paths.
+    await new Promise<void>((resolve, reject) => {
+      const TIMEOUT_MS = 5 * 60 * 1000;
+      let settled = false;
+
+      const cleanup = () => {
+        settled = true;
+        chrome.storage.onChanged.removeListener(onStorageChange);
+        clearTimeout(timer);
+      };
+
+      const onStorageChange = (
+        changes: { [key: string]: chrome.storage.StorageChange },
+        area: string,
+      ) => {
+        if (settled || area !== "local") return;
+        for (const [key, change] of Object.entries(changes)) {
+          if (!key.startsWith("analysis_")) continue;
+          const value = change.newValue as
+            | {
+                productUrl?: string;
+                status?: string;
+                harmScore?: number | null;
+                error?: string | null;
+              }
+            | undefined;
+          if (!value || value.productUrl !== canonicalUrl) continue;
+
+          if (value.status === "complete") {
+            cleanup();
+            console.log("[ruh] Analysis complete");
+            if (typeof value.harmScore === "number" && !buttonDismissed) {
+              injectTriggerButton(value.harmScore);
+            }
+            resolve();
+            return;
+          }
+          if (value.status === "error") {
+            cleanup();
+            reject(new Error(value.error || "Analysis failed"));
+            return;
+          }
+        }
+      };
+
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error("Analysis timed out — try refreshing the page"));
+      }, TIMEOUT_MS);
+
+      chrome.storage.onChanged.addListener(onStorageChange);
+
+      chrome.runtime
+        .sendMessage({
+          type: "ANALYZE_PRODUCT",
+          productUrl: canonicalUrl,
+          requestBody,
+        })
+        .then((result) => {
+          // Fast path (cache hits) still answers on the channel before the
+          // idle timer matters; only surface immediate hard failures here —
+          // storage handles everything else.
+          if (!settled && result && result.success === false) {
+            cleanup();
+            reject(new Error(result.error || "Background analysis failed"));
+          }
+        })
+        .catch(() => {
+          // Channel died (long analysis or worker restart) — storage delivers.
+        });
     });
-
-    if (!result?.success) {
-      throw new Error(result?.error || "Background analysis failed");
-    }
-
-    const data = result.data;
-    console.log("[ruh] Analysis complete:", data);
-    if (data.reviews_stored !== null && data.reviews_stored !== undefined) {
-      console.log(`[ruh] Reviews stored: ${data.reviews_stored}`);
-    }
-
-    // Inject button now that analysis is complete
-    const harmScore = 100 - data.analysis.overall_score;
-    if (!buttonDismissed) {
-      injectTriggerButton(harmScore);
-    }
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Analysis failed";
@@ -343,13 +400,17 @@ async function injectTriggerButton(harmScore: number) {
   });
 
   // Check if side panel is already open before showing button
-  const response = await chrome.runtime.sendMessage({
-    type: "IS_SIDE_PANEL_OPEN",
-  });
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "IS_SIDE_PANEL_OPEN",
+    });
 
-  if (response?.isOpen) {
-    // Hide button initially if side panel is open
-    triggerButton.style.display = "none";
+    if (response?.isOpen) {
+      // Hide button initially if side panel is open
+      triggerButton.style.display = "none";
+    }
+  } catch {
+    // Orphaned script (extension was reloaded) — leave the button visible.
   }
 
   document.body.appendChild(triggerButton);
