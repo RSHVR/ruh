@@ -65,6 +65,25 @@ async function initialize(): Promise<void> {
       }
     });
 
+    // Cross-context safety net: when another panel changes the persisted
+    // auth state, re-read the session so THIS panel's UI follows — the
+    // client-level sync (supabase.ts) fires auth events for sign-out and
+    // adopted sign-ins, but a passive re-read here covers any path that
+    // doesn't emit one.
+    if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== "local" || !changes.supabase_auth) return;
+        void client.auth.getSession().then(({ data }) => {
+          session = data.session;
+          user = data.session?.user ?? null;
+          if (!data.session) {
+            creditBalance = null;
+            userTier = "free";
+          }
+        });
+      });
+    }
+
     if (session) {
       await refreshCredits();
     }
@@ -174,7 +193,15 @@ async function signOut(): Promise<void> {
   const client = getSupabaseClient();
   if (!client) return;
 
-  await client.auth.signOut();
+  try {
+    // Global: revokes the refresh token server-side and clears storage,
+    // which the cross-context sync propagates to every other panel.
+    await client.auth.signOut();
+  } catch {
+    // Network revoke failed — still sign out locally so the UI never
+    // stays "signed in" after the user asked to leave.
+    await client.auth.signOut({ scope: "local" }).catch(() => {});
+  }
   session = null;
   user = null;
   creditBalance = null;
