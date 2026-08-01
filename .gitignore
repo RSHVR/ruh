@@ -1,3 +1,4 @@
 backend/node_modules/
 extension/ruh-extension-*.zip
 backend/.secrets.bulk.json
+.DS_Store

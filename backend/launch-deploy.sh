@@ -16,7 +16,7 @@ for line in pathlib.Path(".env").read_text().splitlines():
     if line and not line.startswith("#") and "=" in line:
         k, v = line.split("=", 1)
         env[k] = v
-keys = ["ANTHROPIC_API_KEY","API_KEY","SUPABASE_URL","SUPABASE_KEY","TAVILY_API_KEY","SERPER_API_KEY","COHERE_API_KEY"]
+keys = ["ANTHROPIC_API_KEY","API_KEY","SUPABASE_URL","SUPABASE_KEY","SUPABASE_JWT_SECRET","TAVILY_API_KEY","SERPER_API_KEY","COHERE_API_KEY"]
 out = {k: env[k] for k in keys if k in env}
 pathlib.Path(".secrets.bulk.json").write_text(json.dumps(out))
 print("prepared", len(out), "secrets")

@@ -1,13 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Ruh",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "AI-powered product safety analysis - detect harmful substances and find safer alternatives",
-  "permissions": [
-    "storage",
-    "activeTab",
-    "sidePanel"
-  ],
+  "permissions": ["storage", "activeTab", "sidePanel"],
   "host_permissions": [
     "https://*.amazon.com/*",
     "https://*.amazon.ca/*",

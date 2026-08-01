@@ -4,15 +4,16 @@
    *
    * Manages the Chrome Side Panel lifecycle, state synchronization,
    * and event coordination. This container component handles:
-   * - Credit-based access to detailed analysis (authenticated flow)
+   * - Auth gating (login required before viewing — gated beta)
+   * - Credit-based access to detailed analysis
    * - Tab switching and URL navigation detection
    * - Analysis data loading from chrome.storage
    * - Empty states and error handling
    *
    * Rendering flow:
-   *   loading →
-   *     NOT authenticated (launch default) → full analysis states, AnalysisView ungated
-   *     authenticated → auth header +
+   *   loading → auth check →
+   *     NOT logged in → LoginView
+   *     logged in → auth header +
    *       no data → empty state
    *       loading → LoadingScreen
    *       error → error state
@@ -20,12 +21,15 @@
    *         unlimited tier → AnalysisView
    *         non-unlimited AND NOT unlocked → ScoreSummaryView
    *         non-unlimited AND unlocked → AnalysisView
+   *       (FeatureBoard pinned at the bottom in every authenticated state)
    */
   import { onMount, onDestroy } from 'svelte';
   import AnalysisView from './components/AnalysisView.svelte';
   import LoadingScreen from './components/LoadingScreen.svelte';
+  import LoginView from './components/LoginView.svelte';
   import CreditBadge from './components/CreditBadge.svelte';
   import ScoreSummaryView from './components/ScoreSummaryView.svelte';
+  import FeatureBoard from './components/FeatureBoard.svelte';
   import type { TabAnalysisState } from './lib/storage-sync';
   import { getTabStorageKey, getActiveTab } from './lib/storage-sync';
   import { isAmazonProductPage } from '@/lib/utils';
@@ -47,12 +51,10 @@
   let tabActivatedListener: ((activeInfo: chrome.tabs.TabActiveInfo) => void) | null = null;
   let tabUpdatedListener: ((tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void) | null = null;
 
-  // Determine if user should see full analysis.
-  // Launch default: unauthenticated users get the full report ungated.
+  // Determine if user should see full analysis (authenticated users only —
+  // login is required to reach this point in the gated beta).
   let showFullAnalysis = $derived(
-    !authStore.isAuthenticated ||
-      authStore.userTier === 'unlimited' ||
-      analysisUnlocked,
+    authStore.userTier === 'unlimited' || analysisUnlocked,
   );
 
   onMount(async () => {
@@ -224,16 +226,16 @@
       <div class="spinner"></div>
       <p>Loading...</p>
     </div>
+  {:else if !authStore.isAuthenticated}
+    <LoginView />
   {:else}
-    {#if authStore.isAuthenticated}
-      <!-- Auth header with credit badge and sign out (authenticated flow only) -->
-      <div class="auth-header">
-        <CreditBadge />
-        <button class="signout-btn" onclick={() => authStore.signOut()}>
-          Sign Out
-        </button>
-      </div>
-    {/if}
+    <!-- Auth header with credit badge and sign out -->
+    <div class="auth-header">
+      <CreditBadge />
+      <button class="signout-btn" onclick={() => authStore.signOut()}>
+        Sign Out
+      </button>
+    </div>
 
     {#if error}
       <div class="empty-state">
@@ -276,6 +278,9 @@
         <p>Unknown state</p>
       </div>
     {/if}
+
+    <!-- Feature request board — pinned at the bottom in every authenticated state -->
+    <FeatureBoard />
   {/if}
 </div>
 
@@ -285,6 +290,14 @@
     height: 100vh;
     overflow-y: auto;
     background: var(--color-bg-primary, #fffbf5);
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Keep the feature board pinned to the bottom when content is short,
+     while letting it flow naturally at the end when content overflows. */
+  .side-panel-container :global(.feature-board) {
+    margin-top: auto;
   }
 
   .auth-header {

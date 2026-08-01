@@ -3,27 +3,19 @@
 
   let email = $state('');
   let password = $state('');
-  let isSignUp = $state(false);
+  let isSignUp = $state(true);
   let errorMsg = $state('');
+  let googleNotice = $state('');
   let submitting = $state(false);
-
-  async function handleGoogle() {
-    submitting = true;
-    errorMsg = '';
-    const result = await authStore.signInWithGoogle();
-    if (!result.success) {
-      errorMsg = result.error || 'Google sign in failed';
-    }
-    submitting = false;
-  }
 
   async function handleEmailSubmit() {
     if (!email || !password) {
-      errorMsg = 'Please enter email and password';
+      errorMsg = 'Please enter your email and password';
       return;
     }
     submitting = true;
     errorMsg = '';
+    googleNotice = '';
 
     const result = isSignUp
       ? await authStore.signUp(email, password)
@@ -31,6 +23,19 @@
 
     if (!result.success) {
       errorMsg = result.error || 'Authentication failed';
+    }
+    submitting = false;
+  }
+
+  async function handleGoogle() {
+    submitting = true;
+    errorMsg = '';
+    googleNotice = '';
+    const result = await authStore.signInWithGoogle();
+    if (!result.success) {
+      // Google may not be wired up during the beta — keep it gentle and
+      // point people at the email flow rather than surfacing a raw error.
+      googleNotice = 'Google sign-in coming soon — use email for now.';
     }
     submitting = false;
   }
@@ -47,6 +52,43 @@
     <div class="error-banner">{errorMsg}</div>
   {/if}
 
+  <form onsubmit={(e) => { e.preventDefault(); handleEmailSubmit(); }}>
+    <input
+      type="email"
+      bind:value={email}
+      placeholder="Email"
+      class="input"
+      autocomplete="email"
+      disabled={submitting}
+    />
+    <input
+      type="password"
+      bind:value={password}
+      placeholder="Password"
+      class="input"
+      autocomplete={isSignUp ? 'new-password' : 'current-password'}
+      disabled={submitting}
+    />
+    <button type="submit" class="email-btn" disabled={submitting}>
+      {isSignUp ? 'Create free account' : 'Sign in'}
+    </button>
+  </form>
+
+  {#if isSignUp}
+    <p class="beta-note">Free during the public beta</p>
+  {/if}
+
+  <button
+    class="toggle-btn"
+    onclick={() => { isSignUp = !isSignUp; errorMsg = ''; googleNotice = ''; }}
+  >
+    {isSignUp ? 'Already have an account? Sign in' : "New here? Create a free account"}
+  </button>
+
+  <div class="divider">
+    <span>or</span>
+  </div>
+
   <button
     class="google-btn"
     onclick={handleGoogle}
@@ -58,39 +100,12 @@
       <path d="M3.964 10.706A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.038l3.007-2.332z" fill="#FBBC05"/>
       <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.962L3.964 7.294C4.672 5.166 6.656 3.58 9 3.58z" fill="#EA4335"/>
     </svg>
-    Sign in with Google
+    Continue with Google
   </button>
 
-  <div class="divider">
-    <span>or</span>
-  </div>
-
-  <form onsubmit={(e) => { e.preventDefault(); handleEmailSubmit(); }}>
-    <input
-      type="email"
-      bind:value={email}
-      placeholder="Email"
-      class="input"
-      disabled={submitting}
-    />
-    <input
-      type="password"
-      bind:value={password}
-      placeholder="Password"
-      class="input"
-      disabled={submitting}
-    />
-    <button type="submit" class="email-btn" disabled={submitting}>
-      {isSignUp ? 'Create Account' : 'Sign In'}
-    </button>
-  </form>
-
-  <button
-    class="toggle-btn"
-    onclick={() => { isSignUp = !isSignUp; errorMsg = ''; }}
-  >
-    {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
-  </button>
+  {#if googleNotice}
+    <p class="google-notice">{googleNotice}</p>
+  {/if}
 </div>
 
 <style>
@@ -105,7 +120,7 @@
 
   .logo-section {
     text-align: center;
-    margin-bottom: 32px;
+    margin-bottom: 28px;
   }
 
   .logo {
@@ -141,58 +156,6 @@
     text-align: center;
   }
 
-  .google-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    width: 100%;
-    max-width: 300px;
-    padding: 12px 16px;
-    background: white;
-    border: 1px solid #e0d8cc;
-    border-radius: 8px;
-    font-family: 'Poppins', sans-serif;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--color-text-primary, #3A3633);
-    cursor: pointer;
-    transition: all 150ms ease;
-  }
-
-  .google-btn:hover:not(:disabled) {
-    background: #faf5ee;
-    border-color: #c4baa8;
-  }
-
-  .google-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .divider {
-    display: flex;
-    align-items: center;
-    width: 100%;
-    max-width: 300px;
-    margin: 20px 0;
-    gap: 12px;
-  }
-
-  .divider::before,
-  .divider::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: #e0d8cc;
-  }
-
-  .divider span {
-    font-family: 'Poppins', sans-serif;
-    font-size: 12px;
-    color: var(--color-text-secondary, #6B6560);
-  }
-
   form {
     display: flex;
     flex-direction: column;
@@ -225,7 +188,7 @@
     border-radius: 8px;
     font-family: 'Poppins', sans-serif;
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 600;
     cursor: pointer;
     transition: all 150ms ease;
   }
@@ -239,8 +202,17 @@
     cursor: not-allowed;
   }
 
+  .beta-note {
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--color-sage, #94A37C);
+    margin: 10px 0 0;
+    text-align: center;
+  }
+
   .toggle-btn {
-    margin-top: 16px;
+    margin-top: 14px;
     background: none;
     border: none;
     font-family: 'Poppins', sans-serif;
@@ -252,5 +224,66 @@
 
   .toggle-btn:hover {
     text-decoration: underline;
+  }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    max-width: 300px;
+    margin: 20px 0;
+    gap: 12px;
+  }
+
+  .divider::before,
+  .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #e0d8cc;
+  }
+
+  .divider span {
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    color: var(--color-text-secondary, #6B6560);
+  }
+
+  .google-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    max-width: 300px;
+    padding: 11px 16px;
+    background: white;
+    border: 1px solid #e0d8cc;
+    border-radius: 8px;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-text-secondary, #6B6560);
+    cursor: pointer;
+    transition: all 150ms ease;
+  }
+
+  .google-btn:hover:not(:disabled) {
+    background: #faf5ee;
+    border-color: #c4baa8;
+  }
+
+  .google-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .google-notice {
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    color: var(--color-text-secondary, #6B6560);
+    margin: 12px 0 0;
+    text-align: center;
+    max-width: 300px;
   }
 </style>

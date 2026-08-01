@@ -44,6 +44,7 @@ Last updated: 2026-06-03
 | Review vectors | Cohere embeddings + pgvector search | `backend/src/infrastructure/review_vector_service.py` | `ReviewVectorService` |
 | Validation logging | Log invalid substances (log-only mode) | `backend/src/infrastructure/validation_logger.py` | `validation_logger` |
 | Token tracking | Track Claude token usage + cost | `backend/src/infrastructure/token_tracker.py` | `TokenTracker` |
+| Feature board | Beta feature requests + votes (JWT-only) | `backend/src/api/routes/features.py`, `backend/src/infrastructure/feature_service.py` | `list_features()`, `create_feature()`, `toggle_vote()` |
 | Config | Pydantic settings from `.env` | `backend/src/infrastructure/config.py` | `Settings`, `settings` |
 | App entry | FastAPI app + routers + CORS | `backend/src/api/main.py`, `backend/run.py` | `app` |
 
@@ -65,6 +66,7 @@ Last updated: 2026-06-03
 | Storage sync | Per-tab analysis state | `extension/src/lib/storage-sync.ts` | `saveTabAnalysis()` |
 | Utils | Harm score, risk level, formatting | `extension/src/lib/utils.ts` | `getHarmScore()`, `getRiskLevel()` |
 | Types | Shared TS interfaces | `extension/src/types/index.ts` | `AnalysisRequest`, `AnalysisResponse` |
+| Feature board UI | Collapsible vote/submit board in side panel | `extension/src/components/FeatureBoard.svelte`, `extension/src/lib/feature-board.ts` | `fetchFeatures()`, `applyOptimisticVote()` |
 | Manifest | MV3 permissions, content-script matches | `extension/public/manifest.json` | — |
 | Build | Vite multi-entry build | `extension/vite.config.ts` | — |
 
