@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { authStore } from '../lib/auth-store.svelte';
+  import { DISCLAIMER_PARAGRAPHS } from '../lib/disclaimer';
+  import { REGION_GROUPS } from '../lib/regions';
 
   let email = $state('');
   let code = $state('');
@@ -8,6 +10,13 @@
   let errorMsg = $state('');
   let googleNotice = $state('');
   let submitting = $state(false);
+
+  // Required before a first sign-in code can be requested; the full disclaimer
+  // is available inline via the "Read more" expander (no external page).
+  let tosAccepted = $state(false);
+  let showDisclaimer = $state(false);
+  // Shopper's province/state — required at signup, drives region-aware research.
+  let region = $state('');
   let resendCooldown = $state(0);
   let cooldownTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -22,10 +31,13 @@
     try {
       const stored = await chrome.storage.session.get(PENDING_KEY);
       const pending = stored?.[PENDING_KEY] as
-        | { email?: string; sentAt?: number }
+        | { email?: string; sentAt?: number; region?: string }
         | undefined;
       if (pending?.email && Date.now() - (pending.sentAt ?? 0) < PENDING_TTL_MS) {
         email = pending.email;
+        // Restore the chosen region so it still gets persisted after a
+        // tab-switch remount lands us back on the code step.
+        if (pending.region) region = pending.region;
         step = 'code';
         const remaining = 60 - Math.floor((Date.now() - (pending.sentAt ?? 0)) / 1000);
         if (remaining > 0) startCooldown(remaining);
@@ -49,6 +61,15 @@
       errorMsg = 'Please enter your email';
       return;
     }
+    // Acceptance + region are only required to request the first code (email
+    // step). The resend path runs from the code step, where both already
+    // happened.
+    if (step === 'email' && (!tosAccepted || !region)) {
+      errorMsg = !region
+        ? 'Please choose where you shop to continue'
+        : 'Please accept the terms to continue';
+      return;
+    }
     submitting = true;
     errorMsg = '';
     googleNotice = '';
@@ -59,7 +80,7 @@
       code = '';
       startCooldown();
       chrome.storage.session
-        .set({ [PENDING_KEY]: { email, sentAt: Date.now() } })
+        .set({ [PENDING_KEY]: { email, sentAt: Date.now(), region } })
         .catch(() => {});
     } else {
       errorMsg = result.error || 'Could not send the code — try again';
@@ -79,7 +100,7 @@
     submitting = true;
     errorMsg = '';
 
-    const result = await authStore.verifyEmailCode(email, code.trim());
+    const result = await authStore.verifyEmailCode(email, code.trim(), region || undefined);
     if (!result.success) {
       errorMsg = result.error || 'That code didn’t work — check it and try again';
     } else {
@@ -122,7 +143,55 @@
         autocomplete="email"
         disabled={submitting}
       />
-      <button type="submit" class="email-btn" disabled={submitting}>
+
+      <label class="tos-check">
+        <input type="checkbox" bind:checked={tosAccepted} disabled={submitting} />
+        <span
+          >I understand ruh provides research summaries — not medical or health
+          advice — and I accept the Terms.</span
+        >
+      </label>
+      <button
+        type="button"
+        class="tos-readmore"
+        aria-expanded={showDisclaimer}
+        onclick={() => (showDisclaimer = !showDisclaimer)}
+      >
+        {showDisclaimer ? 'Hide details' : 'Read more'}
+      </button>
+      {#if showDisclaimer}
+        <div class="tos-disclaimer">
+          {#each DISCLAIMER_PARAGRAPHS as para (para)}
+            <p>{para}</p>
+          {/each}
+        </div>
+      {/if}
+
+      <label class="region-label" for="region-select">
+        Where do you shop? (province/state)
+      </label>
+      <select
+        id="region-select"
+        class="input region-select"
+        class:placeholder={!region}
+        bind:value={region}
+        disabled={submitting}
+      >
+        <option value="" disabled selected>Select your region…</option>
+        {#each REGION_GROUPS as group (group.country)}
+          <optgroup label={group.country}>
+            {#each group.options as opt (opt.code)}
+              <option value={opt.code}>{opt.name}</option>
+            {/each}
+          </optgroup>
+        {/each}
+      </select>
+
+      <button
+        type="submit"
+        class="email-btn"
+        disabled={submitting || !tosAccepted || !region}
+      >
         {submitting ? 'Sending…' : 'Email me a sign-in code'}
       </button>
     </form>
@@ -293,6 +362,80 @@
     color: var(--color-sage, #94A37C);
     margin: 10px 0 0;
     text-align: center;
+  }
+
+  .tos-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--color-text-secondary, #6B6560);
+    cursor: pointer;
+  }
+
+  .tos-check input {
+    margin-top: 2px;
+    accent-color: var(--color-sage, #94A37C);
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+
+  .tos-readmore {
+    align-self: flex-start;
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--color-sage, #94A37C);
+    cursor: pointer;
+  }
+
+  .tos-readmore:hover {
+    text-decoration: underline;
+  }
+
+  .tos-disclaimer {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--color-bg-secondary, #f5f0e8);
+  }
+
+  .tos-disclaimer p {
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--color-text-secondary, #6B6560);
+    margin: 0;
+  }
+
+  .region-label {
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--color-text-secondary, #6B6560);
+    margin-top: 2px;
+  }
+
+  /* Matches .input; native select needs an explicit appearance + cursor. */
+  .region-select {
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B6560' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 34px;
+  }
+
+  .region-select.placeholder {
+    color: var(--color-text-secondary, #6B6560);
   }
 
   .toggle-btn {

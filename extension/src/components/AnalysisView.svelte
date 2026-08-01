@@ -24,6 +24,7 @@
   import SourceStack from "./SourceStack.svelte";
   import SourcesSheet from "./SourcesSheet.svelte";
   import FeatureBoard from "./FeatureBoard.svelte";
+  import DisclaimerSheet from "./DisclaimerSheet.svelte";
   import AnalysisFeedback from "./AnalysisFeedback.svelte";
 
   /**
@@ -122,6 +123,76 @@
 
   const scoreColor = $derived(getScoreColor(harmScore));
 
+  // "About ruh scores" disclaimer sheet (opened from the score card's (i)).
+  let showScoreInfo = $state(false);
+
+  // "What we screen for" criteria card — collapsed by default.
+  let screenExpanded = $state(false);
+
+  // Ingredient chip colour by whether the ingredient was flagged. Extracted
+  // from the inline template logic so the flat list and the provenance groups
+  // share one source of truth.
+  function ingredientBadgeClass(ingredient: string): string {
+    if (!productAnalysis) return "badge-unknown";
+    const isAllergen = productAnalysis.allergens_detected.some((a) =>
+      namesMatch(ingredient, a.name),
+    );
+    const isPFAS = productAnalysis.pfas_detected.some((p) =>
+      namesMatch(ingredient, p.name),
+    );
+    const isToxic = productAnalysis.other_concerns.some((c) =>
+      namesMatch(ingredient, c.name),
+    );
+    const noFindings =
+      productAnalysis.allergens_detected.length === 0 &&
+      productAnalysis.pfas_detected.length === 0 &&
+      productAnalysis.other_concerns.length === 0;
+    if (isAllergen) return "badge-allergen";
+    if (isPFAS) return "badge-pfas";
+    if (isToxic) return "badge-toxic";
+    if (noFindings) return "badge-safe";
+    return "badge-unknown";
+  }
+
+  // Provenance segmentation (backend task #15). Declared/found are flat chip
+  // lists; inferred entries carry a production stage, so they're sub-grouped
+  // under stage headings. Empty groups are dropped; when the whole field is
+  // absent the UI falls back to the flat ingredient list.
+  const provenanceGroups = $derived.by(() => {
+    const p = productAnalysis?.ingredients_by_provenance;
+    if (!p) return [];
+    return [
+      { key: "declared", label: "Declared", sublabel: "on the product's label", items: p.declared ?? [] },
+      { key: "found", label: "Found in research", sublabel: "confirmed for this product by our research", items: p.found ?? [] },
+    ].filter((g) => g.items.length > 0);
+  });
+
+  // Inferred ingredients grouped by production stage, insertion order preserved.
+  const inferredStages = $derived.by(() => {
+    const inferred = productAnalysis?.ingredients_by_provenance?.inferred;
+    if (!inferred || inferred.length === 0) return [];
+    const stages: { stage: string; items: string[] }[] = [];
+    const indexByStage = new Map<string, number>();
+    for (const entry of inferred) {
+      const stage = entry.stage?.trim() || "During manufacturing";
+      let i = indexByStage.get(stage);
+      if (i === undefined) {
+        i = stages.length;
+        indexByStage.set(stage, i);
+        stages.push({ stage, items: [] });
+      }
+      stages[i].items.push(entry.name);
+    }
+    return stages;
+  });
+
+  const hasProvenance = $derived(
+    provenanceGroups.length > 0 || inferredStages.length > 0,
+  );
+
+  // Region-aware sourcing summary (backend task #16); absent → card not shown.
+  const origin = $derived(productAnalysis?.origin ?? null);
+
   function handleRetry() {
     // Reload the page to trigger a new analysis
     window.location.reload();
@@ -198,8 +269,31 @@
             </div>
           </div>
           <div class="ml-6">
-            <h3 class="text-lg font-semibold text-ink-primary">{riskLevel}</h3>
-            <p class="text-sm text-ink-secondary">Harm Level</p>
+            <div class="risk-row">
+              <h3 class="text-lg font-semibold text-ink-primary">{riskLevel}</h3>
+              <button
+                type="button"
+                class="info-btn"
+                onclick={() => (showScoreInfo = true)}
+                aria-label="About this score"
+                title="About this score"
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" />
+                  <line
+                    x1="12"
+                    y1="11"
+                    x2="12"
+                    y2="16"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  />
+                  <circle cx="12" cy="7.5" r="1.25" fill="currentColor" />
+                </svg>
+              </button>
+            </div>
+            <p class="text-sm text-ink-secondary">possible harm level</p>
             <div class="mt-2 flex items-center">
               <span class="text-base font-semibold text-ink-primary"
                 >{Math.round(productAnalysis.confidence * 100)}%</span
@@ -219,46 +313,51 @@
         </h3>
         <div class="space-y-3">
           <!-- Ingredients Display -->
+          {#snippet ingredientChips(items: string[])}
+            <div class="ingredient-grid">
+              {#each items as ingredient}
+                <span class="ingredient-badge {ingredientBadgeClass(ingredient)}">
+                  {ingredient}
+                </span>
+              {/each}
+            </div>
+          {/snippet}
+
           {#if productAnalysis.ingredients.length > 0}
             <div class="analysis-detail-item">
               <div>
                 <p class="font-medium text-ink-primary mb-3">
                   Ingredients Analyzed ({productAnalysis.ingredients.length})
                 </p>
-                <div class="ingredient-grid">
-                  {#each productAnalysis.ingredients as ingredient}
-                    {@const isAllergen =
-                      productAnalysis.allergens_detected.some((a) =>
-                        namesMatch(ingredient, a.name),
-                      )}
-                    {@const isPFAS = productAnalysis.pfas_detected.some((p) =>
-                      namesMatch(ingredient, p.name),
-                    )}
-                    {@const isToxic = productAnalysis.other_concerns.some((c) =>
-                      namesMatch(ingredient, c.name),
-                    )}
-                    {@const isSafe =
-                      !isAllergen &&
-                      !isPFAS &&
-                      !isToxic &&
-                      productAnalysis.allergens_detected.length === 0 &&
-                      productAnalysis.pfas_detected.length === 0 &&
-                      productAnalysis.other_concerns.length === 0}
-                    <span
-                      class="ingredient-badge {isAllergen
-                        ? 'badge-allergen'
-                        : isPFAS
-                          ? 'badge-pfas'
-                          : isToxic
-                            ? 'badge-toxic'
-                            : isSafe
-                              ? 'badge-safe'
-                              : 'badge-unknown'}"
-                    >
-                      {ingredient}
-                    </span>
-                  {/each}
-                </div>
+                {#if hasProvenance}
+                  <div class="provenance-groups">
+                    {#each provenanceGroups as group (group.key)}
+                      <div class="provenance-group">
+                        <p class="provenance-label">{group.label}</p>
+                        <p class="provenance-sublabel">{group.sublabel}</p>
+                        {@render ingredientChips(group.items)}
+                      </div>
+                    {/each}
+                    {#if inferredStages.length > 0}
+                      <div class="provenance-group">
+                        <p class="provenance-label">Inferred</p>
+                        <p class="provenance-sublabel">
+                          likely present given how this type of product is made
+                        </p>
+                        <div class="stage-groups">
+                          {#each inferredStages as sg (sg.stage)}
+                            <div class="stage-group">
+                              <p class="stage-label">{sg.stage}</p>
+                              {@render ingredientChips(sg.items)}
+                            </div>
+                          {/each}
+                        </div>
+                      </div>
+                    {/if}
+                  </div>
+                {:else}
+                  {@render ingredientChips(productAnalysis.ingredients)}
+                {/if}
               </div>
             </div>
           {:else}
@@ -273,16 +372,98 @@
             </div>
           {/if}
 
+          {#if origin}
+            <div class="analysis-detail-item">
+              <div class="flex items-center">
+                <span class="text-2xl mr-3">🌾</span>
+                <p class="font-medium text-ink-primary">Where it comes from</p>
+              </div>
+              {#if origin.alert}
+                <div class="origin-alert">
+                  <span class="origin-alert-icon" aria-hidden="true">⚠️</span>
+                  <span class="origin-alert-text">{origin.alert}</span>
+                </div>
+              {/if}
+              <p class="text-sm text-ink-secondary origin-summary">
+                {origin.summary}
+              </p>
+              {#if origin.region}
+                <p class="origin-footnote">Researched for {origin.region}</p>
+              {/if}
+              <p class="origin-footnote">
+                Checked {formatTimeAgo(productAnalysis.analyzed_at)}
+              </p>
+            </div>
+          {/if}
+
           <div class="analysis-detail-item">
-            <div class="flex items-center">
+            <button
+              type="button"
+              class="screen-header"
+              onclick={() => (screenExpanded = !screenExpanded)}
+              aria-expanded={screenExpanded}
+            >
               <span class="text-2xl mr-3">🧪</span>
-              <div>
-                <p class="font-medium text-ink-primary">Database Screening</p>
+              <div class="screen-head-text">
+                <p class="font-medium text-ink-primary">What we screen for</p>
                 <p class="text-sm text-ink-secondary">
-                  Checked against allergen and PFAS compound databases
+                  Allergens, forever chemicals, toxins, recalls + more — tap to
+                  see all criteria
                 </p>
               </div>
-            </div>
+              <svg
+                class="chevron"
+                class:open={screenExpanded}
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="M6 9l6 6 6-6"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+            {#if screenExpanded}
+              <ul class="screen-criteria">
+                <li>
+                  <strong>Label check</strong> — every listed ingredient and
+                  material, matched against our databases: 32 priority allergens
+                  (including their alternate names), 75 PFAS "forever chemicals",
+                  and 50 other flagged toxins
+                </li>
+                <li>
+                  <strong>Manufacturer research</strong> — the brand's own
+                  ingredient lists and safety sheets, for what the retail listing
+                  leaves out
+                </li>
+                <li>
+                  <strong>Recalls &amp; warnings</strong> — FDA, Health Canada,
+                  CPSC, EPA, and EU safety actions naming this product or brand
+                </li>
+                <li>
+                  <strong>Cancer classifications</strong> — substances rated by
+                  IARC (the WHO's cancer agency)
+                </li>
+                <li>
+                  <strong>Lawsuits &amp; settlements</strong> — court records
+                  tying this brand or substance to health claims
+                </li>
+                <li>
+                  <strong>Hormone disruptors &amp; heavy metals</strong> — with
+                  credible scientific evidence only
+                </li>
+                <li>
+                  <strong>Manufacturing traces</strong> — substances likely
+                  introduced while this type of product is made
+                </li>
+              </ul>
+            {/if}
           </div>
 
           <div class="analysis-detail-item">
@@ -474,6 +655,13 @@
       reason={sourcesSheet.reason}
       sources={sourcesSheet.sources}
       onClose={() => (sourcesSheet = null)}
+    />
+  {/if}
+
+  {#if showScoreInfo}
+    <DisclaimerSheet
+      title="About ruh scores"
+      onClose={() => (showScoreInfo = false)}
     />
   {/if}
 </div>
@@ -715,6 +903,177 @@
     transition: all 150ms ease-in-out;
     border: none;
     cursor: pointer;
+  }
+
+  .risk-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .info-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--color-text-secondary, #6b6560);
+    cursor: pointer;
+    transition: color 150ms ease;
+  }
+
+  .info-btn:hover {
+    color: var(--color-secondary, #94a37c);
+  }
+
+  .info-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  /* Provenance-segmented ingredient groups (backend task #15) */
+  .provenance-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 8px;
+  }
+
+  .provenance-label {
+    font-family: 'Instrument Sans', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-primary, #3a3633);
+    margin: 0;
+  }
+
+  .provenance-sublabel {
+    font-family: 'Poppins', sans-serif;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--color-text-secondary, #6b6560);
+    margin: 2px 0 0;
+  }
+
+  /* Inferred ingredients sub-grouped under their production stage */
+  .stage-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 8px;
+  }
+
+  .stage-label {
+    font-family: 'Poppins', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text-secondary, #6b6560);
+    margin: 0;
+  }
+
+  .stage-group .ingredient-grid {
+    margin-top: 6px;
+  }
+
+  /* Expandable "What we screen for" card */
+  .screen-header {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 0;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+  }
+
+  .screen-head-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .screen-header .chevron {
+    flex-shrink: 0;
+    margin-left: 8px;
+    color: var(--color-text-secondary, #6b6560);
+    transition: transform 200ms ease;
+  }
+
+  .screen-header .chevron.open {
+    transform: rotate(180deg);
+  }
+
+  .screen-criteria {
+    list-style: none;
+    margin: 12px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .screen-criteria li {
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--color-text-secondary, #6b6560);
+    padding-left: 14px;
+    position: relative;
+  }
+
+  .screen-criteria li::before {
+    content: '•';
+    position: absolute;
+    left: 2px;
+    color: var(--color-secondary, #94a37c);
+  }
+
+  .screen-criteria strong {
+    font-weight: 600;
+    color: var(--color-text-primary, #3a3633);
+  }
+
+  /* "Where it comes from" origin card */
+  .origin-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 10px 0;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(196, 110, 90, 0.12);
+    border: 1px solid rgba(196, 110, 90, 0.35);
+  }
+
+  .origin-alert-icon {
+    flex-shrink: 0;
+    font-size: 14px;
+    line-height: 1.4;
+  }
+
+  .origin-alert-text {
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #8a3d2d; /* darkened rust for AA contrast on the tint */
+  }
+
+  .origin-summary {
+    margin: 8px 0 0;
+    line-height: 1.5;
+  }
+
+  .origin-footnote {
+    font-family: 'Poppins', sans-serif;
+    font-size: 11px;
+    color: var(--color-text-secondary, #6b6560);
+    margin: 6px 0 0;
   }
 
   /* Ingredient Badge Styles */

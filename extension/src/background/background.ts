@@ -39,6 +39,22 @@ async function getAuthHeader(): Promise<string> {
   return apiKey ? `Bearer ${apiKey}` : "";
 }
 
+/**
+ * The signed-in shopper's region (e.g. "CA-ON") from Supabase user_metadata,
+ * for region-aware origin research. Null when unset or unauthenticated.
+ */
+async function getUserRegion(): Promise<string | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+  try {
+    const { data } = await client.auth.getSession();
+    const region = data.session?.user?.user_metadata?.region;
+    return typeof region === "string" && region ? region : null;
+  } catch {
+    return null;
+  }
+}
+
 // ============================================
 // SIDE PANEL STATE DETECTION using getContexts()
 // ============================================
@@ -235,8 +251,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     );
 
     // Use JWT if available, else fall back to static API key
-    getAuthHeader()
-      .then((authValue) => {
+    Promise.all([getAuthHeader(), getUserRegion()])
+      .then(([authValue, userRegion]) => {
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
         };
@@ -244,10 +260,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           headers["Authorization"] = authValue;
         }
 
+        // Inject the shopper's region here (not in the content script, which
+        // can't reach the auth store) so origin research is region-aware.
         return fetch(apiBaseUrl + "/api/analyze", {
           method: "POST",
           headers,
-          body: JSON.stringify(message.requestBody),
+          body: JSON.stringify({ ...message.requestBody, user_region: userRegion }),
         });
       })
       .then(async (response) => {

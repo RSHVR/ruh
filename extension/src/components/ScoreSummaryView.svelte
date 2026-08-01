@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { AnalysisResponse } from '../types';
   import { authStore } from '../lib/auth-store.svelte';
+  import DisclaimerSheet from './DisclaimerSheet.svelte';
 
   let {
     analysis,
@@ -9,6 +10,8 @@
     analysis: AnalysisResponse;
     onUnlock: () => void;
   } = $props();
+
+  let showScoreInfo = $state(false);
 
   let productAnalysis = $derived(analysis.analysis);
   let harmScore = $derived(100 - productAnalysis.overall_score);
@@ -94,9 +97,39 @@
       {#if productAnalysis.brand}
         <p class="brand">{productAnalysis.brand}</p>
       {/if}
-      <span class="risk-badge {riskClass}">{riskLevel}</span>
+      <div class="risk-row">
+        <span class="risk-badge {riskClass}">{riskLevel}</span>
+        <button
+          type="button"
+          class="info-btn"
+          onclick={() => (showScoreInfo = true)}
+          aria-label="About this score"
+          title="About this score"
+        >
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" />
+            <line
+              x1="12"
+              y1="11"
+              x2="12"
+              y2="16"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+            <circle cx="12" cy="7.5" r="1.25" fill="currentColor" />
+          </svg>
+        </button>
+      </div>
     </div>
   </div>
+
+  {#if showScoreInfo}
+    <DisclaimerSheet
+      title="About ruh scores"
+      onClose={() => (showScoreInfo = false)}
+    />
+  {/if}
 
   <!-- Teaser: what's behind the gate -->
   {#if totalFindings > 0}
@@ -200,6 +233,12 @@
     margin: 0 0 8px;
   }
 
+  .risk-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
   .risk-badge {
     display: inline-block;
     padding: 3px 10px;
@@ -207,6 +246,29 @@
     font-family: 'Poppins', sans-serif;
     font-size: 11px;
     font-weight: 600;
+  }
+
+  .info-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--color-text-secondary, #6B6560);
+    cursor: pointer;
+    transition: color 150ms ease;
+  }
+
+  .info-btn:hover {
+    color: var(--color-sage, #94A37C);
+  }
+
+  .info-btn svg {
+    width: 16px;
+    height: 16px;
   }
 
   .risk-badge.safe { background: #e8f5e9; color: #2e7d32; }

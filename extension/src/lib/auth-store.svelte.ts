@@ -164,6 +164,7 @@ async function sendEmailCode(
 async function verifyEmailCode(
   email: string,
   code: string,
+  region?: string,
 ): Promise<{ success: boolean; error?: string }> {
   const client = getSupabaseClient();
   if (!client) return { success: false, error: "Supabase not configured" };
@@ -175,7 +176,38 @@ async function verifyEmailCode(
   });
   if (error) return { success: false, error: error.message };
 
+  // Record one-time Terms/disclaimer acceptance (and the signup region) in the
+  // user's metadata. Fire-and-forget: sign-in must not block on the write.
+  void recordSignupMetadata(region);
+
   return { success: true };
+}
+
+/**
+ * Persist signup-time metadata in Supabase user_metadata in a single
+ * updateUser call: `tos_accepted_at` the first time it's seen, and `region`
+ * the first time it's provided. Both writes are idempotent (existing values are
+ * left untouched), so re-sign-ins are no-ops. Acceptance/region are gated in
+ * the signup UI; this just records them.
+ */
+async function recordSignupMetadata(region?: string): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+
+  try {
+    const { data } = await client.auth.getUser();
+    if (!data.user) return;
+
+    const meta = data.user.user_metadata ?? {};
+    const patch: Record<string, unknown> = {};
+    if (!meta.tos_accepted_at) patch.tos_accepted_at = new Date().toISOString();
+    if (region && !meta.region) patch.region = region;
+
+    if (Object.keys(patch).length === 0) return;
+    await client.auth.updateUser({ data: patch });
+  } catch {
+    // Non-fatal — the values were captured in the UI; a later sign-in retries.
+  }
 }
 
 async function signOut(): Promise<void> {

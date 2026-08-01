@@ -5,6 +5,27 @@ export interface ProductAnalysis {
   brand: string;
   retailer: string;
   ingredients: string[];
+  /**
+   * Optional provenance segmentation of `ingredients` (backend task #15).
+   * When present, the UI groups the chips by how each ingredient was known;
+   * when absent (all existing analyses), the flat `ingredients` list is shown.
+   */
+  ingredients_by_provenance?: {
+    declared: string[];
+    found: string[];
+    /** Each inferred ingredient carries the production stage it likely enters at. */
+    inferred: { name: string; stage: string }[];
+  };
+  /**
+   * Optional region-aware sourcing summary (backend task #16). `region` echoes
+   * the region the research was run for; `alert` is a prominent caution (e.g. an
+   * active recall/outbreak) and already includes its own source + timeframe.
+   */
+  origin?: {
+    summary: string;
+    region: string | null;
+    alert: string | null;
+  };
   overall_score: number;
   allergens_detected: AllergenDetection[];
   pfas_detected: PFASDetection[];
@@ -106,6 +127,11 @@ export interface AnalysisRequest {
   product_html?: string;
   /** Client-provided reviews HTML (fetched via user's Amazon session) */
   reviews_html?: string;
+  /**
+   * Shopper's region (e.g. "CA-ON"), for region-aware origin research. Injected
+   * by the background worker from the signed-in user's metadata; null if unset.
+   */
+  user_region?: string | null;
 }
 
 /**
