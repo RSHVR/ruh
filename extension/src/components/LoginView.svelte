@@ -43,8 +43,7 @@
 
 <div class="login-view">
   <div class="logo-section">
-    <img src="/icon-128.png" alt="Ruh" class="logo" />
-    <h1>Ruh</h1>
+    <img src="/ruh-wordmark.svg" alt="ruh" class="logo" />
     <p class="tagline">Know what's in your products</p>
   </div>
 
@@ -124,17 +123,9 @@
   }
 
   .logo {
-    width: 64px;
-    height: 64px;
+    width: 110px;
+    height: auto;
     margin-bottom: 12px;
-  }
-
-  h1 {
-    font-family: 'Cormorant Infant', serif;
-    font-size: 32px;
-    font-weight: 700;
-    color: var(--color-text-primary, #3A3633);
-    margin: 0 0 4px;
   }
 
   .tagline {

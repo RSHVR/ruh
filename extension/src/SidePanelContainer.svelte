@@ -231,6 +231,7 @@
   {:else}
     <!-- Auth header with credit badge and sign out -->
     <div class="auth-header">
+      <img src="/ruh-wordmark.svg" alt="ruh" class="header-wordmark" />
       <CreditBadge />
       <button class="signout-btn" onclick={() => authStore.signOut()}>
         Sign Out
@@ -298,6 +299,13 @@
      while letting it flow naturally at the end when content overflows. */
   .side-panel-container :global(.feature-board) {
     margin-top: auto;
+  }
+
+  .header-wordmark {
+    height: 20px;
+    width: auto;
+    flex-shrink: 0;
+    margin-right: 10px;
   }
 
   .auth-header {
