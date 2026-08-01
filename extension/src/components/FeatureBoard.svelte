@@ -280,11 +280,6 @@
     flex-shrink: 0;
   }
 
-  .vote-btn:hover:not(:disabled) {
-    border-color: var(--color-sage, #94A37C);
-    color: var(--color-sage, #94A37C);
-  }
-
   .vote-btn.active {
     background: var(--color-sage, #94A37C);
     border-color: var(--color-sage, #94A37C);
