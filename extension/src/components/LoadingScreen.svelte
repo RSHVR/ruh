@@ -1,13 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { wittyMessages, progressMessages } from '@/lib/messages';
+  import { wittyMessages } from '@/lib/messages';
   import { fade, fly } from 'svelte/transition';
-
-  interface Message {
-    id: number;
-    text: string;
-    type: 'witty' | 'progress';
-  }
 
   interface Props {
     currentStep?: string;
@@ -15,80 +9,89 @@
 
   let { currentStep = '' }: Props = $props();
 
-  let messages: Message[] = $state([]);
-  let messageId = 0;
-  let messageInterval: number | null = null;
-  let messageCount = 0;
-  const MAX_MESSAGES = 20; // Cap at 20 messages (60 seconds)
+  // One message on stage at a time, rotated from a shuffled deck so nothing
+  // repeats until the whole deck has played. `tick` keys the {#key} block so
+  // Svelte crossfades between consecutive messages.
+  let tick = $state(0);
+  let current = $state('');
+  let deck: string[] = [];
+  let deckIndex = 0;
+  let rotations = 0;
+  let rotateInterval: ReturnType<typeof setInterval> | null = null;
+
+  const ROTATE_MS = 3000;
+  const MAX_ROTATIONS = 40; // ~2 min, then settle on a static message
+
+  function shuffled(list: string[]): string[] {
+    const copy = [...list];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  }
+
+  function nextMessage(): string {
+    if (deckIndex >= deck.length) {
+      deck = shuffled(wittyMessages);
+      // Avoid an immediate repeat across the reshuffle boundary
+      if (deck[0] === current && deck.length > 1) {
+        [deck[0], deck[1]] = [deck[1], deck[0]];
+      }
+      deckIndex = 0;
+    }
+    return deck[deckIndex++];
+  }
+
+  function rotate() {
+    rotations++;
+    if (rotations >= MAX_ROTATIONS) {
+      current = 'Still working — this product has a lot to analyze…';
+      if (rotateInterval) clearInterval(rotateInterval);
+      rotateInterval = null;
+    } else {
+      current = nextMessage();
+    }
+    tick++;
+  }
 
   onMount(() => {
-    // Start with a witty message
-    addMessage(getRandomWittyMessage(), 'witty');
-
-    // Add new witty message every 3 seconds
-    messageInterval = window.setInterval(() => {
-      if (messageCount < MAX_MESSAGES) {
-        addMessage(getRandomWittyMessage(), 'witty');
-        messageCount++;
-      } else if (messageCount === MAX_MESSAGES) {
-        // After 60 seconds, show static message
-        addMessage("Still working... this product has a lot to analyze!", 'witty');
-        messageCount++;
-      }
-    }, 3000);
+    deck = shuffled(wittyMessages);
+    current = nextMessage();
+    tick++;
+    rotateInterval = setInterval(rotate, ROTATE_MS);
   });
 
   onDestroy(() => {
-    if (messageInterval !== null) {
-      clearInterval(messageInterval);
-    }
+    if (rotateInterval) clearInterval(rotateInterval);
   });
-
-  // Watch for progress updates from backend
-  $effect(() => {
-    if (currentStep) {
-      addMessage(currentStep, 'progress');
-    }
-  });
-
-  function addMessage(text: string, type: 'witty' | 'progress') {
-    messages = [...messages, { id: messageId++, text, type }];
-
-    // Keep only last 5 messages visible
-    if (messages.length > 5) {
-      messages = messages.slice(-5);
-    }
-  }
-
-  function getRandomWittyMessage(): string {
-    return wittyMessages[Math.floor(Math.random() * wittyMessages.length)];
-  }
 </script>
 
 <div class="loading-screen">
   <div class="loading-header">
     <div class="spinner"></div>
-    <h3>Analyzing Product...</h3>
-    <p class="wait-text">This typically takes 10-30 seconds</p>
+    <h3>Analyzing Product…</h3>
+    <p class="wait-text">First look takes up to a minute or two — repeat visits are instant</p>
   </div>
 
-  <div class="message-scroller">
-    <div class="message-list">
-      {#each messages as message (message.id)}
+  <div class="message-stage">
+    {#if currentStep}
+      <div class="message-item progress-message" in:fly={{ y: 12, duration: 350 }}>
+        <span class="message-icon">⚙️</span>
+        <span class="message-text">{currentStep}</span>
+      </div>
+    {:else}
+      {#key tick}
         <div
-          class="message-item {message.type === 'progress' ? 'progress-message' : 'witty-message'}"
-          in:fly={{ y: -20, duration: 300 }}
+          class="message-item witty-message"
+          in:fly={{ y: 12, duration: 350, delay: 150 }}
           out:fade={{ duration: 150 }}
         >
-          {#if message.type === 'progress'}
-            <span class="message-icon">⚙️</span>
-          {:else}
-            <span class="message-icon">💭</span>
-          {/if}
-          <span class="message-text">{message.text}</span>
+          <span class="message-icon">💭</span>
+          <span class="message-text">{current}</span>
         </div>
-      {/each}
-    </div>
+      {/key}
+    {/if}
   </div>
 </div>
 
@@ -112,8 +115,8 @@
   .spinner {
     width: 48px;
     height: 48px;
-    border: 4px solid #E8DCC8;
-    border-top-color: #6B6560;
+    border: 4px solid #e8dcc8;
+    border-top-color: #6b6560;
     border-radius: 50%;
     animation: spin 1s linear infinite;
     margin: 0 auto 16px;
@@ -129,34 +132,29 @@
     font-family: 'Cormorant Infant', serif;
     font-size: 24px;
     font-weight: 600;
-    color: var(--color-text-primary, #3A3633);
+    color: var(--color-text-primary, #3a3633);
     margin: 0 0 8px 0;
   }
 
   .wait-text {
     font-family: 'Poppins', sans-serif;
-    font-size: 14px;
-    color: var(--color-text-secondary, #6B6560);
+    font-size: 13px;
+    color: var(--color-text-secondary, #6b6560);
     margin: 0;
   }
 
-  .message-scroller {
-    flex: 1;
+  /* Fixed-height single-cell stage: outgoing and incoming messages occupy the
+     same grid cell during the crossfade, so the layout never jumps. */
+  .message-stage {
+    display: grid;
     width: 100%;
     max-width: 360px;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 0 8px;
+    min-height: 84px;
+    align-items: start;
   }
 
-  .message-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    width: 100%;
+  .message-stage > :global(*) {
+    grid-area: 1 / 1;
   }
 
   .message-item {
@@ -170,14 +168,14 @@
   }
 
   .witty-message {
-    background: #F5F1EB;
-    color: #6B6560;
+    background: #f5f1eb;
+    color: #6b6560;
     font-style: italic;
   }
 
   .progress-message {
-    background: #E0F2FE;
-    color: #0369A1;
+    background: #e0f2fe;
+    color: #0369a1;
     font-weight: 500;
   }
 
