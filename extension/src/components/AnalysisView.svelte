@@ -26,6 +26,56 @@
   let { analysis, loading = false, error = null, visible = true }: Props = $props();
 
   const productAnalysis = $derived(analysis?.analysis);
+
+  /**
+   * Loose name matching between a label ingredient and a finding name.
+   * Research-derived findings carry qualifiers ("(CPK/Irgacure 184)",
+   * "(potential trace contaminant)") and labels carry locants ("1-Hydroxy…"),
+   * so raw substring matching misses them. Normalize both sides (drop
+   * parentheticals, number/locant prefixes, punctuation) and match on
+   * substring either way, or all-significant-tokens containment.
+   */
+  function namesMatch(ingredient: string, findingName: string): boolean {
+    const normalize = (s: string) =>
+      s
+        .toLowerCase()
+        .replace(/\([^)]*\)/g, ' ')
+        .replace(/\b\d+[,'′-]*/g, ' ')
+        .replace(/[^a-z\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const a = normalize(ingredient);
+    const b = normalize(findingName);
+    if (!a || !b) return false;
+    if (a.includes(b) || b.includes(a)) return true;
+    const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+    const tokens = shorter.split(' ').filter((t) => t.length > 2);
+    return tokens.length > 0 && tokens.every((t) => longer.includes(t));
+  }
+
+  // "Other concerns" grouped by severity, worst first, for the
+  // Flagged Substances section (group headers replace per-card badges).
+  const SEVERITY_ORDER = ['severe', 'high', 'moderate', 'low'] as const;
+  const SEVERITY_LABELS: Record<string, string> = {
+    severe: 'Severe',
+    high: 'High concern',
+    moderate: 'Moderate',
+    low: 'Low',
+    unknown: 'Noted',
+  };
+  const groupedConcerns = $derived.by(() => {
+    const concerns = productAnalysis?.other_concerns ?? [];
+    const groups: { severity: string; items: typeof concerns }[] = [];
+    for (const sev of [...SEVERITY_ORDER, 'unknown']) {
+      const items = concerns.filter(
+        (c) =>
+          (c.severity ?? 'unknown') === sev ||
+          (sev === 'unknown' && !SEVERITY_ORDER.includes(c.severity as never)),
+      );
+      if (items.length > 0) groups.push({ severity: sev, items });
+    }
+    return groups;
+  });
   const harmScore = $derived(productAnalysis
     ? getHarmScore(productAnalysis.overall_score)
     : 0);
@@ -153,28 +203,14 @@
                 <div class="ingredient-grid">
                   {#each productAnalysis.ingredients as ingredient}
                     {@const isAllergen =
-                      productAnalysis.allergens_detected.some(
-                        (a) =>
-                          ingredient
-                            .toLowerCase()
-                            .includes(a.name.toLowerCase()) ||
-                          a.name
-                            .toLowerCase()
-                            .includes(ingredient.toLowerCase()),
+                      productAnalysis.allergens_detected.some((a) =>
+                        namesMatch(ingredient, a.name),
                       )}
-                    {@const isPFAS = productAnalysis.pfas_detected.some(
-                      (p) =>
-                        ingredient
-                          .toLowerCase()
-                          .includes(p.name.toLowerCase()) ||
-                        p.name.toLowerCase().includes(ingredient.toLowerCase()),
+                    {@const isPFAS = productAnalysis.pfas_detected.some((p) =>
+                      namesMatch(ingredient, p.name),
                     )}
-                    {@const isToxic = productAnalysis.other_concerns.some(
-                      (c) =>
-                        ingredient
-                          .toLowerCase()
-                          .includes(c.name.toLowerCase()) ||
-                        c.name.toLowerCase().includes(ingredient.toLowerCase()),
+                    {@const isToxic = productAnalysis.other_concerns.some((c) =>
+                      namesMatch(ingredient, c.name),
                     )}
                     {@const isSafe =
                       !isAllergen &&
@@ -184,13 +220,15 @@
                       productAnalysis.pfas_detected.length === 0 &&
                       productAnalysis.other_concerns.length === 0}
                     <span
-                      class="ingredient-badge {isAllergen || isPFAS || isToxic
-                        ? isAllergen
-                          ? 'badge-allergen'
-                          : 'badge-pfas'
-                        : isSafe
-                          ? 'badge-safe'
-                          : 'badge-unknown'}"
+                      class="ingredient-badge {isAllergen
+                        ? 'badge-allergen'
+                        : isPFAS
+                          ? 'badge-pfas'
+                          : isToxic
+                            ? 'badge-toxic'
+                            : isSafe
+                              ? 'badge-safe'
+                              : 'badge-unknown'}"
                     >
                       {ingredient}
                     </span>
@@ -305,30 +343,34 @@
         </div>
       {/if}
 
-      <!-- Other Concerns -->
+      <!-- Flagged Substances (grouped by severity, worst first) -->
       {#if productAnalysis.other_concerns.length > 0}
         <div class="section">
-          <h3 class="section-subtitle">ℹ️ Other Concerns</h3>
-          <div class="space-y-2">
-            {#each productAnalysis.other_concerns as concern}
-              <div class="item-card">
-                <div class="flex items-start justify-between gap-3">
-                  <div class="flex-1">
-                    <p class="font-medium text-ink-primary">{concern.name}</p>
-                    <p class="text-sm text-ink-secondary mt-1">
-                      {concern.description}
-                    </p>
-                    <p class="text-xs text-ink-muted mt-1">
-                      Category: {concern.category}
-                    </p>
+          <h3 class="section-subtitle">⚠️ Flagged Substances</h3>
+          {#each groupedConcerns as group (group.severity)}
+            <div class="severity-group">
+              <p class="severity-group-header severity-text-{group.severity}">
+                {SEVERITY_LABELS[group.severity]}
+              </p>
+              <div class="space-y-2">
+                {#each group.items as concern}
+                  <div class="item-card">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="flex-1">
+                        <p class="font-medium text-ink-primary">{concern.name}</p>
+                        <p class="text-sm text-ink-secondary mt-1">
+                          {concern.description}
+                        </p>
+                        <p class="text-xs text-ink-muted mt-1">
+                          Category: {concern.category}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <span class="severity-badge severity-{concern.severity}">
-                    {concern.severity}
-                  </span>
-                </div>
+                {/each}
               </div>
-            {/each}
-          </div>
+            </div>
+          {/each}
         </div>
       {/if}
 
@@ -625,6 +667,45 @@
     background: rgba(212, 165, 116, 0.55);
     color: #1f1305; /* Darkened for 5.5:1 contrast */
     border-color: rgba(212, 165, 116, 0.75);
+  }
+
+  .badge-toxic {
+    background: rgba(193, 138, 114, 0.5); /* Alert Rust tint */
+    color: #2a120a;
+    border-color: rgba(193, 138, 114, 0.75);
+  }
+
+  .severity-group {
+    margin-bottom: 14px;
+  }
+
+  .severity-group-header {
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0 0 6px 2px;
+  }
+
+  .severity-text-severe {
+    color: #a63d2d;
+  }
+
+  .severity-text-high {
+    color: #c45c4a;
+  }
+
+  .severity-text-moderate {
+    color: #b07f42;
+  }
+
+  .severity-text-low {
+    color: #7a9c6f;
+  }
+
+  .severity-text-unknown {
+    color: #6b6560;
   }
 
   .badge-safe {
