@@ -71,3 +71,27 @@ class TestProductIdentityOk:
     def test_short_slug_skips_mismatch_check(self):
         # Fewer than 2 meaningful slug tokens -> not enough signal to reject on mismatch
         assert product_identity_ok("https://example.com/p/soap/123", "Some Cleaning Bar", "Acme")
+
+
+class TestUrlMechanicsAreNotIdentity:
+    """H&M-style URLs carry no product words — the guard must skip, not reject.
+
+    Prod failure (2026-08-01): /en_ca/productpage.1321040003.html tokenized to
+    {productpage, html}, which no product name can match — every H&M analysis
+    422ed even with perfect extraction.
+    """
+
+    HM_URL = "https://www2.hm.com/en_ca/productpage.1321040003.html"
+
+    def test_hm_url_has_no_identity_tokens(self):
+        assert slug_tokens(self.HM_URL) == set()
+
+    def test_hm_analysis_passes_the_guard(self):
+        assert product_identity_ok(self.HM_URL, "Aviator Sunglasses", "H&M")
+
+    def test_hm_unknown_product_still_rejected(self):
+        assert not product_identity_ok(self.HM_URL, "Unknown", None)
+
+    def test_real_slugs_still_reject_mismatches(self):
+        url = "https://www.costco.ca/p/-/dynomight-pre-workout-60-count-variety-pack/4201011437"
+        assert not product_identity_ok(url, "Downy Ultra Fabric Softener", "Downy")

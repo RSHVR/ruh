@@ -24,6 +24,12 @@ _STOPWORDS = {
     "pieces", "set", "size", "new", "one", "all", "in", "of", "by", "per",
     "kit", "bundle", "value", "mega", "jumbo", "large", "small", "extra",
     "product", "item", "official", "original", "assorted",
+    # URL mechanics — file extensions and path scaffolding are not product
+    # identity. H&M URLs (/en_ca/productpage.1321040003.html) reduce to
+    # {productpage, html} without these, which no product name can ever
+    # match — the guard was rejecting every H&M analysis (prod, 2026-08-01).
+    "html", "htm", "php", "aspx", "jsp", "productpage", "page", "pages",
+    "shop", "store", "online", "buy", "detail", "details",
 }
 
 _MIN_TOKEN_LEN = 3
