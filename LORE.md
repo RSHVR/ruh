@@ -233,3 +233,15 @@ parser unverified (recon blocked); Instacart untouched per Veer.
 per-fibre entries "Fiber N% (Part)". Trigger requires BOTH a part label and a percentage, so plain
 cosmetics INCI lists pass through untouched. Known/accepted: labelled active-ingredient lists with
 percentages ("Active Ingredients: Zinc Oxide 10%") also split — judged desirable.
+
+## ADR-008 — Region-aware origin research rides the global cache (2026-08-01)
+
+Food/grocery analyses now research product origin (supply chain, producer relationships, active
+CDC/FDA/CFIA outbreak alerts), tailored to the buyer's province/state (collected at signup into
+supabase `user_metadata.region`, sent as `AnalysisRequest.user_region`, injected as a "Buyer
+region:" prompt line). **Decision:** the analysis cache stays global by url_hash — origin.region
+records which region the cached research served; the cache is NOT forked per region (cost +
+fragmentation during beta outweigh regional precision; revisit post-beta). Alert staleness is
+handled by prompt contract: every alert embeds its own source + "As of <timeframe>", and the UI
+shows "Checked <analyzed date>". ToS acceptance + region live in auth user_metadata
+(`tos_accepted_at`, `region`) — first-write-wins, backfilled on next sign-in for older users.
