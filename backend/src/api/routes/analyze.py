@@ -9,6 +9,7 @@ from slowapi.util import get_remote_address
 
 from ...domain.models import AnalysisRequest, AnalysisResponse, ProductAnalysis, ReviewInsights, ScrapedProduct
 from ...domain.harm_calculator import HarmScoreCalculator
+from ...domain.identity import product_identity_ok
 from ...domain.ingredient_matcher import match_ingredients_to_databases
 from ...infrastructure.safety_agent import ProductSafetyAgentWrapper as ProductSafetyAgent
 from ...infrastructure.product_scraper import ProductScraperService
@@ -564,6 +565,25 @@ async def analyze_product(
             product_url=analysis_request.product_url,
             product_name=analysis_data.get("product_name", "Unknown")
         )
+
+        # Identity guard: a confidently-wrong analysis (fallback drifted to a
+        # different page) is worse than an error — fail so the client retries,
+        # and never store it.
+        if not product_identity_ok(
+            analysis_request.product_url,
+            analysis_data.get("product_name"),
+            analysis_data.get("brand"),
+        ):
+            logger.error(
+                "🚫 Identity guard: analysis %r/%r does not match URL %s — rejecting",
+                analysis_data.get("product_name"),
+                analysis_data.get("brand"),
+                analysis_request.product_url,
+            )
+            raise HTTPException(
+                status_code=422,
+                detail="We couldn't verify this page's product — please retry the analysis.",
+            )
 
         # Calculate harm score
         harm_score = HarmScoreCalculator.calculate(analysis_data)
