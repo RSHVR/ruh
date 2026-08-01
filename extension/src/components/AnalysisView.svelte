@@ -15,6 +15,16 @@
     getRiskClass,
     formatTimeAgo,
   } from "@/lib/utils";
+  import { extractSources, type SourceRef } from "../lib/sources";
+  import SourceStack from "./SourceStack.svelte";
+  import SourcesSheet from "./SourcesSheet.svelte";
+
+  // Sources sheet state: which finding's receipts are being viewed.
+  let sourcesSheet = $state<{
+    title: string;
+    reason: string;
+    sources: SourceRef[];
+  } | null>(null);
 
   interface Props {
     analysis: AnalysisResponse | null;
@@ -306,11 +316,23 @@
           <h3 class="section-subtitle">⚠️ Allergens Detected</h3>
           <div class="space-y-2">
             {#each productAnalysis.allergens_detected as allergen}
+              {@const allergenParsed = extractSources(allergen.source)}
               <div class="item-card">
                 <div class="flex items-start justify-between gap-3">
                   <div class="flex-1">
                     <p class="font-medium text-ink-primary">{allergen.name}</p>
-                    <p class="text-sm text-ink-secondary mt-1">{allergen.source}</p>
+                    <p class="text-sm text-ink-secondary mt-1">
+                      {allergenParsed.reason || allergen.source}
+                    </p>
+                    <SourceStack
+                      sources={allergenParsed.sources}
+                      onOpen={() =>
+                        (sourcesSheet = {
+                          title: allergen.name,
+                          reason: allergenParsed.reason,
+                          sources: allergenParsed.sources,
+                        })}
+                    />
                   </div>
                   <span class="severity-badge severity-{allergen.severity}">
                     {allergen.severity}
@@ -328,6 +350,7 @@
           <h3 class="section-subtitle">🧪 PFAS Detected (Forever Chemicals)</h3>
           <div class="space-y-3">
             {#each productAnalysis.pfas_detected as pfas}
+              {@const pfasParsed = extractSources(pfas.source)}
               <div class="item-card">
                 <p class="font-medium text-ink-primary">{pfas.name}</p>
                 {#if pfas.cas_number}
@@ -336,7 +359,19 @@
                   </p>
                 {/if}
                 <p class="text-sm text-ink-secondary mt-2">{pfas.body_effects}</p>
-                <p class="text-xs text-ink-muted mt-2">Source: {pfas.source}</p>
+                {#if pfasParsed.sources.length > 0}
+                  <SourceStack
+                    sources={pfasParsed.sources}
+                    onOpen={() =>
+                      (sourcesSheet = {
+                        title: pfas.name,
+                        reason: pfas.body_effects,
+                        sources: pfasParsed.sources,
+                      })}
+                  />
+                {:else}
+                  <p class="text-xs text-ink-muted mt-2">Source: {pfas.source}</p>
+                {/if}
               </div>
             {/each}
           </div>
@@ -354,16 +389,23 @@
               </p>
               <div class="space-y-2">
                 {#each group.items as concern}
+                  {@const parsed = extractSources(concern.description)}
                   <div class="item-card">
                     <div class="flex items-start justify-between gap-3">
                       <div class="flex-1">
                         <p class="font-medium text-ink-primary">{concern.name}</p>
                         <p class="text-sm text-ink-secondary mt-1">
-                          {concern.description}
+                          {parsed.reason || concern.description}
                         </p>
-                        <p class="text-xs text-ink-muted mt-1">
-                          Category: {concern.category}
-                        </p>
+                        <SourceStack
+                          sources={parsed.sources}
+                          onOpen={() =>
+                            (sourcesSheet = {
+                              title: concern.name,
+                              reason: parsed.reason,
+                              sources: parsed.sources,
+                            })}
+                        />
                       </div>
                     </div>
                   </div>
@@ -397,6 +439,15 @@
       </div>
     {/if}
   </div>
+
+  {#if sourcesSheet}
+    <SourcesSheet
+      title={sourcesSheet.title}
+      reason={sourcesSheet.reason}
+      sources={sourcesSheet.sources}
+      onClose={() => (sourcesSheet = null)}
+    />
+  {/if}
 </div>
 
 <style lang="postcss">
