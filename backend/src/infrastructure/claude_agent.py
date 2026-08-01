@@ -423,7 +423,7 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
         {
             "name": "allergen name (MUST match knowledge base below)",
             "severity": "low|moderate|high|severe",
-            "source": "where found in product",
+            "source": "exactly where in THIS product it appears (e.g. 'listed on this product's ingredient label')",
             "confidence": 0.0-1.0
         }
     ],
@@ -432,7 +432,7 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
             "name": "PFAS compound name (MUST match knowledge base below)",
             "cas_number": "CAS number if known",
             "body_effects": "description of effects on human body",
-            "source": "where found (e.g., non-stick coating)",
+            "source": "exactly where in THIS product it appears (e.g. 'in this pan's non-stick coating')",
             "confidence": 0.0-1.0
         }
     ],
@@ -441,7 +441,7 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
             "name": "concern name",
             "category": "under_investigation|carcinogen|regulatory_action|heavy_metal|endocrine_disruptor|other",
             "severity": "low|moderate|high|severe",
-            "description": "brief description",
+            "description": "MUST name the product or brand and state how the substance connects to it, then the health context",
             "confidence": 0.0-1.0
         }
     ],
@@ -470,6 +470,16 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
    - MUST have credible source (.gov, .edu, peer-reviewed journal, court record)
    - MUST NOT include unverified consumer complaints or blog posts
    - MUST include description with source citation
+
+5. **CONNECT EVERY FINDING TO THIS PRODUCT — users must see why it applies to the thing they're buying:**
+   - Generic substance facts ("PFOA is linked to cancer") erode trust. Every source/description field
+     must tie the substance to THIS product or brand by name: where it appears on this product's label
+     or materials, what this brand has disclosed or been cited for, or why it is expected in this
+     product's category.
+   - Be honest about the strength of the link: "listed on this product's ingredient label" (confirmed)
+     vs "common in gel polishes like this one but not confirmed on this product's label" (category-level).
+     Never imply a confirmed link that is only category-typical.
+   - Prefer wording that names the product or brand over encyclopedia-style facts.
 
 **PFAS Detection Guidelines:**
 - Non-stick cookware often contains PTFE (Teflon) - check knowledge base
@@ -894,7 +904,7 @@ CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
         {
             "name": "allergen name (MUST match knowledge base below)",
             "severity": "low|moderate|high|severe",
-            "source": "where found",
+            "source": "exactly where in THIS product it appears (e.g. 'listed on this product's ingredient label', 'in the Shell fabric: Polyamide 25%')",
             "confidence": 0.0-1.0
         }
     ],
@@ -903,7 +913,7 @@ CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
             "name": "PFAS compound (MUST match knowledge base below)",
             "cas_number": "CAS number if known",
             "body_effects": "effects on human body",
-            "source": "where found",
+            "source": "exactly where in THIS product it appears (e.g. 'in this pan's non-stick coating', 'listed on the label')",
             "confidence": 0.0-1.0
         }
     ],
@@ -912,12 +922,12 @@ CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
             "name": "concern name",
             "category": "under_investigation|carcinogen|regulatory_action|heavy_metal|endocrine_disruptor|other",
             "severity": "low|moderate|high|severe",
-            "description": "brief description with source citation",
+            "description": "MUST name the product or brand and state how the substance connects to it, then the health context, with source citation",
             "confidence": 0.0-1.0
         }
     ],
     "research_sources": [
-        {"type": "manufacturer_website", "url": "...", "finding": "..."},
+        {"type": "manufacturer_website", "url": "...", "finding": "what this source says about THIS product/brand specifically"},
         {"type": "regulatory_action", "url": "...", "finding": "..."},
         {"type": "scientific_study", "url": "...", "finding": "..."}
     ],
@@ -946,6 +956,17 @@ CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
    - MUST have credible source (.gov, .edu, peer-reviewed journal, court record)
    - MUST NOT include unverified consumer complaints or blog posts
    - MUST include description with source citation (e.g., "IARC Group 2A carcinogen per iarc.who.int/2023")
+
+5. **CONNECT EVERY FINDING TO THIS PRODUCT — users must see why it applies to the thing they're buying:**
+   - Generic substance facts ("PFOA is linked to cancer") erode trust. Every source/description/finding
+     field must tie the substance to THIS product or brand by name: where it appears on this product's
+     label or materials, what this brand has disclosed or been cited for, or why it is expected in this
+     product's category.
+   - Be honest about the strength of the link. "Listed on this product's ingredient label" is confirmed;
+     "common in gel polishes like this one but not confirmed on this product's label" is category-level —
+     say which one it is. Never imply a confirmed link that is only category-typical.
+   - Prefer wording that names the product or brand (e.g. "This CeraVe cream lists two parabens on its
+     label; parabens are under review as endocrine disruptors (fda.gov)") over encyclopedia-style facts.
 """
 
         # Add FULL allergen database (token-efficient format)
