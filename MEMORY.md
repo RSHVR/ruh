@@ -126,3 +126,17 @@ ever stored is the signature of an activation failure, not an extraction failure
 retailer "doesn't work", FIRST check stored-analysis counts per host (activation vs extraction),
 then probe the live DOM in the user's browser before touching parser code. Also: prod data is the
 best fixture — the H&M composition bug was reproduced exactly from a stored row.
+
+## 2026-08-01 — The wrapper outage: three compounding lessons
+
+`user_region` was threaded into ProductSafetyAgent but the route calls ProductSafetyAgentWrapper
+(safety_agent.py, the LangGraph/Claude feature-flag router) — every fresh analysis 500ed in prod for
+~45 min while 380+ tests stayed green. (1) Integration tests MOCK the agent, so signature drift
+between route and wrapper is invisible to the suite — pinned now by
+test_safety_agent_signature.py; add such a pin whenever a call crosses a mockable boundary.
+(2) Pyright HAD flagged it ("No parameter named 'user_region'", reportCallIssue at the exact call
+sites) and I dismissed it as IDE-environment noise because that channel is 95% import-resolution
+static — triage reportCallIssue/reportAttributeAccessIssue findings on CHANGED lines before
+dismissing the channel. (3) wrangler tail does not stream container stdout — the fastest path to a
+container traceback is reproducing locally (`uv run python run.py` + curl), which also caught a
+second bug the same hour (the analyze catch-all rewrapping deliberate HTTPExceptions as 500s).
