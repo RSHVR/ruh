@@ -9,7 +9,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from ..infrastructure.config import settings
-from .routes import health, analyze, admin, credits, user, features, referrals
+from .routes import health, analyze, admin, credits, user, features, referrals, feedback
 
 # Configure logging
 logging.basicConfig(
@@ -95,6 +95,7 @@ app.include_router(credits.router, prefix="/api", tags=["credits"])
 app.include_router(user.router, prefix="/api", tags=["user"])
 app.include_router(features.router, prefix="/api", tags=["features"])
 app.include_router(referrals.router, prefix="/api", tags=["referrals"])
+app.include_router(feedback.router, prefix="/api", tags=["feedback"])
 
 
 @app.get("/")

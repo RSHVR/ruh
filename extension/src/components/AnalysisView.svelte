@@ -24,6 +24,7 @@
   import SourceStack from "./SourceStack.svelte";
   import SourcesSheet from "./SourcesSheet.svelte";
   import FeatureBoard from "./FeatureBoard.svelte";
+  import AnalysisFeedback from "./AnalysisFeedback.svelte";
 
   /**
    * Merge description-parsed URLs with the agent's structured
@@ -74,6 +75,7 @@
   let { analysis, loading = false, error = null, visible = true }: Props = $props();
 
   const productAnalysis = $derived(analysis?.analysis);
+  const urlHash = $derived(analysis?.url_hash ?? "");
 
 
   // "Other concerns" grouped by severity, worst first, for the
@@ -453,6 +455,13 @@
       </div>
     {/if}
 
+    <!-- Rate this analysis / report a bug — sits just above the feature board -->
+    {#if urlHash}
+      <div class="feedback-slot">
+        <AnalysisFeedback {urlHash} />
+      </div>
+    {/if}
+
     <!-- Feature request board — last section of the analysis page -->
     <div class="feature-board-slot">
       <FeatureBoard />
@@ -776,6 +785,12 @@
 
   .severity-text-unknown {
     color: #6b6560;
+  }
+
+  .feedback-slot {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(168, 184, 159, 0.25);
   }
 
   .feature-board-slot {
