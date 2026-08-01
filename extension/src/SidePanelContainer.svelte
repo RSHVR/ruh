@@ -393,7 +393,7 @@
   }
 
   .empty-state h2 {
-    font-family: 'Cormorant Infant', serif;
+    font-family: 'Instrument Sans', sans-serif;
     font-size: 24px;
     font-weight: 600;
     color: var(--color-text-primary, #3A3633);

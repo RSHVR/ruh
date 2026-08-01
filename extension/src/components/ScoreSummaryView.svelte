@@ -171,7 +171,7 @@
   }
 
   .score-number {
-    font-family: 'Cormorant Infant', serif;
+    font-family: 'Instrument Sans', sans-serif;
     font-size: 28px;
     font-weight: 700;
     color: var(--color-text-primary, #3A3633);
@@ -185,7 +185,7 @@
   }
 
   .product-info h2 {
-    font-family: 'Cormorant Infant', serif;
+    font-family: 'Instrument Sans', sans-serif;
     font-size: 18px;
     font-weight: 600;
     color: var(--color-text-primary, #3A3633);

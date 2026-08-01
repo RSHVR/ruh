@@ -433,7 +433,7 @@
 </div>
 
 <style lang="postcss">
-  /* Fonts loaded from app.css: Cormorant Infant + Poppins */
+  /* Fonts loaded from app.css: Instrument Sans + Poppins */
 
   /* CSS Custom Properties - ruh Brand Variables */
   :root {
@@ -492,7 +492,7 @@
   }
 
   .section-title {
-    font-family: 'Cormorant Infant', Georgia, serif;
+    font-family: 'Instrument Sans', sans-serif;
     font-weight: 700;
     font-size: 28px;
     color: var(--color-text);
@@ -500,7 +500,7 @@
   }
 
   .section-subtitle {
-    font-family: 'Work Sans', sans-serif;
+    font-family: 'Instrument Sans', sans-serif;
     font-weight: 600;
     font-size: 15px;
     color: var(--color-text);
@@ -544,7 +544,7 @@
   }
 
   .score-number {
-    font-family: 'Work Sans', sans-serif;
+    font-family: 'Instrument Sans', sans-serif;
     font-weight: 700;
     font-size: 34px;
     color: var(--color-text);
