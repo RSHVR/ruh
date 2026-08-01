@@ -1,6 +1,9 @@
 # KB & Research Optimization Plan
 
-> **Status:** proposal / analysis. Nothing here is implemented.
+> **Status:** proposal / analysis. Nothing here is implemented, with one update:
+> since this analysis ran, `research_sources` now persists (8–16 sources/analysis
+> as of 2026-08-01 afternoon) — §C0's first bullet is done; the `ingredient_research`
+> / `search_cache` halves remain open.
 > **Author:** data-analysis pass over production Supabase (read-only), 2026-08-01.
 > **Goal (Veer's words):** "be more consistent given similar products, reduce random
 > searching, increase the canonical sources we check" + "don't rescan the whole product
