@@ -136,7 +136,7 @@
         inputmode="numeric"
         maxlength="8"
         bind:value={code}
-        placeholder="12345678"
+        placeholder="123456"
         class="input code-input"
         autocomplete="one-time-code"
         disabled={submitting}
