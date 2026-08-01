@@ -203,7 +203,6 @@
 
 <style>
   .feature-board {
-    border-top: 1px solid #e8e0d4;
     background: var(--color-bg-primary, #fffbf5);
     font-family: 'Poppins', sans-serif;
   }
@@ -213,7 +212,7 @@
     align-items: center;
     justify-content: space-between;
     width: 100%;
-    padding: 12px 16px;
+    padding: 12px 0;
     background: none;
     border: none;
     cursor: pointer;
@@ -240,7 +239,7 @@
   }
 
   .board-body {
-    padding: 0 16px 16px;
+    padding: 0 0 16px;
   }
 
   .feature-list {
