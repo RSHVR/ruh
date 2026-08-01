@@ -172,14 +172,59 @@
   }
 
   /**
-   * Check if the analysis response indicates this product is unlocked
+   * Check if the analysis response indicates this product is unlocked.
+   * The stored blob reflects unlock state AT ANALYSIS TIME — if the user
+   * unlocked afterwards, it's stale, so fall through to an authoritative
+   * server check (unlocks are permanent server-side; the report must never
+   * re-present a "1 credit" button for something already paid for).
    */
   function checkUnlockFromResponse() {
     if (currentTabState?.status === 'complete' && currentTabState.data) {
       const data = currentTabState.data;
       if (data.analysis_unlocked) {
         analysisUnlocked = true;
+      } else {
+        void verifyUnlockWithServer();
       }
+    }
+  }
+
+  /** Persist the unlocked flag into the stored analysis so panel reopens
+   *  land directly on the full report. */
+  function persistUnlockedFlag() {
+    if (!currentTabState?.data || currentTabId == null) return;
+    currentTabState.data.analysis_unlocked = true;
+    const snapshot = JSON.parse(JSON.stringify(currentTabState));
+    chrome.storage.local
+      .set({ [getTabStorageKey(currentTabId)]: snapshot })
+      .catch(() => {});
+  }
+
+  /** Ask the server whether this product was already unlocked (covers stale
+   *  stored analyses and unlocks made on other devices). */
+  async function verifyUnlockWithServer() {
+    const data = currentTabState?.data;
+    if (!data?.url_hash || analysisUnlocked) return;
+
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+    const token = authStore.getAccessToken();
+    if (!token || !API_BASE_URL) return;
+
+    try {
+      const resp = await fetch(
+        `${API_BASE_URL}/api/credits/check/${data.url_hash}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (resp.ok) {
+        const info = await resp.json();
+        if (info.unlocked) {
+          analysisUnlocked = true;
+          persistUnlockedFlag();
+        }
+      }
+    } catch {
+      // Offline/transient — teaser stays; the unlock RPC is idempotent, so a
+      // re-click can never double-charge.
     }
   }
 
@@ -206,6 +251,7 @@
       if (resp.ok) {
         const result = await resp.json();
         analysisUnlocked = true;
+        persistUnlockedFlag();
         await authStore.refreshCredits();
       } else if (resp.status === 402) {
         error = 'No credits remaining. Please upgrade your plan.';
