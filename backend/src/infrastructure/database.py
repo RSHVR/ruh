@@ -187,6 +187,16 @@ class DatabaseService:
                 research_sources = []
             research_sources = [item.model_dump() if hasattr(item, 'model_dump') else item for item in research_sources]
 
+            # Ingredient provenance is a single object (or None); JSONB {declared,found,inferred}
+            ingredients_by_provenance = analysis.get('ingredients_by_provenance')
+            if hasattr(ingredients_by_provenance, 'model_dump'):
+                ingredients_by_provenance = ingredients_by_provenance.model_dump()
+
+            # Origin is a single object (or None); JSONB {summary,region,alert}
+            origin = analysis.get('origin')
+            if hasattr(origin, 'model_dump'):
+                origin = origin.model_dump()
+
             db_data = {
                 'product_url_hash': url_hash,
                 'product_url': product_url,
@@ -201,6 +211,8 @@ class DatabaseService:
                 'pfas_detected': pfas,  # JSONB - maps to pfas_detected column
                 'other_concerns': other_concerns,  # JSONB
                 'research_sources': research_sources,  # JSONB — agent citations {type,url,finding}
+                'ingredients_by_provenance': ingredients_by_provenance,  # JSONB {declared,found,inferred} or NULL
+                'origin': origin,  # JSONB {summary,region,alert} or NULL (food/grocery only)
                 'confidence': int(analysis.get('confidence', 0.8) * 100),  # INTEGER 0-100
                 'analyzed_at': datetime.now(timezone.utc).isoformat()
             }

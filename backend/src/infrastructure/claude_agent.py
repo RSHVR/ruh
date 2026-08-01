@@ -95,6 +95,7 @@ class ProductSafetyAgent:
         allergen_profile: List[str] = None,
         pfas_database: List[Dict[str, Any]] = None,
         allergen_database: List[Dict[str, Any]] = None,
+        user_region: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Analyze a product for harmful substances.
 
@@ -115,7 +116,7 @@ class ProductSafetyAgent:
         system_prompt = self._build_system_prompt(
             allergen_profile, pfas_database, allergen_database
         )
-        user_message = self._build_user_message(product_url)
+        user_message = self._build_user_message(product_url, user_region)
 
         # Enable web search and web fetch tools
         # For fallback mode, we always use native web_fetch (need to fetch the page)
@@ -419,6 +420,11 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
     "brand": "string",
     "retailer": "string (e.g., Amazon, Amazon.ca)",
     "ingredients": ["ingredient1", "ingredient2"],
+    "ingredients_by_provenance": {
+        "declared": ["ingredients printed verbatim on THIS product's label/listing"],
+        "found": ["ingredients research tied definitively to THIS exact product (manufacturer's own ingredient list, MSDS) — NOT category-typical guesses"],
+        "inferred": [{"name": "substance probably present due to this product category's manufacturing", "stage": "which production stage it likely enters from"}]
+    },
     "allergens_detected": [
         {
             "name": "allergen name (MUST match knowledge base below)",
@@ -445,6 +451,7 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
             "confidence": 0.0-1.0
         }
     ],
+    "origin": {"summary": "FOOD/BEVERAGE/GROCERY ONLY (null for non-food): at most 3 plain-language sentences on where THIS product is actually produced/sourced; distinguish confirmed vs likely origin", "region": "buyer region code if tailored, e.g. CA-ON, else null", "alert": "ONE sentence naming an active outbreak/recall advisory + its timeframe if one plausibly applies to this product/category/region, else null"},
     "confidence": 0.0-1.0
 }
 
@@ -480,6 +487,18 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
      vs "common in gel polishes like this one but not confirmed on this product's label" (category-level).
      Never imply a confirmed link that is only category-typical.
    - Prefer wording that names the product or brand over encyclopedia-style facts.
+
+6. **SEGMENT INGREDIENTS BY PROVENANCE (ingredients_by_provenance) — be honest about how you know each one:**
+   - declared: taken verbatim from THIS product's own label/listing. Nothing here that isn't printed on the product.
+   - found: discovered via research AND tied definitively to THIS exact product — the manufacturer's own ingredient list or an MSDS for this product. If a source only says the substance is typical of the category, it is NOT "found" (it is "inferred").
+   - inferred: probable given this product category's industrial processes. Each inferred entry is an object {name, stage} and MUST name the specific production stage it likely enters from (e.g. "polymer curing", "dyeing & finishing", "mold release", "surface coating", "packaging contact") — only include it with credible category-level evidence for THAT stage. Keep it conservative (max ~5). Frame per rule 5 as probable — NEVER present inferred substances as confirmed.
+   - The flat "ingredients" field MUST remain the union of declared + found (back-compat); do NOT put inferred substances in the flat "ingredients" list.
+
+7. **PRODUCT ORIGIN — FOR FOOD, BEVERAGE, AND GROCERY PRODUCTS ONLY (origin). Non-food products MUST have origin=null — do not pad.**
+   - Research where this product is actually produced/sourced: country of origin, producer/supplier relationships (e.g. private-label manufacturer mappings, dairy supplier scorecards), processing location, and any region-specific recalls. Use the manufacturer and regulatory search types.
+   - If a "Buyer region: <code>" line appears in the user message, tailor origin to that region's supply chain (e.g. provincially pooled milk in Canada) and set origin.region to that code; otherwise keep it national/general and set origin.region to null.
+   - Apply rule 5 honesty: distinguish CONFIRMED origin from LIKELY origin in the summary. Keep the summary to at most 3 sentences, plain language.
+   - ACTIVE SAFETY ALERT (origin.alert): after establishing origin, check CURRENT outbreak/recall advisories — CDC food safety alerts, FDA outbreak investigations, CFIA recalls (use the "regulatory" search type) — for this product's category and the buyer's region. If an active advisory plausibly covers this product, its category, or its likely supply region, set origin.alert to ONE plain-language sentence that names the source and the timeframe, e.g. "As of late July 2026, the CDC is investigating an E. coli outbreak linked to romaine lettuce from California — check lot codes before eating." If the advisory is category-level rather than confirmed for this exact product, the sentence MUST say so. No active advisory → alert stays null. NEVER fabricate or pad an alert; a false alarm here is worse than a miss.
 
 **PFAS Detection Guidelines:**
 - Non-stick cookware often contains PTFE (Teflon) - check knowledge base
@@ -523,10 +542,11 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
 
         return prompt
 
-    def _build_user_message(self, product_url: str) -> str:
+    def _build_user_message(self, product_url: str, user_region: Optional[str] = None) -> str:
         """Build the user message for Claude (fallback method when scraping fails)."""
+        region_line = f"\nBuyer region: {user_region}\n" if user_region else ""
         return f"""Analyze this product for harmful substances: {product_url}
-
+{region_line}
 **FALLBACK MODE:** Scraping failed, so you need to fetch the product page yourself.
 
 1. Use web_fetch to retrieve the product page and extract product details (name, brand, ingredients)
@@ -621,6 +641,7 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
         allergen_profile: List[str] = None,
         pfas_database: List[Dict[str, Any]] = None,
         allergen_database: List[Dict[str, Any]] = None,
+        user_region: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Analyze product data that was already extracted by Claude Query.
 
@@ -644,7 +665,9 @@ After fetching and analyzing the product page, return your analysis as a JSON ob
         )
 
         # Build user message from extracted data
-        user_message = self._build_user_message_from_extracted_data(product_data, product_url)
+        user_message = self._build_user_message_from_extracted_data(
+            product_data, product_url, user_region
+        )
 
         # Choose between custom search (Tavily/Serper) or Anthropic native
         if self.use_custom_search and self.search_service:
@@ -900,6 +923,11 @@ CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
     "brand": "string",
     "retailer": "string",
     "ingredients": ["complete list from manufacturer website if found, else from product page"],
+    "ingredients_by_provenance": {
+        "declared": ["ingredients printed verbatim on THIS product's label/listing"],
+        "found": ["ingredients research tied definitively to THIS exact product (manufacturer's own ingredient list, MSDS) — NOT category-typical guesses"],
+        "inferred": [{"name": "substance probably present due to this product category's manufacturing", "stage": "which production stage it likely enters from"}]
+    },
     "allergens_detected": [
         {
             "name": "allergen name (MUST match knowledge base below)",
@@ -931,6 +959,7 @@ CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
         {"type": "regulatory_action", "url": "...", "finding": "..."},
         {"type": "scientific_study", "url": "...", "finding": "..."}
     ],
+    "origin": {"summary": "FOOD/BEVERAGE/GROCERY ONLY (null for non-food): at most 3 plain-language sentences on where THIS product is actually produced/sourced; distinguish confirmed vs likely origin", "region": "buyer region code if tailored, e.g. CA-ON, else null", "alert": "ONE sentence naming an active outbreak/recall advisory + its timeframe if one plausibly applies to this product/category/region, else null"},
     "confidence": 0.0-1.0
 }
 
@@ -967,6 +996,18 @@ CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
      say which one it is. Never imply a confirmed link that is only category-typical.
    - Prefer wording that names the product or brand (e.g. "This CeraVe cream lists two parabens on its
      label; parabens are under review as endocrine disruptors (fda.gov)") over encyclopedia-style facts.
+
+6. **SEGMENT INGREDIENTS BY PROVENANCE (ingredients_by_provenance) — be honest about how you know each one:**
+   - declared: taken verbatim from THIS product's own label/listing. Nothing here that isn't printed on the product.
+   - found: discovered via research AND tied definitively to THIS exact product — the manufacturer's own ingredient list or an MSDS for this product. If a source only says the substance is typical of the category, it is NOT "found" (it is "inferred").
+   - inferred: probable given this product category's industrial processes. Each inferred entry is an object {name, stage} and MUST name the specific production stage it likely enters from (e.g. "polymer curing", "dyeing & finishing", "mold release", "surface coating", "packaging contact") — only include it with credible category-level evidence for THAT stage. Keep it conservative (max ~5). Frame per rule 5 as probable — NEVER present inferred substances as confirmed.
+   - The flat "ingredients" field MUST remain the union of declared + found (back-compat); do NOT put inferred substances in the flat "ingredients" list.
+
+7. **PRODUCT ORIGIN — FOR FOOD, BEVERAGE, AND GROCERY PRODUCTS ONLY (origin). Non-food products MUST have origin=null — do not pad.**
+   - Research where this product is actually produced/sourced: country of origin, producer/supplier relationships (e.g. private-label manufacturer mappings, dairy supplier scorecards), processing location, and any region-specific recalls. Use the manufacturer and regulatory search types.
+   - If a "Buyer region: <code>" line appears in the user message, tailor origin to that region's supply chain (e.g. provincially pooled milk in Canada) and set origin.region to that code; otherwise keep it national/general and set origin.region to null.
+   - Apply rule 5 honesty: distinguish CONFIRMED origin from LIKELY origin in the summary. Keep the summary to at most 3 sentences, plain language.
+   - ACTIVE SAFETY ALERT (origin.alert): after establishing origin, check CURRENT outbreak/recall advisories — CDC food safety alerts, FDA outbreak investigations, CFIA recalls (use the "regulatory" search type) — for this product's category and the buyer's region. If an active advisory plausibly covers this product, its category, or its likely supply region, set origin.alert to ONE plain-language sentence that names the source and the timeframe, e.g. "As of late July 2026, the CDC is investigating an E. coli outbreak linked to romaine lettuce from California — check lot codes before eating." If the advisory is category-level rather than confirmed for this exact product, the sentence MUST say so. No active advisory → alert stays null. NEVER fabricate or pad an alert; a false alarm here is worse than a miss.
 """
 
         # Add FULL allergen database (token-efficient format)
@@ -999,15 +1040,17 @@ CRITICAL OUTPUT REQUIREMENT: You MUST respond with ONLY a valid JSON object.
         return prompt
 
     def _build_user_message_from_extracted_data(
-        self, product_data: Dict[str, Any], product_url: str
+        self, product_data: Dict[str, Any], product_url: str,
+        user_region: Optional[str] = None,
     ) -> str:
         """Build user message from pre-extracted product data."""
+        region_line = f"\nBuyer region: {user_region}" if user_region else ""
         message = f"""Analyze this product for harmful substances:
 
 **Product Information (pre-extracted from webpage):**
 - Product Name: {product_data.get('product_name', 'Unknown')}
 - Brand: {product_data.get('brand', 'Unknown')}
-- URL: {product_url}
+- URL: {product_url}{region_line}
 
 **Ingredients:**
 {self._format_list(product_data.get('ingredients', []))}

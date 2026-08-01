@@ -54,6 +54,49 @@ class ResearchSourceRef(BaseModel):
     finding: str = ""
 
 
+class InferredIngredient(BaseModel):
+    """A probably-present substance plus the production stage it enters from.
+
+    stage: a short plain-language production-stage label — e.g. "polymer curing",
+    "dyeing & finishing", "mold release", "surface coating", "packaging contact".
+    """
+
+    name: str
+    stage: str
+
+
+class IngredientProvenance(BaseModel):
+    """Ingredients segmented by how we know they're in the product.
+
+    declared: printed verbatim on the product's label/listing.
+    found:    discovered via research and tied definitively to THIS product
+              (manufacturer's own ingredient list, MSDS) — not category guesses.
+    inferred: probable given the product category's manufacturing processes; each
+              entry names the production stage it likely enters from (e.g. residual
+              monomers from polymer curing, processing aids from textile finishing).
+              Honestly framed as probable, never confirmed.
+    """
+
+    declared: list[str] = []
+    found: list[str] = []
+    inferred: list[InferredIngredient] = []
+
+
+class OriginInfo(BaseModel):
+    """Where a food/grocery product is produced/sourced (region-aware).
+
+    Populated for FOOD, BEVERAGE, and GROCERY products only — null for everything
+    else. ``region`` echoes the buyer region the research was tailored to (e.g.
+    "CA-ON") or is null when kept national/general. ``alert`` carries a single
+    plain-language sentence about an active supply-chain safety advisory (outbreak
+    or recall) when one plausibly applies, else null.
+    """
+
+    summary: str
+    region: Optional[str] = None
+    alert: Optional[str] = None
+
+
 class ProductAnalysis(BaseModel):
     """Complete analysis of a product's safety."""
 
@@ -62,7 +105,8 @@ class ProductAnalysis(BaseModel):
     product_name: Optional[str] = None
     brand: Optional[str] = None
     retailer: Optional[str] = None
-    ingredients: list[str] = []
+    ingredients: list[str] = []  # flat list = declared + found (back-compat)
+    ingredients_by_provenance: Optional[IngredientProvenance] = None
 
     # Analysis results
     overall_score: int = Field(ge=0, le=100)  # 0=dangerous, 100=safe (inverted for clarity)
@@ -70,6 +114,7 @@ class ProductAnalysis(BaseModel):
     pfas_detected: list[PFASDetection] = []
     other_concerns: list[ToxinConcern] = []
     research_sources: list[ResearchSourceRef] = []
+    origin: Optional[OriginInfo] = None  # food/grocery only; null otherwise
 
     # Metadata
     confidence: float = Field(ge=0.0, le=1.0)
@@ -129,6 +174,7 @@ class AnalysisRequest(BaseModel):
     user_id: Optional[UUID] = None  # Anonymous UUID from extension
     allergen_profile: list[str] = []  # User's known allergens
     force_refresh: bool = False  # Skip cache and re-analyze
+    user_region: Optional[str] = None  # Buyer region code (e.g. "CA-ON"); free-form
 
     # Client-side HTML (captured by extension from user's session)
     # This bypasses bot detection since we're on the actual page
