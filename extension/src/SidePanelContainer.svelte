@@ -29,7 +29,6 @@
   import LoginView from './components/LoginView.svelte';
   import CreditBadge from './components/CreditBadge.svelte';
   import ScoreSummaryView from './components/ScoreSummaryView.svelte';
-  import FeatureBoard from './components/FeatureBoard.svelte';
   import type { TabAnalysisState } from './lib/storage-sync';
   import { getTabStorageKey, getActiveTab } from './lib/storage-sync';
   import { isAmazonProductPage } from '@/lib/utils';
@@ -280,8 +279,6 @@
       </div>
     {/if}
 
-    <!-- Feature request board — pinned at the bottom in every authenticated state -->
-    <FeatureBoard />
   {/if}
 </div>
 
@@ -294,12 +291,6 @@
     background: var(--color-bg-primary, #fffbf5);
     display: flex;
     flex-direction: column;
-  }
-
-  /* Keep the feature board pinned to the bottom when content is short,
-     while letting it flow naturally at the end when content overflows. */
-  .side-panel-container :global(.feature-board) {
-    margin-top: auto;
   }
 
   .header-wordmark {

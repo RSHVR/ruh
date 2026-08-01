@@ -18,6 +18,7 @@
   import { extractSources, type SourceRef } from "../lib/sources";
   import SourceStack from "./SourceStack.svelte";
   import SourcesSheet from "./SourcesSheet.svelte";
+  import FeatureBoard from "./FeatureBoard.svelte";
 
   // Sources sheet state: which finding's receipts are being viewed.
   let sourcesSheet = $state<{
@@ -438,6 +439,11 @@
         </p>
       </div>
     {/if}
+
+    <!-- Feature request board — last section of the analysis page -->
+    <div class="feature-board-slot">
+      <FeatureBoard />
+    </div>
   </div>
 
   {#if sourcesSheet}
@@ -757,6 +763,12 @@
 
   .severity-text-unknown {
     color: #6b6560;
+  }
+
+  .feature-board-slot {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(168, 184, 159, 0.25);
   }
 
   .badge-safe {
