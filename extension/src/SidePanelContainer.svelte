@@ -29,6 +29,7 @@
   import LoginView from './components/LoginView.svelte';
   import CreditBadge from './components/CreditBadge.svelte';
   import ScoreSummaryView from './components/ScoreSummaryView.svelte';
+  import ConfirmDialog from './components/ConfirmDialog.svelte';
   import type { TabAnalysisState } from './lib/storage-sync';
   import { getTabStorageKey, getActiveTab } from './lib/storage-sync';
   import { isAmazonProductPage } from '@/lib/utils';
@@ -45,6 +46,9 @@
 
   // Track whether current product is unlocked (client-side state)
   let analysisUnlocked = $state(false);
+
+  // Sign-out confirmation (the button sits one misclick from the panel close)
+  let confirmingSignOut = $state(false);
 
   let storageListener: ((changes: any, area: string) => void) | null = null;
   let tabActivatedListener: ((activeInfo: chrome.tabs.TabActiveInfo) => void) | null = null;
@@ -306,7 +310,7 @@
     <div class="auth-header">
       <img src="/ruh-wordmark.svg" alt="ruh" class="header-wordmark" />
       <CreditBadge />
-      <button class="signout-btn" onclick={() => authStore.signOut()}>
+      <button class="signout-btn" onclick={() => (confirmingSignOut = true)}>
         Sign Out
       </button>
     </div>
@@ -353,6 +357,19 @@
       </div>
     {/if}
 
+  {/if}
+
+  {#if confirmingSignOut}
+    <ConfirmDialog
+      title="Sign out of ruh?"
+      body="You'll need an email code to sign back in."
+      confirmLabel="Sign out"
+      onConfirm={() => {
+        confirmingSignOut = false;
+        void authStore.signOut();
+      }}
+      onCancel={() => (confirmingSignOut = false)}
+    />
   {/if}
 </div>
 
