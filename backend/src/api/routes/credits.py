@@ -91,7 +91,7 @@ async def deduct_credit(
     # worth paying for (no ingredients, no findings, or rock-bottom
     # confidence). Failure to load the row falls through to normal charging.
     try:
-        stored = db.get_cached_analysis(body.url_hash)
+        stored = await db.get_cached_analysis(body.url_hash)
     except Exception:
         stored = None
     if stored is not None and is_inconclusive_analysis(stored):
