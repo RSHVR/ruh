@@ -75,15 +75,16 @@
     max-width: 280px;
     background: var(--color-bg-primary, #fffbf5);
     border-radius: 14px;
-    padding: 18px;
+    padding: 20px 18px 18px;
     box-sizing: border-box;
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+    text-align: center;
   }
 
   h4 {
     font-family: 'Instrument Sans', sans-serif;
-    font-size: 15px;
-    font-weight: 600;
+    font-size: 17px;
+    font-weight: 700;
     color: var(--color-text-primary, #3a3633);
     margin: 0 0 6px;
   }
@@ -99,7 +100,11 @@
   .confirm-actions {
     display: flex;
     gap: 8px;
-    justify-content: flex-end;
+    justify-content: center;
+  }
+
+  .confirm-actions > button {
+    flex: 1;
   }
 
   .cancel-btn {
