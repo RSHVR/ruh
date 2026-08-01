@@ -1,14 +1,14 @@
-import { getAdapter, type SiteAdapter } from '../lib/retailers';
-import type { AnalysisRequest } from '../types';
+import { getAdapter, type SiteAdapter } from "../lib/retailers";
+import type { AnalysisRequest } from "../types";
 
 // Get score color based on harm level
 function getScoreColor(score: number): string {
-  if (score <= 30) return '#9BB88F'; // Safe Green
-  if (score <= 60) return '#D4A574'; // Caution Amber
-  return '#C18A72'; // Alert Rust
+  if (score <= 30) return "#9BB88F"; // Safe Green
+  if (score <= 60) return "#D4A574"; // Caution Amber
+  return "#C18A72"; // Alert Rust
 }
 
-console.log('[ruh] Content script loaded');
+console.log("[ruh] Content script loaded");
 
 // State
 let triggerButton: HTMLDivElement | null = null;
@@ -29,18 +29,18 @@ async function updateButtonVisibility() {
 
   try {
     const response = await chrome.runtime.sendMessage({
-      type: 'IS_SIDE_PANEL_OPEN'
+      type: "IS_SIDE_PANEL_OPEN",
     });
 
     if (response?.isOpen) {
-      triggerButton.style.display = 'none';
+      triggerButton.style.display = "none";
     } else if (currentProductUrl) {
-      triggerButton.style.display = 'block';
+      triggerButton.style.display = "block";
     }
   } catch (err) {
     // If query fails, default to showing button (if we have data)
     if (currentProductUrl) {
-      triggerButton.style.display = 'block';
+      triggerButton.style.display = "block";
     }
   }
 }
@@ -49,11 +49,11 @@ async function updateButtonVisibility() {
  * Listen for side panel state changes from background (polling notifications)
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'SIDE_PANEL_STATE_CHANGED') {
-    console.log('[Ruh Content] Side panel state changed:', message.isOpen);
+  if (message.type === "SIDE_PANEL_STATE_CHANGED") {
+    console.log("[Ruh Content] Side panel state changed:", message.isOpen);
 
     if (triggerButton && !buttonDismissed) {
-      triggerButton.style.display = message.isOpen ? 'none' : 'block';
+      triggerButton.style.display = message.isOpen ? "none" : "block";
     }
   }
 });
@@ -61,9 +61,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 /**
  * Check state when tab becomes visible (user switches back to this tab)
  */
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') {
-    console.log('[Ruh Content] Tab became visible, checking side panel state');
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    console.log("[Ruh Content] Tab became visible, checking side panel state");
     updateButtonVisibility();
   }
 });
@@ -71,8 +71,8 @@ document.addEventListener('visibilitychange', () => {
 /**
  * Check state when window regains focus
  */
-window.addEventListener('focus', () => {
-  console.log('[Ruh Content] Window focused, checking side panel state');
+window.addEventListener("focus", () => {
+  console.log("[Ruh Content] Window focused, checking side panel state");
   updateButtonVisibility();
 });
 
@@ -84,12 +84,17 @@ function init() {
   const adapter = getAdapter(url);
 
   if (!adapter || !adapter.isProductPage(url)) {
-    console.log('[Ruh Content] Not a supported product page, skipping analysis');
+    console.log(
+      "[Ruh Content] Not a supported product page, skipping analysis",
+    );
     return;
   }
 
   currentProductUrl = url;
-  console.log(`[Ruh Content] Product page detected (${adapter.name}):`, currentProductUrl);
+  console.log(
+    `[Ruh Content] Product page detected (${adapter.name}):`,
+    currentProductUrl,
+  );
 
   // Start analysis in background
   startAnalysis(adapter);
@@ -104,16 +109,17 @@ async function startAnalysis(adapter: SiteAdapter) {
   if (!currentProductUrl || analysisInFlight) return;
   analysisInFlight = true;
 
-  console.log('[ruh] Starting analysis for:', currentProductUrl);
+  console.log("[ruh] Starting analysis for:", currentProductUrl);
 
   // Normalize URL to canonical form via the adapter (e.g. Amazon → /dp/<ASIN>,
   // stripping tracking params) so cache keys don't fragment.
-  const canonicalUrl = adapter.canonicalUrl?.(currentProductUrl) ?? currentProductUrl;
+  const canonicalUrl =
+    adapter.canonicalUrl?.(currentProductUrl) ?? currentProductUrl;
 
   // Notify background worker that analysis started
   chrome.runtime.sendMessage({
-    type: 'ANALYSIS_STARTED',
-    productUrl: canonicalUrl
+    type: "ANALYSIS_STARTED",
+    productUrl: canonicalUrl,
   });
 
   try {
@@ -129,13 +135,15 @@ async function startAnalysis(adapter: SiteAdapter) {
       try {
         await adapter.prepareForCapture();
       } catch (err) {
-        console.warn('[ruh] prepareForCapture failed (continuing):', err);
+        console.warn("[ruh] prepareForCapture failed (continuing):", err);
       }
     }
 
     // Capture product page HTML
     const productHtml = document.documentElement.outerHTML;
-    console.log(`[ruh] Product page captured: ${(productHtml.length / 1024).toFixed(1)}KB`);
+    console.log(
+      `[ruh] Product page captured: ${(productHtml.length / 1024).toFixed(1)}KB`,
+    );
 
     // Fetch reviews via the retailer adapter, using the user's logged-in session.
     // Adapters without a usable reviews endpoint omit fetchReviews entirely.
@@ -147,13 +155,13 @@ async function startAnalysis(adapter: SiteAdapter) {
         if (reviewsResult && reviewsResult.html) {
           reviewsHtml = reviewsResult.html;
           console.log(
-            `[ruh] Reviews fetched (${adapter.name}): ${reviewsResult.count} reviews (${(reviewsHtml.length / 1024).toFixed(1)}KB)`
+            `[ruh] Reviews fetched (${adapter.name}): ${reviewsResult.count} reviews (${(reviewsHtml.length / 1024).toFixed(1)}KB)`,
           );
         } else {
-          console.warn('[ruh] Unable to read reviews');
+          console.warn("[ruh] Unable to read reviews");
         }
       } catch (err) {
-        console.warn('[ruh] Reviews fetch failed:', err);
+        console.warn("[ruh] Reviews fetch failed:", err);
       }
     }
 
@@ -168,20 +176,20 @@ async function startAnalysis(adapter: SiteAdapter) {
     // Content scripts run in the web page origin (amazon.ca) which Chrome's
     // Private Network Access policy blocks from reaching localhost.
     // The background worker runs in chrome-extension:// and is exempt.
-    console.log('[ruh] Sending analysis request to background worker');
+    console.log("[ruh] Sending analysis request to background worker");
 
     const result = await chrome.runtime.sendMessage({
-      type: 'ANALYZE_PRODUCT',
+      type: "ANALYZE_PRODUCT",
       productUrl: canonicalUrl,
-      requestBody
+      requestBody,
     });
 
     if (!result?.success) {
-      throw new Error(result?.error || 'Background analysis failed');
+      throw new Error(result?.error || "Background analysis failed");
     }
 
     const data = result.data;
-    console.log('[ruh] Analysis complete:', data);
+    console.log("[ruh] Analysis complete:", data);
     if (data.reviews_stored !== null && data.reviews_stored !== undefined) {
       console.log(`[ruh] Reviews stored: ${data.reviews_stored}`);
     }
@@ -192,14 +200,15 @@ async function startAnalysis(adapter: SiteAdapter) {
       injectTriggerButton(harmScore);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Analysis failed';
-    console.error('[ruh] Analysis error:', errorMessage);
+    const errorMessage =
+      error instanceof Error ? error.message : "Analysis failed";
+    console.error("[ruh] Analysis error:", errorMessage);
 
     // Notify background worker about the error
     chrome.runtime.sendMessage({
-      type: 'ANALYSIS_ERROR',
+      type: "ANALYSIS_ERROR",
       productUrl: canonicalUrl,
-      error: errorMessage
+      error: errorMessage,
     });
   } finally {
     analysisInFlight = false;
@@ -214,8 +223,8 @@ async function injectTriggerButton(harmScore: number) {
 
   const scoreColor = getScoreColor(harmScore);
 
-  triggerButton = document.createElement('div');
-  triggerButton.id = 'ruh-trigger-button';
+  triggerButton = document.createElement("div");
+  triggerButton.id = "ruh-trigger-button";
 
   // Donut-only design: just the chart with harm score (no text, no dismiss)
   const radius = 18;
@@ -236,9 +245,9 @@ async function injectTriggerButton(harmScore: number) {
   `;
 
   // Inject styles
-  if (!document.getElementById('ruh-button-styles')) {
-    const styleEl = document.createElement('style');
-    styleEl.id = 'ruh-button-styles';
+  if (!document.getElementById("ruh-button-styles")) {
+    const styleEl = document.createElement("style");
+    styleEl.id = "ruh-button-styles";
     styleEl.textContent = `
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
@@ -310,27 +319,41 @@ async function injectTriggerButton(harmScore: number) {
   }
 
   // Add click handler to open side panel
-  triggerButton.addEventListener('click', () => {
-    // Hide button immediately (optimistic update)
-    if (triggerButton) {
-      triggerButton.style.display = 'none';
+  triggerButton.addEventListener("click", async () => {
+    // Only hide the button once the panel actually opened — otherwise a failed
+    // open (or an orphaned content script after an extension update) would
+    // silently eat the button and leave the user with nothing to click.
+    try {
+      const resp = await chrome.runtime.sendMessage({
+        type: "OPEN_SIDE_PANEL",
+      });
+      if (resp?.success && triggerButton) {
+        triggerButton.style.display = "none";
+      } else if (resp && !resp.success) {
+        console.warn("[Ruh] Side panel failed to open:", resp.error);
+      }
+    } catch (err) {
+      // "Extension context invalidated" — the extension was updated/reloaded
+      // while this page was open. A page refresh reconnects everything.
+      console.warn(
+        "[Ruh] Could not reach the extension (was it just updated?). Refresh the page and try again.",
+        err,
+      );
     }
-    chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });
   });
 
   // Check if side panel is already open before showing button
   const response = await chrome.runtime.sendMessage({
-    type: 'IS_SIDE_PANEL_OPEN'
+    type: "IS_SIDE_PANEL_OPEN",
   });
 
   if (response?.isOpen) {
     // Hide button initially if side panel is open
-    triggerButton.style.display = 'none';
+    triggerButton.style.display = "none";
   }
 
   document.body.appendChild(triggerButton);
 }
-
 
 /**
  * Clean up on page navigation
@@ -346,8 +369,8 @@ function cleanup() {
 }
 
 // Initialize on load
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
 } else {
   init();
 }
@@ -370,4 +393,4 @@ new MutationObserver(() => {
 }).observe(document.body, { childList: true, subtree: true });
 
 // Cleanup on unload
-window.addEventListener('beforeunload', cleanup);
+window.addEventListener("beforeunload", cleanup);

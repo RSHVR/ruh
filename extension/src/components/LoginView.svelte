@@ -2,27 +2,54 @@
   import { authStore } from '../lib/auth-store.svelte';
 
   let email = $state('');
-  let password = $state('');
-  let isSignUp = $state(true);
+  let code = $state('');
+  let step = $state<'email' | 'code'>('email');
   let errorMsg = $state('');
   let googleNotice = $state('');
   let submitting = $state(false);
+  let resendCooldown = $state(0);
+  let cooldownTimer: ReturnType<typeof setInterval> | undefined;
 
-  async function handleEmailSubmit() {
-    if (!email || !password) {
-      errorMsg = 'Please enter your email and password';
+  function startCooldown() {
+    resendCooldown = 60;
+    clearInterval(cooldownTimer);
+    cooldownTimer = setInterval(() => {
+      resendCooldown -= 1;
+      if (resendCooldown <= 0) clearInterval(cooldownTimer);
+    }, 1000);
+  }
+
+  async function handleSendCode() {
+    if (!email) {
+      errorMsg = 'Please enter your email';
       return;
     }
     submitting = true;
     errorMsg = '';
     googleNotice = '';
 
-    const result = isSignUp
-      ? await authStore.signUp(email, password)
-      : await authStore.signInWithEmail(email, password);
+    const result = await authStore.sendEmailCode(email);
+    if (result.success) {
+      step = 'code';
+      code = '';
+      startCooldown();
+    } else {
+      errorMsg = result.error || 'Could not send the code — try again';
+    }
+    submitting = false;
+  }
 
+  async function handleVerifyCode() {
+    if (code.trim().length < 6) {
+      errorMsg = 'Enter the 6-digit code from your email';
+      return;
+    }
+    submitting = true;
+    errorMsg = '';
+
+    const result = await authStore.verifyEmailCode(email, code.trim());
     if (!result.success) {
-      errorMsg = result.error || 'Authentication failed';
+      errorMsg = result.error || 'That code didn’t work — check it and try again';
     }
     submitting = false;
   }
@@ -51,38 +78,54 @@
     <div class="error-banner">{errorMsg}</div>
   {/if}
 
-  <form onsubmit={(e) => { e.preventDefault(); handleEmailSubmit(); }}>
-    <input
-      type="email"
-      bind:value={email}
-      placeholder="Email"
-      class="input"
-      autocomplete="email"
-      disabled={submitting}
-    />
-    <input
-      type="password"
-      bind:value={password}
-      placeholder="Password"
-      class="input"
-      autocomplete={isSignUp ? 'new-password' : 'current-password'}
-      disabled={submitting}
-    />
-    <button type="submit" class="email-btn" disabled={submitting}>
-      {isSignUp ? 'Create free account' : 'Sign in'}
+  {#if step === 'email'}
+    <form onsubmit={(e) => { e.preventDefault(); handleSendCode(); }}>
+      <input
+        type="email"
+        bind:value={email}
+        placeholder="Email"
+        class="input"
+        autocomplete="email"
+        disabled={submitting}
+      />
+      <button type="submit" class="email-btn" disabled={submitting}>
+        {submitting ? 'Sending…' : 'Email me a sign-in code'}
+      </button>
+    </form>
+
+    <p class="beta-note">Free during the public beta — no password needed</p>
+  {:else}
+    <form onsubmit={(e) => { e.preventDefault(); handleVerifyCode(); }}>
+      <p class="code-hint">We sent a 6-digit code to <strong>{email}</strong></p>
+      <input
+        type="text"
+        inputmode="numeric"
+        maxlength="6"
+        bind:value={code}
+        placeholder="123456"
+        class="input code-input"
+        autocomplete="one-time-code"
+        disabled={submitting}
+      />
+      <button type="submit" class="email-btn" disabled={submitting}>
+        {submitting ? 'Checking…' : 'Sign in'}
+      </button>
+    </form>
+
+    <button
+      class="toggle-btn"
+      disabled={resendCooldown > 0 || submitting}
+      onclick={handleSendCode}
+    >
+      {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : 'Resend code'}
     </button>
-  </form>
-
-  {#if isSignUp}
-    <p class="beta-note">Free during the public beta</p>
+    <button
+      class="toggle-btn"
+      onclick={() => { step = 'email'; errorMsg = ''; }}
+    >
+      Use a different email
+    </button>
   {/if}
-
-  <button
-    class="toggle-btn"
-    onclick={() => { isSignUp = !isSignUp; errorMsg = ''; googleNotice = ''; }}
-  >
-    {isSignUp ? 'Already have an account? Sign in' : "New here? Create a free account"}
-  </button>
 
   <div class="divider">
     <span>or</span>
@@ -125,7 +168,7 @@
   .logo {
     width: 110px;
     height: auto;
-    margin-bottom: 12px;
+    margin: 0 auto 12px;
   }
 
   .tagline {
@@ -191,6 +234,22 @@
   .email-btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+  }
+
+  .code-hint {
+    font-family: 'Poppins', sans-serif;
+    font-size: 13px;
+    color: var(--color-text-secondary, #6b6560);
+    margin: 0 0 10px;
+    text-align: center;
+    word-break: break-all;
+  }
+
+  .code-input {
+    text-align: center;
+    font-size: 20px;
+    letter-spacing: 8px;
+    font-variant-numeric: tabular-nums;
   }
 
   .beta-note {
