@@ -1,15 +1,19 @@
 /**
- * Amazon site adapter (reference implementation).
+ * Amazon site adapter.
  *
- * Wraps the existing `lib/amazon` helpers (ASIN extraction + session reviews fetch)
- * so the content script needs no Amazon-specific knowledge. Reproduces the exact
- * behavior the content script had before the SiteAdapter refactor (LORE.md ADR-003).
+ * Wraps the `lib/amazon` ASIN helper so the content script needs no Amazon-specific
+ * knowledge (LORE.md ADR-003). `fetchReviews` is omitted: Amazon killed anonymous
+ * review pagination — `/product-reviews/<ASIN>/` now 302s to `/ap/signin` — so there
+ * is no usable client-session reviews endpoint (interface segregation, CLAUDE.md
+ * SOLID/I). The product page's embedded `data-hook="review"` nodes travel in the
+ * captured product HTML and are parsed server-side instead.
  */
 
-import { extractASIN, fetchReviews } from '../amazon';
-import type { SiteAdapter, ReviewsResult } from './types';
+import { extractASIN } from "../amazon";
+import type { SiteAdapter } from "./types";
 
-const AMAZON_HOST = /(^|\.)amazon\.(com|ca|co\.uk|de|fr|it|es|com\.au|co\.jp)$/i;
+const AMAZON_HOST =
+  /(^|\.)amazon\.(com|ca|co\.uk|de|fr|it|es|com\.au|co\.jp)$/i;
 
 function amazonHostname(url: string): string | null {
   try {
@@ -21,7 +25,7 @@ function amazonHostname(url: string): string | null {
 }
 
 export const amazonAdapter: SiteAdapter = {
-  name: 'amazon',
+  name: "amazon",
 
   matches(url: string): boolean {
     return amazonHostname(url) !== null;
@@ -31,7 +35,7 @@ export const amazonAdapter: SiteAdapter = {
     if (!amazonHostname(url)) return false;
     try {
       const path = new URL(url).pathname;
-      return path.includes('/dp/') || path.includes('/gp/product/');
+      return path.includes("/dp/") || path.includes("/gp/product/");
     } catch {
       return false;
     }
@@ -45,21 +49,5 @@ export const amazonAdapter: SiteAdapter = {
     } catch {
       return url;
     }
-  },
-
-  async fetchReviews(url: string): Promise<ReviewsResult | null> {
-    const asin = extractASIN(url);
-    if (!asin) return null;
-
-    const result = await fetchReviews(asin, {
-      pages: 5,
-      filter: 'all',
-      sortBy: 'helpful',
-      delayMs: 300,
-    });
-
-    if (!result.success) return null;
-    const count = (result.html.match(/data-hook="review"/g) || []).length;
-    return { html: result.html, count };
   },
 };
