@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { authStore } from '../lib/auth-store.svelte';
 
   let email = $state('');
@@ -10,8 +11,32 @@
   let resendCooldown = $state(0);
   let cooldownTimer: ReturnType<typeof setInterval> | undefined;
 
-  function startCooldown() {
-    resendCooldown = 60;
+  // The side panel is tab-scoped: switching tabs to read the code email
+  // remounts this component and wipes local state. The pending sign-in
+  // therefore lives in chrome.storage.session so a remount resumes on the
+  // code step instead of resetting to the email step.
+  const PENDING_KEY = 'ruh_pending_otp';
+  const PENDING_TTL_MS = 15 * 60 * 1000;
+
+  onMount(async () => {
+    try {
+      const stored = await chrome.storage.session.get(PENDING_KEY);
+      const pending = stored?.[PENDING_KEY] as
+        | { email?: string; sentAt?: number }
+        | undefined;
+      if (pending?.email && Date.now() - (pending.sentAt ?? 0) < PENDING_TTL_MS) {
+        email = pending.email;
+        step = 'code';
+        const remaining = 60 - Math.floor((Date.now() - (pending.sentAt ?? 0)) / 1000);
+        if (remaining > 0) startCooldown(remaining);
+      }
+    } catch {
+      // storage.session unavailable — flow still works, just without resume
+    }
+  });
+
+  function startCooldown(seconds = 60) {
+    resendCooldown = seconds;
     clearInterval(cooldownTimer);
     cooldownTimer = setInterval(() => {
       resendCooldown -= 1;
@@ -33,10 +58,17 @@
       step = 'code';
       code = '';
       startCooldown();
+      chrome.storage.session
+        .set({ [PENDING_KEY]: { email, sentAt: Date.now() } })
+        .catch(() => {});
     } else {
       errorMsg = result.error || 'Could not send the code — try again';
     }
     submitting = false;
+  }
+
+  function clearPending() {
+    chrome.storage.session.remove(PENDING_KEY).catch(() => {});
   }
 
   async function handleVerifyCode() {
@@ -50,6 +82,8 @@
     const result = await authStore.verifyEmailCode(email, code.trim());
     if (!result.success) {
       errorMsg = result.error || 'That code didn’t work — check it and try again';
+    } else {
+      clearPending();
     }
     submitting = false;
   }
@@ -121,7 +155,7 @@
     </button>
     <button
       class="toggle-btn"
-      onclick={() => { step = 'email'; errorMsg = ''; }}
+      onclick={() => { step = 'email'; errorMsg = ''; clearPending(); }}
     >
       Use a different email
     </button>
