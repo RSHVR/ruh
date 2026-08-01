@@ -135,6 +135,25 @@ async function startAnalysis(adapter: SiteAdapter) {
     .catch(() => {});
 
   try {
+    // Cache-first probe: revisits skip the multi-MB DOM capture + upload —
+    // the background asks the server if this URL is already analyzed and,
+    // on a hit, writes the completed state straight into storage.
+    try {
+      const probe = await chrome.runtime.sendMessage({
+        type: "CHECK_CACHED",
+        productUrl: canonicalUrl,
+      });
+      if (probe?.hit) {
+        console.log("[ruh] Cache hit — served without page capture");
+        if (typeof probe.harmScore === "number" && !buttonDismissed) {
+          injectTriggerButton(probe.harmScore);
+        }
+        return;
+      }
+    } catch {
+      // Probe unavailable (worker asleep/orphaned) — run the full flow.
+    }
+
     // ============================================
     // CLIENT-SIDE DATA EXTRACTION
     // ============================================

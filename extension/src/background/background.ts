@@ -219,6 +219,54 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Content scripts on amazon.ca can't reach localhost due to
   // Chrome Private Network Access. Background worker is exempt.
   // ============================================
+  // Payload-free cache probe: a hit serves the stored analysis in ~1 round
+  // trip and the content script skips the multi-MB DOM capture entirely.
+  // Cache hits used to upload the whole page just to be told "already done".
+  if (message.type === "CHECK_CACHED") {
+    const tabId = sender.tab?.id;
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+    if (!tabId || !apiBaseUrl) {
+      sendResponse({ hit: false });
+      return true;
+    }
+
+    getAuthHeader()
+      .then((authValue) => {
+        const headers: Record<string, string> = {};
+        if (authValue) headers["Authorization"] = authValue;
+        const params = new URLSearchParams({ product_url: message.productUrl });
+        return fetch(`${apiBaseUrl}/api/analyze/cached?${params}`, { headers });
+      })
+      .then(async (response) => {
+        if (!response.ok) {
+          sendResponse({ hit: false });
+          return;
+        }
+        const data = await response.json();
+        const harmScore = data?.analysis?.overall_score
+          ? 100 - data.analysis.overall_score
+          : null;
+        chrome.storage.local.set({
+          [`analysis_${tabId}`]: {
+            tabId,
+            productUrl: message.productUrl,
+            status: "complete",
+            data,
+            error: null,
+            timestamp: Date.now(),
+            harmScore,
+          },
+        });
+        console.log("[Ruh] Cache probe hit for tab:", tabId);
+        sendResponse({ hit: true, harmScore });
+      })
+      .catch(() => {
+        // Probe is best-effort — a miss just means the full flow runs.
+        sendResponse({ hit: false });
+      });
+    return true; // Keep channel open for async response
+  }
+
   if (message.type === "ANALYZE_PRODUCT") {
     const tabId = sender.tab?.id;
     if (!tabId) {
@@ -265,7 +313,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return fetch(apiBaseUrl + "/api/analyze", {
           method: "POST",
           headers,
-          body: JSON.stringify({ ...message.requestBody, user_region: userRegion }),
+          body: JSON.stringify({
+            ...message.requestBody,
+            user_region: userRegion,
+          }),
         });
       })
       .then(async (response) => {

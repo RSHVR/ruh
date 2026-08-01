@@ -92,6 +92,62 @@ def _auth_fields(auth: AuthContext, url_hash: str = "") -> dict:
     }
 
 
+async def _serve_cached_analysis(
+    cached_analysis: dict,
+    url_hash: str,
+    product_url: str,
+    auth: AuthContext,
+) -> AnalysisResponse:
+    """Build the response for a cache hit (shared by POST analyze + GET cached)."""
+    logger.info(f"Returning cached analysis for: {cached_analysis.get('product_name')}")
+
+    analyzed_at = datetime.fromisoformat(cached_analysis['analyzed_at'].replace('Z', '+00:00'))
+    cache_age = (datetime.now(timezone.utc) - analyzed_at).total_seconds()
+
+    analysis = ProductAnalysis(
+        product_url=cached_analysis['product_url'],
+        product_name=cached_analysis['product_name'],
+        brand=cached_analysis['brand'],
+        retailer=cached_analysis.get('retailer', cached_analysis.get('category', 'Unknown')),
+        ingredients=cached_analysis.get('ingredients', []),
+        overall_score=cached_analysis.get('overall_score', 100 - cached_analysis.get('harm_score', 0)),
+        allergens_detected=cached_analysis.get('allergens_detected', []),
+        pfas_detected=cached_analysis.get('pfas_detected', []),
+        other_concerns=cached_analysis.get('other_concerns', []),
+        research_sources=cached_analysis.get('research_sources') or [],
+        ingredients_by_provenance=cached_analysis.get('ingredients_by_provenance'),
+        origin=cached_analysis.get('origin'),
+        confidence=cached_analysis.get('confidence', 80) / 100.0,  # Convert integer 0-100 to float 0.0-1.0
+        analyzed_at=analyzed_at,
+    )
+
+    cached_review_insights = None
+    if db.is_available:
+        try:
+            cached_review_insights = await db.get_cached_reviews(url_hash)
+            if cached_review_insights:
+                logger.info("✅ Returning cached review insights")
+        except Exception as e:
+            logger.warning(f"⚠️  Failed to get cached reviews (non-fatal): {e}")
+
+    if db.is_available:
+        user_id = await db.get_or_create_anonymous_user()
+        await db.log_search(user_id, product_url)
+
+    # A cache hit still counts as the invited user completing an analysis.
+    await _fire_referral_conversion(auth)
+
+    return AnalysisResponse(
+        analysis=analysis,
+        alternatives=[],  # TODO: Implement alternatives
+        cached=True,
+        cache_age_seconds=int(cache_age),
+        url_hash=url_hash,  # Include for fetching reviews later
+        review_insights=cached_review_insights,
+        **_auth_fields(auth, url_hash),
+    )
+
+
 async def _fire_referral_conversion(auth: AuthContext) -> None:
     """Best-effort referral conversion for a JWT user who completed an analysis.
 
@@ -222,6 +278,36 @@ def validate_and_filter_substances(
     return analysis_data
 
 
+@router.get("/analyze/cached", response_model=AnalysisResponse)
+@limiter.limit("60/minute")
+async def cached_analysis_lookup(
+    request: Request,
+    product_url: str,
+    auth: AuthContext = Depends(get_auth_context),
+) -> AnalysisResponse:
+    """Payload-free cache probe: the extension asks BEFORE capturing the DOM.
+
+    Cache hits previously required uploading the full page HTML (multi-MB on
+    SPA retailers) just to be told "already analyzed" — every revisit felt
+    like a re-analysis. Returns the cached analysis, or 404 when there is no
+    cache entry (or it is inconclusive and rescan-eligible) so the client
+    proceeds with the full capture + POST /api/analyze flow.
+    """
+    url_hash = db.generate_url_hash(product_url)
+
+    cached = None
+    if db.is_available:
+        try:
+            cached = await db.get_cached_analysis(url_hash)
+        except Exception as e:
+            logger.warning(f"⚠️  Cache probe failed (treating as miss): {e}")
+
+    if not cached or should_rescan(cached):
+        raise HTTPException(status_code=404, detail="No cached analysis")
+
+    return await _serve_cached_analysis(cached, url_hash, product_url, auth)
+
+
 @router.post("/analyze", response_model=AnalysisResponse)
 @limiter.limit("30/minute")  # 30 requests per minute per IP - generous for normal browsing
 async def analyze_product(
@@ -264,56 +350,8 @@ async def analyze_product(
 
         # Step 3: If cached, return immediately
         if cached_analysis:
-            logger.info(f"Returning cached analysis for: {cached_analysis.get('product_name')}")
-
-            # Calculate cache age
-            analyzed_at = datetime.fromisoformat(cached_analysis['analyzed_at'].replace('Z', '+00:00'))
-            cache_age = (datetime.now(timezone.utc) - analyzed_at).total_seconds()
-
-            # Build ProductAnalysis from cached data
-            analysis = ProductAnalysis(
-                product_url=cached_analysis['product_url'],
-                product_name=cached_analysis['product_name'],
-                brand=cached_analysis['brand'],
-                retailer=cached_analysis.get('retailer', cached_analysis.get('category', 'Unknown')),
-                ingredients=cached_analysis.get('ingredients', []),
-                overall_score=cached_analysis.get('overall_score', 100 - cached_analysis.get('harm_score', 0)),
-                allergens_detected=cached_analysis.get('allergens_detected', []),
-                pfas_detected=cached_analysis.get('pfas_detected', []),
-                other_concerns=cached_analysis.get('other_concerns', []),
-                research_sources=cached_analysis.get('research_sources') or [],
-                ingredients_by_provenance=cached_analysis.get('ingredients_by_provenance'),
-                origin=cached_analysis.get('origin'),
-                confidence=cached_analysis.get('confidence', 80) / 100.0,  # Convert integer 0-100 to float 0.0-1.0
-                analyzed_at=analyzed_at,
-            )
-
-            # Get cached review insights if available
-            cached_review_insights = None
-            if db.is_available:
-                try:
-                    cached_review_insights = await db.get_cached_reviews(url_hash)
-                    if cached_review_insights:
-                        logger.info("✅ Returning cached review insights")
-                except Exception as e:
-                    logger.warning(f"⚠️  Failed to get cached reviews (non-fatal): {e}")
-
-            # Log search
-            if db.is_available:
-                user_id = await db.get_or_create_anonymous_user()
-                await db.log_search(user_id, analysis_request.product_url)
-
-            # A cache hit still counts as the invited user completing an analysis.
-            await _fire_referral_conversion(auth)
-
-            return AnalysisResponse(
-                analysis=analysis,
-                alternatives=[],  # TODO: Implement alternatives
-                cached=True,
-                cache_age_seconds=int(cache_age),
-                url_hash=url_hash,  # Include for fetching reviews later
-                review_insights=cached_review_insights,
-                **_auth_fields(auth, url_hash),
+            return await _serve_cached_analysis(
+                cached_analysis, url_hash, analysis_request.product_url, auth
             )
 
         # Step 4: Cache miss - perform new analysis
