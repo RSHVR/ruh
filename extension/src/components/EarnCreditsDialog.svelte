@@ -25,6 +25,13 @@
       mailtoSubject: 'Earning credits: I shared ruh (+10)',
     },
     {
+      credits: 10,
+      title: 'Refer a friend',
+      detail:
+        '+10 for each friend who signs up and analyzes a product — up to 5 friends. Email us who you invited.',
+      mailtoSubject: 'Earning credits: I referred a friend (+10)',
+    },
+    {
       credits: 30,
       title: 'Meet the founder',
       detail:
