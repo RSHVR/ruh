@@ -126,6 +126,10 @@ export async function fetchFeatures(
   });
   if (!res.ok) throw new FeatureBoardError(res.status);
   const data = await res.json();
+  // Backend returns a bare array (List[FeatureResponse]); tolerate the
+  // wrapped { features: [...] } shape too so neither side can silently
+  // zero the board again.
+  if (Array.isArray(data)) return data;
   return data.features ?? [];
 }
 

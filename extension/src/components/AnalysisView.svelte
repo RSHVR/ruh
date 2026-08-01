@@ -405,7 +405,10 @@
   }
 
   .content {
-    @apply flex-1 overflow-y-auto;
+    /* No own scroller: the side-panel container is the single scroll context.
+       (overflow-y:auto here also force-computed overflow-x to auto, which is
+       where the phantom horizontal scrollbar came from.) */
+    @apply flex-1;
     padding: 20px;
   }
 
@@ -487,6 +490,19 @@
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
     border: 1px solid rgba(168, 184, 159, 0.15); /* Light Sage tint */
     margin-bottom: 8px;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  /* Long unbreakable strings (source URLs, chemical names) must never widen
+     the card: let the flex text column shrink below its content width and
+     wrap anywhere. The severity badge keeps flex-shrink: 0 and stays put. */
+  .item-card > div > div {
+    min-width: 0;
+  }
+
+  .item-card p {
+    overflow-wrap: anywhere;
   }
 
   .analysis-detail-item {

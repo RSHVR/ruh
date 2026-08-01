@@ -290,6 +290,7 @@
     width: 100%;
     height: 100vh;
     overflow-y: auto;
+    overflow-x: hidden;
     background: var(--color-bg-primary, #fffbf5);
     display: flex;
     flex-direction: column;
