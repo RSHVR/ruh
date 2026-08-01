@@ -56,6 +56,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       triggerButton.style.display = message.isOpen ? "none" : "block";
     }
   }
+
+  if (message.type === "RETRY_ANALYSIS") {
+    // Side panel's retry after a failed analysis: re-run the full detect +
+    // analyze flow in-place (no page reload needed).
+    console.log("[Ruh Content] Retry requested by side panel");
+    analysisInFlight = false;
+    init();
+    sendResponse({ success: true });
+  }
 });
 
 /**

@@ -229,6 +229,34 @@
   }
 
   /**
+   * Retry a failed analysis. The analysis runs in the product tab's content
+   * script, so retrying means asking THAT script to re-run — merely
+   * re-reading the stored error (the old behavior) retried nothing.
+   * Falls back to reloading the product tab if the content script is
+   * unreachable (e.g. orphaned after an extension update).
+   */
+  async function retryAnalysis() {
+    if (currentTabId == null) return;
+
+    // Optimistic: show the loading screen while the retry spins up.
+    if (currentTabState) {
+      currentTabState = { ...currentTabState, status: 'loading', error: null };
+    }
+
+    try {
+      await chrome.tabs.sendMessage(currentTabId, { type: 'RETRY_ANALYSIS' });
+    } catch {
+      // Content script unreachable — a tab reload re-injects it and
+      // re-triggers the analysis on load.
+      try {
+        await chrome.tabs.reload(currentTabId);
+      } catch {
+        error = 'Could not retry — refresh the product page.';
+      }
+    }
+  }
+
+  /**
    * Handle unlock button click — deduct credit via API
    */
   async function handleUnlock() {
@@ -301,7 +329,7 @@
     {:else if currentTabState.status === 'error'}
       <div class="empty-state">
         <p class="error-text">{currentTabState.error || 'Analysis failed'}</p>
-        <button onclick={() => loadActiveTabState()} class="retry-button">
+        <button onclick={retryAnalysis} class="retry-button">
           Retry
         </button>
       </div>
