@@ -306,9 +306,12 @@
 
 <div class="side-panel-container">
   {#if loading || authStore.loading}
-    <div class="empty-state">
-      <div class="spinner"></div>
-      <p>Loading...</p>
+    <!-- Mirrors LoadingScreen's visual language so panel-boot → analysis
+         reads as one continuous screen, not two different loaders. -->
+    <div class="boot-screen">
+      <div class="boot-spinner"></div>
+      <h3 class="boot-title">Confirming you're signed in…</h3>
+      <p class="boot-sub">Restoring your session</p>
     </div>
   {:else if !authStore.isAuthenticated}
     <LoginView />
@@ -384,6 +387,49 @@
 </div>
 
 <style>
+  /* Boot state — visually matched to LoadingScreen (same spinner, type, bg) */
+  .boot-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 48px 20px;
+    height: 100vh;
+    box-sizing: border-box;
+    background: var(--color-bg-primary, #fffbf5);
+    text-align: center;
+  }
+
+  .boot-spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid #e8dcc8;
+    border-top-color: #6b6560;
+    border-radius: 50%;
+    animation: boot-spin 1s linear infinite;
+    margin: 0 auto 16px;
+  }
+
+  @keyframes boot-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .boot-title {
+    font-family: 'Instrument Sans', sans-serif;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--color-text-primary, #3a3633);
+    margin: 0 0 6px;
+  }
+
+  .boot-sub {
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    color: var(--color-text-secondary, #6b6560);
+    margin: 0;
+  }
+
   .free-unlock-note {
     margin: 10px 16px 0;
     padding: 8px 12px;
