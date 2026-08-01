@@ -525,22 +525,6 @@
     color: var(--color-rust, #C46E5A);
   }
 
-  .spinner {
-    width: 32px;
-    height: 32px;
-    border: 3px solid #E8DCC8;
-    border-top-color: #6B6560;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    margin-bottom: 16px;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
   .retry-button {
     padding: 10px 20px;
     background: var(--color-sage, #94A37C);
