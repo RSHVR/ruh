@@ -101,6 +101,7 @@ class ProductSafetyAgentWrapper:
         allergen_profile: List[str] = None,
         pfas_database: List[Dict[str, Any]] = None,
         allergen_database: List[Dict[str, Any]] = None,
+        user_region: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Analyze product that was already extracted from HTML.
 
@@ -142,6 +143,7 @@ class ProductSafetyAgentWrapper:
             allergen_profile=allergen_profile,
             pfas_database=pfas_database,
             allergen_database=allergen_database,
+            user_region=user_region,
         )
 
     async def analyze_product(
@@ -150,6 +152,7 @@ class ProductSafetyAgentWrapper:
         allergen_profile: List[str] = None,
         pfas_database: List[Dict[str, Any]] = None,
         allergen_database: List[Dict[str, Any]] = None,
+        user_region: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Analyze product directly from URL (fallback when scraping fails).
 
@@ -176,6 +179,7 @@ class ProductSafetyAgentWrapper:
             allergen_profile=allergen_profile,
             pfas_database=pfas_database,
             allergen_database=allergen_database,
+            user_region=user_region,
         )
 
     async def find_alternatives(

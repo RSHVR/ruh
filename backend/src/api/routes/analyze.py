@@ -781,6 +781,10 @@ async def analyze_product(
             **_auth_fields(auth, url_hash),
         )
 
+    except HTTPException:
+        # Deliberate signals (identity guard 422 etc.) pass through untouched —
+        # the catch-all below must not rewrap them as generic 500s.
+        raise
     except Exception as e:
         logger.error(f"Analysis failed: {str(e)}", exc_info=True)
         raise HTTPException(
