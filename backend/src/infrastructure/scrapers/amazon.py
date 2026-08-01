@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 from typing import List
 
 from .base import BaseScraper
+from .review_parsers import AmazonReviewParser
 
 
 class AmazonScraper(BaseScraper):
@@ -19,6 +20,11 @@ class AmazonScraper(BaseScraper):
 
     RETAILER_NAME = "Amazon"
     SCRAPE_METHOD = "amazon_raw_html"
+
+    #: Amazon ships reviews as a ``data-hook`` DOM (structured dicts for the
+    #: vector store come from the dedicated Amazon parser, which accepts both the
+    #: renamed 2026 hooks and the legacy ones).
+    REVIEW_PARSER = AmazonReviewParser
 
     DOMAIN_PATTERNS = [
         r"amazon\.(com|ca|co\.uk|de|fr|it|es|com\.au|co\.jp)",
@@ -170,7 +176,10 @@ class AmazonScraper(BaseScraper):
             if format_el:
                 parts.append(f"Variant: {format_el.get_text(strip=True)}")
 
-            title_el = review_el.select_one("[data-hook='review-title']")
+            # Title: renamed 2026 hook (h5[reviewTitle]) first, legacy hook as fallback.
+            title_el = review_el.select_one(
+                "h5[data-hook='reviewTitle'], [data-hook='review-title']"
+            )
             if title_el:
                 title_text = re.sub(
                     r"^[\d.]+\s+out\s+of\s+\d+\s+stars?\s*", "", title_el.get_text(strip=True)
@@ -178,8 +187,11 @@ class AmazonScraper(BaseScraper):
                 if title_text:
                     parts.append(f"Title: {title_text}")
 
-            body_el = review_el.select_one("[data-hook='review-collapsed']") or review_el.select_one(
-                "[data-hook='review-body']"
+            # Body: renamed 2026 hook (div[reviewText]) first, legacy hooks as fallback.
+            body_el = (
+                review_el.select_one("[data-hook='reviewText']")
+                or review_el.select_one("[data-hook='review-collapsed']")
+                or review_el.select_one("[data-hook='review-body']")
             )
             if body_el:
                 body_text = body_el.get_text(separator=" ", strip=True)

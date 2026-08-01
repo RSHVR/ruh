@@ -16,6 +16,7 @@ class prefix (added below as a robust fallback).
 """
 
 from .base import BaseScraper
+from .review_parsers import UniqloReviewParser
 
 
 class UniqloScraper(BaseScraper):
@@ -23,6 +24,10 @@ class UniqloScraper(BaseScraper):
 
     RETAILER_NAME = "Uniqlo"
     SCRAPE_METHOD = "uniqlo_raw_html"
+
+    #: Uniqlo renders reviews in a DOM container (#productReviews-container);
+    #: parsed best-effort into structured dicts for the vector store.
+    REVIEW_PARSER = UniqloReviewParser
 
     DOMAIN_PATTERNS = [
         r"uniqlo\.com",

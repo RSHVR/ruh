@@ -13,6 +13,7 @@ from anthropic import Anthropic
 from .config import settings
 from .token_tracker import TokenTracker
 from ..domain.models import ScrapedProduct
+from ..domain.composition import normalize_composition
 from ..domain.extraction_schemas import ProductExtraction, ReviewInsightsExtraction
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,14 @@ class ClaudeQueryService:
             # Handle special stop reasons
             extracted_data = self._handle_parse_response(response, "product extraction")
 
+            if "error" not in extracted_data and extracted_data.get("ingredients"):
+                # Split per-part textile compositions ("Shell: Viscose 75%, ...")
+                # into one fibre per ingredient (deterministic; leaves regular
+                # ingredient lists untouched). Applies to all textile retailers.
+                extracted_data["ingredients"] = normalize_composition(
+                    extracted_data["ingredients"]
+                )
+
             if "error" not in extracted_data:
                 logger.info(f"✅ CLAUDE QUERY COMPLETE: Extracted product '{extracted_data.get('product_name', 'Unknown')}'")
                 logger.info(f"   Ingredients: {len(extracted_data.get('ingredients', []))}")
@@ -162,7 +171,7 @@ class ClaudeQueryService:
             insights = self._handle_parse_response(response, "review extraction")
 
             if "error" not in insights:
-                logger.info(f"✅ Extracted review insights")
+                logger.info("✅ Extracted review insights")
                 logger.info(f"   Common complaints: {len(insights.get('common_complaints', []))}")
                 logger.info(f"   Health concerns: {len(insights.get('health_concerns', []))}")
 

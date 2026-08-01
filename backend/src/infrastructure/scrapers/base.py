@@ -19,6 +19,7 @@ from typing import List, Dict, Optional
 from bs4 import BeautifulSoup
 
 from ...domain.models import ScrapedProduct
+from .review_parsers import JsonLdReviewParser
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,12 @@ class BaseScraper(ABC):
     REVIEWS_SECTION_SELECTORS: List[Dict] = []
     #: Selectors removed before extraction (ads, nav, recommendations).
     EXCLUDE_SELECTORS: List[str] = []
+
+    #: Per-retailer review parser producing structured dicts for the vector store.
+    #: Default = generic schema.org JSON-LD; retailers with a bespoke review shape
+    #: (Amazon DOM, Walmart ``__NEXT_DATA__``) override it. Adding a retailer stays
+    #: configuration (INV-2) — the review dialect lives WITH the retailer.
+    REVIEW_PARSER = JsonLdReviewParser
 
     #: User agent for Playwright (avoids trivial bot detection).
     USER_AGENT = (
@@ -288,6 +295,19 @@ class BaseScraper(ABC):
         if not reviews2:
             return reviews1
         return reviews1 + "\n\n=== ADDITIONAL FETCHED REVIEWS ===\n\n" + reviews2
+
+    def parse_reviews(self, reviews_html: str) -> List[Dict]:
+        """Parse the retailer's reviews into structured dicts for the vector store.
+
+        Delegates to the retailer's ``REVIEW_PARSER`` (per-site dialect). This is
+        the seam the ``ReviewVectorService`` resolves per URL so review parsing is
+        no longer Amazon-only. Never raises (INV-3): failures degrade to ``[]``.
+        """
+        try:
+            return self.REVIEW_PARSER().parse(reviews_html)
+        except Exception as e:
+            logger.warning(f"{self.RETAILER_NAME} review parse failed: {e}")
+            return []
 
     # ------------------------------------------------------------------ #
     # Metadata helpers

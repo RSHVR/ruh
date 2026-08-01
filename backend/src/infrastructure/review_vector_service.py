@@ -4,14 +4,13 @@ Uses Cohere for embeddings and reranking, Supabase pgvector for storage.
 """
 
 import logging
-import re
 from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from datetime import datetime, timezone
 
-from bs4 import BeautifulSoup
-
 from .config import settings
 from .database import db
+from .scrapers.factory import ScraperFactory
+from .scrapers.review_parsers import AmazonReviewParser, JsonLdReviewParser
 
 if TYPE_CHECKING:
     import cohere
@@ -26,24 +25,6 @@ HEALTH_QUERIES = [
     "chemical smell toxic fumes strong odor",
     "burn injury hurt dangerous unsafe",
 ]
-
-
-def clean_text(text: str) -> str:
-    """Clean text before embedding.
-
-    Based on scraper-agent's html_cleaner._clean_text() approach.
-    """
-    if not text:
-        return ""
-    # Remove excessive whitespace (newlines, tabs, multiple spaces)
-    text = re.sub(r'\s+', ' ', text)
-    # Remove repeated punctuation (... → ., !!! → !)
-    text = re.sub(r'([.!?,])\1+', r'\1', text)
-    # Remove standalone special characters
-    text = re.sub(r'\s+[^\w\s]\s+', ' ', text)
-    # Remove zero-width characters
-    text = text.replace('\u200b', '').replace('\ufeff', '').replace('\u00a0', ' ')
-    return text.strip()
 
 
 class ReviewVectorService:
@@ -65,6 +46,9 @@ class ReviewVectorService:
         # Embedding cache to avoid redundant API calls
         self._embedding_cache: Dict[str, List[float]] = {}
         self._cache_max_size = 1000
+
+        # Resolves the per-retailer review parser by product URL (open/closed).
+        self._scraper_factory = ScraperFactory()
 
     def _init_cohere(self):
         """Initialize Cohere client lazily."""
@@ -223,102 +207,40 @@ class ReviewVectorService:
             return []
 
     def parse_reviews_html(self, html: str) -> List[Dict[str, Any]]:
-        """Parse reviews from Amazon HTML into structured data.
+        """Parse Amazon reviews HTML into structured dicts (backward-compatible shim).
 
-        Handles both:
-        1. Single page HTML (from product page or single reviews page)
-        2. Concatenated multi-page HTML (marked with <!-- REVIEWS_PAGE_N -->)
-
-        Args:
-            html: Raw HTML from Amazon reviews pages
-
-        Returns:
-            List of review dicts with text, rating, reviewer, etc.
+        Retailer-agnostic parsing goes through :meth:`parse_reviews_for_url`, which
+        resolves the retailer's own parser. This method is kept for the Amazon DOM
+        so existing callers keep working; it accepts both the renamed 2026 hooks and
+        the legacy ones (see AmazonReviewParser).
         """
-        reviews = []
+        return AmazonReviewParser().parse(html)
 
-        # Debug: Log raw HTML stats
-        html_size_kb = len(html) / 1024
-        string_count = html.count('data-hook="review"') + html.count("data-hook='review'")
-        logger.info(f"📝 Parsing reviews: {html_size_kb:.1f}KB HTML, {string_count} data-hook='review' string matches")
+    async def parse_reviews_for_url(
+        self, product_url: str, reviews_html: str
+    ) -> List[Dict[str, Any]]:
+        """Parse reviews using the retailer-appropriate parser for ``product_url``.
 
-        # Check if this is concatenated multi-page HTML
-        # The extension joins pages with <!-- REVIEWS_PAGE_N --> markers
-        page_marker_pattern = r'<!-- REVIEWS_PAGE_\d+ -->'
-        page_chunks = re.split(page_marker_pattern, html)
+        The review-DOM dialect lives WITH the retailer (its scraper's
+        ``REVIEW_PARSER``); URLs with no registered scraper fall back to the generic
+        schema.org JSON-LD parser. Never raises (INV-3) — any failure yields ``[]``.
+        """
+        if not reviews_html:
+            return []
 
-        # Filter out empty chunks and parse each page separately
-        page_chunks = [chunk.strip() for chunk in page_chunks if chunk.strip()]
-        logger.info(f"📝 Split into {len(page_chunks)} page chunks for parsing")
+        scraper = None
+        try:
+            scraper = await self._scraper_factory.get_scraper(product_url)
+        except Exception as e:
+            logger.warning(f"Scraper resolution failed for reviews ({product_url}): {e}")
 
-        review_divs = []
-        for i, chunk in enumerate(page_chunks):
-            # Use html.parser - more forgiving of Amazon's messy HTML than lxml
-            soup = BeautifulSoup(chunk, 'html.parser')
-            chunk_divs = soup.find_all('div', {'data-hook': 'review'})
-            logger.debug(f"📝 Page chunk {i+1}: found {len(chunk_divs)} review divs")
-            review_divs.extend(chunk_divs)
-
-        logger.info(f"📝 BeautifulSoup found {len(review_divs)} total review divs across all chunks")
-
-        for div in review_divs:
-            try:
-                review = {}
-
-                # Extract review text and clean it
-                text_el = div.find('span', {'data-hook': 'review-body'})
-                if text_el:
-                    raw_text = text_el.get_text(strip=True)
-                    review['review_text'] = clean_text(raw_text)
-                else:
-                    continue  # Skip reviews without text
-
-                # Extract rating (e.g., "4.0 out of 5 stars")
-                rating_el = div.find('i', {'data-hook': 'review-star-rating'})
-                if not rating_el:
-                    rating_el = div.find('i', {'data-hook': 'cmps-review-star-rating'})
-                if rating_el:
-                    rating_text = rating_el.get_text()
-                    rating_match = re.search(r'(\d+(?:\.\d+)?)', rating_text)
-                    if rating_match:
-                        review['review_rating'] = int(float(rating_match.group(1)))
-
-                # Extract reviewer name
-                reviewer_el = div.find('span', class_='a-profile-name')
-                if reviewer_el:
-                    review['reviewer_name'] = reviewer_el.get_text(strip=True)
-
-                # Extract review date
-                date_el = div.find('span', {'data-hook': 'review-date'})
-                if date_el:
-                    review['review_date'] = date_el.get_text(strip=True)
-
-                # Check if verified purchase
-                verified_el = div.find('span', {'data-hook': 'avp-badge'})
-                review['verified_purchase'] = verified_el is not None
-
-                # Extract helpful votes
-                helpful_el = div.find('span', {'data-hook': 'helpful-vote-statement'})
-                if helpful_el:
-                    helpful_text = helpful_el.get_text()
-                    helpful_match = re.search(r'(\d+)', helpful_text)
-                    if helpful_match:
-                        review['helpful_votes'] = int(helpful_match.group(1))
-                    elif 'one person' in helpful_text.lower():
-                        review['helpful_votes'] = 1
-                    else:
-                        review['helpful_votes'] = 0
-                else:
-                    review['helpful_votes'] = 0
-
-                reviews.append(review)
-
-            except Exception as e:
-                logger.warning(f"Failed to parse review: {e}")
-                continue
-
-        logger.info(f"Parsed {len(reviews)} reviews from HTML")
-        return reviews
+        try:
+            if scraper is not None:
+                return scraper.parse_reviews(reviews_html)
+            return JsonLdReviewParser().parse(reviews_html)
+        except Exception as e:
+            logger.warning(f"Review parsing failed for {product_url}: {e}")
+            return []
 
     async def store_reviews(
         self,
@@ -344,8 +266,9 @@ class ReviewVectorService:
             logger.warning("Database not available - skipping review storage")
             return 0, 0
 
-        # Parse reviews from HTML
-        reviews = self.parse_reviews_html(reviews_html)
+        # Parse reviews using the retailer-appropriate parser (Amazon DOM,
+        # Walmart __NEXT_DATA__, generic JSON-LD, …) resolved from the URL.
+        reviews = await self.parse_reviews_for_url(product_url, reviews_html)
         if not reviews:
             logger.info("No reviews parsed from HTML")
             return 0, 0
