@@ -245,3 +245,14 @@ fragmentation during beta outweigh regional precision; revisit post-beta). Alert
 handled by prompt contract: every alert embeds its own source + "As of <timeframe>", and the UI
 shows "Checked <analyzed date>". ToS acceptance + region live in auth user_metadata
 (`tos_accepted_at`, `region`) — first-write-wins, backfilled on next sign-in for older users.
+
+## ADR-009 — Hybrid review retrieval: RRF over lexical + semantic (2026-08-01)
+
+The review RAG was purely semantic (Cohere embeddings + pgvector `search_reviews`), which can rank
+exact substance mentions ("PFOA", "benzene", "hives") low. Migration 019 adds a generated tsvector +
+GIN on `review_chunks` and a `search_reviews_lexical` RPC (websearch_to_tsquery + ts_rank_cd — the
+closest native scorer; hosted Supabase has no pg_search/BM25 extension). The service fuses both
+retrievers with Reciprocal Rank Fusion (`rank_fusion.py`, k=60, pure/deterministic) and keeps the
+Cohere rerank as the final stage. Degradation is symmetric: either retriever failing leaves the
+other; the reranker failing leaves RRF order — exact matches survive even with Cohere fully down.
+(Committed 5c43df1; migration 019 pending a Supabase dashboard window.)

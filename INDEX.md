@@ -49,6 +49,10 @@ Last updated: 2026-06-03
 | Analysis feedback | Thumbs/bug ratings with reasons + comments (JWT-only) | `backend/src/api/routes/feedback.py`, `backend/src/infrastructure/feedback_service.py`, migration `017_analysis_feedback.sql` | `add_feedback()`, canonical `UP_REASONS`/`DOWN_REASONS` |
 | Review parsing | Per-retailer review extraction (ADR-007) | `backend/src/infrastructure/scrapers/review_parsers.py`, `REVIEW_PARSER` attr on each scraper | `JsonLdReviewParser` (default), `AmazonReviewParser`, `WalmartReviewParser`, `UniqloReviewParser`; resolved in `review_vector_service.store_reviews` |
 | Composition splitter | "Shell: Viscose 75%…" → per-fibre ingredients | `backend/src/domain/composition.py` (wired in `claude_query.py`) | `normalize_composition()` |
+| Analysis quality | Inconclusive detection, free unlocks, auto-rescan | `backend/src/domain/quality.py`, cron in `worker.js` + `/api/admin/rescan-candidates` | `is_inconclusive_analysis()`, `should_rescan()` |
+| Identity guard | Reject analyses that drifted to the wrong page | `backend/src/domain/identity.py` | `product_identity_ok()`, `slug_tokens()` |
+| Hybrid review RAG | Lexical (tsvector) + semantic RRF fusion (ADR-009) | `backend/src/infrastructure/rank_fusion.py`, migration `019` | `reciprocal_rank_fusion()` |
+| KB optimization plan | Data-driven KB/consistency/variant roadmap | `docs/KB-OPTIMIZATION-PLAN.md` | 11-item prioritized backlog |
 | Config | Pydantic settings from `.env` | `backend/src/infrastructure/config.py` | `Settings`, `settings` |
 | App entry | FastAPI app + routers + CORS | `backend/src/api/main.py`, `backend/run.py` | `app` |
 
