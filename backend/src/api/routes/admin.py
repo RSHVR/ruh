@@ -252,3 +252,39 @@ async def get_product_validation_logs(
             status_code=500,
             detail=f"Failed to fetch product validation logs: {str(e)}"
         )
+
+
+@router.get("/rescan-candidates")
+async def get_rescan_candidates(
+    limit: int = Query(5, ge=1, le=20, description="Max products to rescan per sweep"),
+    api_key: str = Depends(verify_api_key)
+) -> Dict[str, Any]:
+    """Product URLs whose cached analysis is inconclusive and rescan-eligible.
+
+    Consumed by the Worker's scheduled sweep, which simply POSTs each URL back
+    to /api/analyze — the analyze route's should_rescan cache-bypass does the
+    actual re-analysis and increments rescan_count. Oldest first, bounded to
+    keep per-sweep spend predictable.
+    """
+    from ...domain.quality import is_inconclusive_analysis, MAX_RESCANS
+
+    if not db.is_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    try:
+        resp = db.client.table("product_analyses").select(
+            "product_url, ingredients, allergens_detected, pfas_detected,"
+            "other_concerns, confidence, rescan_count, analyzed_at"
+        ).lt("rescan_count", MAX_RESCANS).order("analyzed_at", desc=False).limit(200).execute()
+
+        candidates = [
+            row["product_url"]
+            for row in (resp.data or [])
+            if row.get("product_url", "").startswith("http")
+            and is_inconclusive_analysis(row)
+        ][:limit]
+
+        return {"candidates": candidates, "count": len(candidates)}
+    except Exception as e:
+        logger.error(f"Failed to list rescan candidates: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to list rescan candidates")

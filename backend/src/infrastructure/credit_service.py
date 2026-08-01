@@ -104,6 +104,28 @@ def deduct_credit(user_id: UUID, url_hash: str) -> DeductResult:
                             already_unlocked=False, is_unlimited=False)
 
 
+def free_unlock(user_id: UUID, url_hash: str) -> bool:
+    """Record an unlock WITHOUT charging a credit.
+
+    Used when the stored analysis is inconclusive (see domain.quality) —
+    charging for an empty detail view is a trust-destroying trade. Idempotent
+    via the UNIQUE(user_id, url_hash) constraint (conflicts are ignored).
+    """
+    if not db.is_available:
+        return False
+
+    try:
+        db.client.table("unlocked_analyses").upsert(
+            {"user_id": str(user_id), "url_hash": url_hash},
+            on_conflict="user_id,url_hash",
+            ignore_duplicates=True,
+        ).execute()
+        return True
+    except Exception as e:
+        logger.error("Failed to record free unlock: %s", e)
+        return False
+
+
 def is_analysis_unlocked(user_id: UUID, url_hash: str) -> bool:
     """Check if a user has already unlocked a product's detailed view."""
     if not db.is_available:

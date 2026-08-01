@@ -5,7 +5,9 @@ from pydantic import BaseModel
 from typing import Optional
 
 from ..auth import get_auth_context, AuthContext
+from ...domain.quality import is_inconclusive_analysis
 from ...infrastructure import credit_service
+from ...infrastructure.database import db
 
 router = APIRouter()
 
@@ -27,6 +29,10 @@ class DeductResponse(BaseModel):
     credits_remaining: int
     already_unlocked: bool
     is_unlimited: bool
+    # False when the unlock was free because the analysis was inconclusive —
+    # charging for an empty detail view is a trust-destroying trade.
+    charged: bool = True
+    free_reason: Optional[str] = None
 
 
 class CheckUnlockResponse(BaseModel):
@@ -80,6 +86,26 @@ async def deduct_credit(
     Idempotent: if the product is already unlocked, no credit is deducted.
     """
     auth = _require_jwt_user(auth)
+
+    # Inconclusive analyses unlock for free — the detail view has nothing
+    # worth paying for (no ingredients, no findings, or rock-bottom
+    # confidence). Failure to load the row falls through to normal charging.
+    try:
+        stored = db.get_cached_analysis(body.url_hash)
+    except Exception:
+        stored = None
+    if stored is not None and is_inconclusive_analysis(stored):
+        already = credit_service.is_analysis_unlocked(auth.user_id, body.url_hash)
+        if not already:
+            credit_service.free_unlock(auth.user_id, body.url_hash)
+        return DeductResponse(
+            success=True,
+            credits_remaining=auth.credits_remaining,
+            already_unlocked=already,
+            is_unlimited=auth.tier == "unlimited",
+            charged=False,
+            free_reason="inconclusive",
+        )
 
     result = credit_service.deduct_credit(auth.user_id, body.url_hash)
 

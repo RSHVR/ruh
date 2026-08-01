@@ -214,6 +214,7 @@ class DatabaseService:
                 'ingredients_by_provenance': ingredients_by_provenance,  # JSONB {declared,found,inferred} or NULL
                 'origin': origin,  # JSONB {summary,region,alert} or NULL (food/grocery only)
                 'confidence': int(analysis.get('confidence', 0.8) * 100),  # INTEGER 0-100
+                'rescan_count': int(analysis.get('rescan_count') or 0),  # inconclusive-rescan attempts
                 'analyzed_at': datetime.now(timezone.utc).isoformat()
             }
 
@@ -229,10 +230,30 @@ class DatabaseService:
 
             logger.info(f"About to store analysis with keys: {list(db_data.keys())}")
 
-            # Upsert (insert or update if exists)
-            response = self.client.table('product_analyses')\
-                .upsert(db_data, on_conflict='product_url_hash')\
-                .execute()
+            # Upsert (insert or update if exists). Deploys can precede their
+            # migrations (schema columns land later): on an unknown-column
+            # error, strip the optional new-schema keys and retry once so
+            # caching never silently dies during a migration window.
+            optional_keys = (
+                'rescan_count', 'origin', 'ingredients_by_provenance',
+                'research_sources',
+            )
+            try:
+                self.client.table('product_analyses')\
+                    .upsert(db_data, on_conflict='product_url_hash')\
+                    .execute()
+            except Exception as first_err:
+                if 'column' not in str(first_err).lower():
+                    raise
+                stripped = {k: v for k, v in db_data.items() if k not in optional_keys}
+                logger.warning(
+                    "⚠️  Store failed on a column error (%s) — retrying without "
+                    "optional keys %s (pending migration?)",
+                    first_err, [k for k in db_data if k in optional_keys],
+                )
+                self.client.table('product_analyses')\
+                    .upsert(stripped, on_conflict='product_url_hash')\
+                    .execute()
 
             logger.info(f"✅ Stored analysis for: {analysis.get('product_name', 'Unknown')}")
             return True

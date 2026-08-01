@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from .config import settings
 from .database import db
+from .rank_fusion import reciprocal_rank_fusion
 from .scrapers.factory import ScraperFactory
 from .scrapers.review_parsers import AmazonReviewParser, JsonLdReviewParser
 
@@ -381,56 +382,119 @@ class ReviewVectorService:
         Returns:
             List of relevant review chunks with similarity scores
         """
+        candidates = self._semantic_candidates(
+            query, url_hash, top_k, min_rating=min_rating, verified_only=verified_only
+        )
+        if not candidates:
+            return []
+        return self._rerank_candidates(query, candidates, rerank_top_n)
+
+    def _semantic_candidates(
+        self,
+        query: str,
+        url_hash: Optional[str],
+        top_k: int,
+        min_rating: Optional[int] = None,
+        verified_only: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Semantic/pgvector candidates (embed + search_reviews RPC), no rerank.
+
+        Returns [] on any failure (missing embedding, RPC error) so the caller can
+        degrade to lexical-only (INV-3).
+        """
         if not db.is_available:
             return []
 
-        # Embed query
         query_embedding = self.embed_text(query, input_type="search_query")
         if not query_embedding:
-            logger.warning("Failed to embed query")
+            logger.warning("Failed to embed query - semantic search unavailable")
             return []
 
         try:
-            # Build filter conditions
-            # Use Supabase RPC for vector search
             result = db.supabase.rpc(
                 'search_reviews',
                 {
                     'query_embedding': query_embedding,
                     'match_url_hash': url_hash,
                     'match_threshold': 0.3,
-                    'match_count': top_k
-                }
+                    'match_count': top_k,
+                },
             ).execute()
-
-            if not result.data:
-                return []
-
-            # Apply additional filters
-            candidates = result.data
-            if min_rating:
-                candidates = [c for c in candidates if c.get('review_rating', 0) >= min_rating]
-            if verified_only:
-                candidates = [c for c in candidates if c.get('verified_purchase')]
-
-            # Rerank results
-            if candidates and len(candidates) > 1:
-                documents = [c['review_text'] for c in candidates]
-                reranked = self.rerank(query, documents, top_n=rerank_top_n)
-
-                # Map back to original results with rerank scores
-                final_results = []
-                for r in reranked:
-                    candidate = candidates[r['index']]
-                    candidate['rerank_score'] = r['score']
-                    final_results.append(candidate)
-                return final_results
-
-            return candidates[:rerank_top_n]
-
         except Exception as e:
-            logger.error(f"Review search failed: {e}")
+            logger.error(f"Semantic review search failed: {e}")
             return []
+
+        return self._apply_filters(result.data or [], min_rating, verified_only)
+
+    def _lexical_candidates(
+        self,
+        query: str,
+        url_hash: Optional[str],
+        top_k: int,
+        min_rating: Optional[int] = None,
+        verified_only: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Lexical/full-text candidates via search_reviews_lexical RPC (migration 019).
+
+        Needs no embedding, so it works even when Cohere is unavailable — this is
+        what guarantees exact term matches ("PFOA", "rash") are never missed.
+        Returns [] on failure so the caller degrades to semantic-only (INV-3).
+        """
+        if not db.is_available:
+            return []
+
+        try:
+            result = db.supabase.rpc(
+                'search_reviews_lexical',
+                {
+                    'p_query': query,
+                    'p_url_hash': url_hash,
+                    'p_limit': top_k,
+                },
+            ).execute()
+        except Exception as e:
+            logger.warning(f"Lexical review search failed: {e}")
+            return []
+
+        return self._apply_filters(result.data or [], min_rating, verified_only)
+
+    @staticmethod
+    def _apply_filters(
+        candidates: List[Dict[str, Any]],
+        min_rating: Optional[int],
+        verified_only: bool,
+    ) -> List[Dict[str, Any]]:
+        """Apply the optional rating / verified-purchase filters to a candidate list."""
+        if min_rating:
+            candidates = [c for c in candidates if (c.get('review_rating') or 0) >= min_rating]
+        if verified_only:
+            candidates = [c for c in candidates if c.get('verified_purchase')]
+        return candidates
+
+    def _rerank_candidates(
+        self, query: str, candidates: List[Dict[str, Any]], top_n: int
+    ) -> List[Dict[str, Any]]:
+        """Cohere-rerank a candidate pool, returning enriched copies (adds rerank_score).
+
+        Falls back to the incoming order (e.g. RRF-fused order) when rerank is
+        unavailable, so a reranker outage never drops results (INV-3).
+        """
+        if not candidates:
+            return []
+        if len(candidates) == 1:
+            return [dict(candidates[0])]
+
+        documents = [c.get('review_text', '') for c in candidates]
+        reranked = self.rerank(query, documents, top_n=top_n)
+        if not reranked:
+            return [dict(c) for c in candidates[:top_n]]
+
+        final_results: List[Dict[str, Any]] = []
+        for r in reranked:
+            candidate = dict(candidates[r['index']])
+            candidate['rerank_score'] = r['score']
+            final_results.append(candidate)
+        return final_results
 
     async def get_review_summary(self, url_hash: str) -> Optional[Dict[str, Any]]:
         """Get review summary for a product.
@@ -464,16 +528,22 @@ class ReviewVectorService:
     ) -> List[Dict[str, Any]]:
         """Get reviews most likely to contain health concerns.
 
-        Uses multiple health-focused semantic queries to find relevant reviews,
-        then deduplicates and returns top results. This is more token-efficient
-        than sending all reviews to Claude.
+        HYBRID retrieval: for each health-focused query we run BOTH the semantic
+        (pgvector) and lexical (full-text, migration 019) retrievers, fuse their
+        rankings with Reciprocal Rank Fusion, then Cohere-rerank the fused pool as
+        the final stage before cutting to ``max_reviews``. Adding lexical retrieval
+        guarantees exact term hits (substance names like "PFOA"/"benzene", symptoms
+        like "rash"/"hives") are never missed just because an embedding ranked them
+        low. Each retriever degrades independently (INV-3): lexical failure →
+        semantic-only, semantic/Cohere failure → lexical-only.
 
         Args:
             url_hash: Product URL hash
             max_reviews: Maximum number of reviews to return
 
         Returns:
-            List of health-relevant review dicts sorted by relevance
+            List of health-relevant review dicts sorted by relevance (shape
+            unchanged from the semantic-only version — callers need no changes).
         """
         if not db.is_available:
             return []
@@ -481,18 +551,21 @@ class ReviewVectorService:
         all_results: List[Dict[str, Any]] = []
         seen_texts: set = set()
 
-        logger.info(f"🔍 Searching for health-relevant reviews with {len(HEALTH_QUERIES)} queries...")
+        logger.info(
+            f"🔍 Hybrid (semantic + lexical) search for health-relevant reviews "
+            f"across {len(HEALTH_QUERIES)} queries..."
+        )
 
         for query in HEALTH_QUERIES:
             try:
-                results = await self.search_reviews(
-                    query=query,
-                    url_hash=url_hash,
-                    top_k=10,
-                    rerank_top_n=5,
-                )
+                # semantic top-K ∪ lexical top-K → RRF order → rerank → collect
+                semantic = self._semantic_candidates(query, url_hash, top_k=10)
+                lexical = self._lexical_candidates(query, url_hash, top_k=10)
+                fused = reciprocal_rank_fusion([semantic, lexical])
+                if not fused:
+                    continue
 
-                for r in results:
+                for r in self._rerank_candidates(query, fused, top_n=5):
                     # Deduplicate by first 100 chars of review text
                     text_key = r.get('review_text', '')[:100]
                     if text_key and text_key not in seen_texts:
@@ -500,11 +573,14 @@ class ReviewVectorService:
                         all_results.append(r)
 
             except Exception as e:
-                logger.warning(f"Search failed for query '{query[:30]}...': {e}")
+                logger.warning(f"Hybrid search failed for query '{query[:30]}...': {e}")
                 continue
 
-        # Sort by rerank score (higher = more relevant) and return top N
-        all_results.sort(key=lambda x: x.get('rerank_score', x.get('similarity', 0)), reverse=True)
+        # Sort by best available relevance signal: rerank score, then RRF, then similarity.
+        all_results.sort(
+            key=lambda x: x.get('rerank_score', x.get('rrf_score', x.get('similarity', 0))),
+            reverse=True,
+        )
 
         final_results = all_results[:max_reviews]
         logger.info(f"✅ Found {len(final_results)} health-relevant reviews (from {len(seen_texts)} unique matches)")

@@ -63,6 +63,12 @@ class AmazonScraper(BaseScraper):
         "#nav-subnav",
         "#navbar",
         "#rhf",
+        # A+ cross-product comparison modules: rows like "Simpler Ingredients
+        # ✓✓✓" over OTHER products' names/prices/ratings poisoned ingredient
+        # extraction (live prod failure 2026-08-01, dishwasher pods).
+        ".apm-tablemodule",
+        ".aplus-comparison-table",
+        "#aplus table[class*='comparison']",
     ]
 
     def _extract_retailer(self, url: str) -> str:

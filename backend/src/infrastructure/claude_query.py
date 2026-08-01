@@ -238,6 +238,12 @@ class ClaudeQueryService:
    - Ingredient lists (comma-separated or bulleted)
    - Active ingredients, inactive ingredients
    - Food ingredients, cosmetic ingredients, etc.
+   - CRITICAL: every entry MUST be an individual substance/material name.
+     NEVER emit product names, marketing claims, comparison-table rows,
+     review counts, star ratings, prices, or section headings as
+     ingredients. A page's comparison chart saying "Simpler Ingredients ✓"
+     is NOT an ingredient. If no true ingredient list exists on the page,
+     return an empty ingredients array — do not fill it with page text.
 
 3. **Materials**: Look for:
    - Material composition (e.g., "100% cotton", "stainless steel")

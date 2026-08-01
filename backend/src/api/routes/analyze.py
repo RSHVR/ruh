@@ -10,6 +10,7 @@ from slowapi.util import get_remote_address
 from ...domain.models import AnalysisRequest, AnalysisResponse, ProductAnalysis, ReviewInsights, ScrapedProduct
 from ...domain.harm_calculator import HarmScoreCalculator
 from ...domain.identity import product_identity_ok
+from ...domain.quality import should_rescan, MAX_RESCANS
 from ...domain.ingredient_matcher import match_ingredients_to_databases
 from ...infrastructure.safety_agent import ProductSafetyAgentWrapper as ProductSafetyAgent
 from ...infrastructure.product_scraper import ProductScraperService
@@ -249,6 +250,17 @@ async def analyze_product(
         cached_analysis = None
         if not analysis_request.force_refresh and db.is_available:
             cached_analysis = await db.get_cached_analysis(url_hash)
+
+        # Inconclusive cache entries are stale: re-analyze instead of serving
+        # an empty result, up to MAX_RESCANS attempts (see domain.quality).
+        rescan_attempt = 0
+        if cached_analysis and should_rescan(cached_analysis):
+            rescan_attempt = int(cached_analysis.get("rescan_count") or 0) + 1
+            logger.info(
+                "♻️  Cached analysis is inconclusive (rescan %d/%d) — re-analyzing %s",
+                rescan_attempt, MAX_RESCANS, analysis_request.product_url,
+            )
+            cached_analysis = None
 
         # Step 3: If cached, return immediately
         if cached_analysis:
@@ -620,6 +632,7 @@ async def analyze_product(
                         "brand": analysis.brand,
                         "category": analysis.retailer,
                         "retailer": analysis.retailer,
+                        "rescan_count": rescan_attempt,
                         "overall_score": analysis.overall_score,
                         "ingredients": analysis.ingredients,
                         "allergens": analysis.allergens_detected,  # database.py maps this to allergens_detected

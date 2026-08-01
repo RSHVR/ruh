@@ -46,6 +46,8 @@
 
   // Track whether current product is unlocked (client-side state)
   let analysisUnlocked = $state(false);
+  // Set when an unlock was free because the analysis was inconclusive.
+  let freeUnlockNote: string | null = $state(null);
 
   // Sign-out confirmation (the button sits one misclick from the panel close)
   let confirmingSignOut = $state(false);
@@ -283,6 +285,11 @@
       if (resp.ok) {
         const result = await resp.json();
         analysisUnlocked = true;
+        // Inconclusive analyses unlock free — tell the user they kept their credit.
+        if (result.charged === false) {
+          freeUnlockNote =
+            'No charge — this analysis came back inconclusive, so your credit was not used.';
+        }
         persistUnlockedFlag();
         await authStore.refreshCredits();
       } else if (resp.status === 402) {
@@ -339,6 +346,9 @@
       </div>
     {:else if currentTabState.status === 'complete' && currentTabState.data}
       {#if showFullAnalysis}
+        {#if freeUnlockNote}
+          <p class="free-unlock-note">{freeUnlockNote}</p>
+        {/if}
         <AnalysisView
           analysis={currentTabState.data}
           loading={false}
@@ -374,6 +384,18 @@
 </div>
 
 <style>
+  .free-unlock-note {
+    margin: 10px 16px 0;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: #e3f0e6;
+    border: 1px solid rgba(47, 107, 63, 0.25);
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    line-height: 1.45;
+    color: #2f6b3f;
+  }
+
   .side-panel-container {
     width: 100%;
     height: 100vh;

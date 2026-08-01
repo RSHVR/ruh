@@ -16,6 +16,7 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RuhApi"] }],
   "routes": [{ "pattern": "api.rshvr.com", "custom_domain": true }],
+  "triggers": { "crons": ["0 */6 * * *"] },
   "vars": {
     "ALLOWED_ORIGINS": "chrome-extension://mjgicecpbfabjaebiaioaijelbepihcl,https://rshvr.com"
   },
