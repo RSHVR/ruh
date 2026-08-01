@@ -45,6 +45,10 @@ Last updated: 2026-06-03
 | Validation logging | Log invalid substances (log-only mode) | `backend/src/infrastructure/validation_logger.py` | `validation_logger` |
 | Token tracking | Track Claude token usage + cost | `backend/src/infrastructure/token_tracker.py` | `TokenTracker` |
 | Feature board | Beta feature requests + votes (JWT-only) | `backend/src/api/routes/features.py`, `backend/src/infrastructure/feature_service.py` | `list_features()`, `create_feature()`, `toggle_vote()` |
+| Referrals | Invite friends by email; +10 credits when friend signs up + first analysis (cap 5) | `backend/src/api/routes/referrals.py`, `backend/src/infrastructure/referral_service.py`, migration `016_referrals.sql` | `add_referrals()`, `list_referrals()`, `process_conversion()` (hook in `analyze.py::_fire_referral_conversion`) |
+| Analysis feedback | Thumbs/bug ratings with reasons + comments (JWT-only) | `backend/src/api/routes/feedback.py`, `backend/src/infrastructure/feedback_service.py`, migration `017_analysis_feedback.sql` | `add_feedback()`, canonical `UP_REASONS`/`DOWN_REASONS` |
+| Review parsing | Per-retailer review extraction (ADR-007) | `backend/src/infrastructure/scrapers/review_parsers.py`, `REVIEW_PARSER` attr on each scraper | `JsonLdReviewParser` (default), `AmazonReviewParser`, `WalmartReviewParser`, `UniqloReviewParser`; resolved in `review_vector_service.store_reviews` |
+| Composition splitter | "Shell: Viscose 75%…" → per-fibre ingredients | `backend/src/domain/composition.py` (wired in `claude_query.py`) | `normalize_composition()` |
 | Config | Pydantic settings from `.env` | `backend/src/infrastructure/config.py` | `Settings`, `settings` |
 | App entry | FastAPI app + routers + CORS | `backend/src/api/main.py`, `backend/run.py` | `app` |
 
@@ -67,6 +71,8 @@ Last updated: 2026-06-03
 | Utils | Harm score, risk level, formatting | `extension/src/lib/utils.ts` | `getHarmScore()`, `getRiskLevel()` |
 | Types | Shared TS interfaces | `extension/src/types/index.ts` | `AnalysisRequest`, `AnalysisResponse` |
 | Feature board UI | Collapsible vote/submit board in side panel | `extension/src/components/FeatureBoard.svelte`, `extension/src/lib/feature-board.ts` | `fetchFeatures()`, `applyOptimisticVote()` |
+| Earn credits | Bouncing "+" on low balance → offers dialog (feedback/share/refer/founder call) | `extension/src/components/CreditBadge.svelte`, `EarnCreditsDialog.svelte` | offer list incl. Notion booking link |
+| Referrals UI | Invite-by-email panel inside earn dialog; status pills + X-of-5 tracker | `extension/src/components/ReferralPanel.svelte`, `extension/src/lib/referrals.ts` | `partitionEmails()`, `getReferrals()`, `sendReferrals()` |
 | Manifest | MV3 permissions, content-script matches | `extension/public/manifest.json` | — |
 | Build | Vite multi-entry build | `extension/vite.config.ts` | — |
 

@@ -114,3 +114,15 @@ event snapshots; drive UI exclusively from supabase auth events.
 **Lesson:** any storage-change listener in a multi-context extension MUST
 filter self-originated writes and debounce — auth flows are multi-write and
 mid-flow snapshots lie.
+
+## 2026-08-01 — Selector configs rot; verify against the LIVE site before debugging code
+
+Three "code bugs" tonight were all site drift, found only by live browser recon: (1) Costco
+migrated URLs (`.product.<id>.html` → `/p/-/<slug>/<id>`) AND its product DOM (new React ids);
+(2) Amazon renamed review hooks (`review-body`→`reviewText`, `review-title`→`reviewTitle`) and
+sign-in-gated `/product-reviews/`; (3) the user shops CANADIAN sites — costco.ca/walmart.ca were
+simply absent from manifest + adapters + DOMAIN_PATTERNS, so "nothing happened at all" (zero rows
+ever stored is the signature of an activation failure, not an extraction failure). Lesson: when a
+retailer "doesn't work", FIRST check stored-analysis counts per host (activation vs extraction),
+then probe the live DOM in the user's browser before touching parser code. Also: prod data is the
+best fixture — the H&M composition bug was reproduced exactly from a stored row.

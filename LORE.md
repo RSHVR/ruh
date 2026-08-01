@@ -183,3 +183,53 @@ reviews endpoint). Reviews come through JSON-LD `review`/`aggregateRating` where
 | Garage | `garageclothing\.com` | path `/p/.+\.html` | **VALIDATED** | yes (name/brand/desc/sku/rating) | `.product-detail`, `[class*='productdetails' i]` (fabric in accordion) | Shopify-ish; details in accordion |
 | IKEA | `ikea\.com` | path `/p/` | **VALIDATED** | yes (**incl. material/color**) | `.pipf-product-details-modal`, `[class*='product-details' i]` | furniture; JSON-LD richest |
 | Temu | `temu\.com` | path `-g-\d+\.html` | bot-walled | partial | `[class*='goods-desc' i]`, `[class*='material' i]`, `[class*='detail' i]` | heavy bot-wall; unvalidated |
+
+## ADR-006 — Referrals attribute by email, credit on first analysis (server-side RPC)
+
+**Status:** Adopted 2026-08-01 (migration 016, commit 060c11e).
+**Context:** Veer wanted a referral loop: unlimited invites, +10 credits per converted friend, max 5
+credited per referrer, credit granted only when the friend *signs up AND uses the tool*. Options were
+referral codes entered at signup vs. inviting by the friend's email address.
+**Decision:** Email-entry attribution. Signup identity IS an email, so `lower(invited_email) =
+lower(users.email)` gives exact attribution with zero signup friction (no code field to build or abandon).
+Crediting happens in one SECURITY DEFINER RPC, `process_referral_conversion(p_user_id)`, fired
+best-effort (`asyncio.to_thread`, errors swallowed) before both JWT success returns in `analyze.py` —
+"used the tool" == first completed analysis. The RPC is idempotent: no outstanding invite → no-op.
+Earliest inviter of an email wins; all other invites for that email downgrade to `signed_up` (tracked,
+uncredited). If the winner is at the 5-cap, nobody is credited (no cascade to later inviters).
+Self-invites are excluded at insert (service) *and* in the RPC (`referrer_user_id <> p_user_id`).
+Grants reuse `credit_transactions(action='admin_grant', note='Referral reward')` — no new enum value,
+so migration 013's enum stays untouched.
+**Consequences:** Invite emails are stored but not sent (Resend workspace access blocked at build
+time); the send seam is `TODO(resend-invites)` in `referral_service.add_referrals`. Conversion adds one
+~100ms awaited RPC per JWT analysis (accepted: guarantees execution before container idle).
+`invited_user_id` FK has no ON DELETE action — fold `ON DELETE SET NULL` into the next migration
+before any account-deletion feature ships.
+
+## ADR-007 — Review parsing is per-retailer scraper config (REVIEW_PARSER)
+
+**Status:** Adopted 2026-08-01 (commit 5f71a9c).
+**Context:** review_vector_service parsed reviews with hardcoded Amazon `data-hook` selectors —
+structurally impossible for the other 11 retailers, so review_insights was NULL on every stored
+analysis. Live recon (2026-08-01) additionally found Amazon renamed its hooks (`review-body` →
+`reviewText`, `review-title` → `reviewTitle`) and sign-in-gated `/product-reviews/`, killing the
+extension's paginated fetch.
+**Decision:** The review-DOM dialect lives WITH the retailer: each `BaseScraper` declares a
+`REVIEW_PARSER` (default = generic schema.org `JsonLdReviewParser`, which covers Costco's
+Bazaarvoice `bv-jsonld-reviews-data`, H&M/Sephora `ProductGroup.review` incl. `hasVariant[].review`,
+and any future JSON-LD site). Walmart parses `__NEXT_DATA__.…data.reviews.customerReviews`; Uniqlo
+parses its DOM container; Amazon accepts old AND new hooks. `store_reviews` resolves the scraper via
+`ScraperFactory` and depends only on the abstraction. Parsers return the store_reviews dict contract
+and degrade to `[]` — never raise (INV-3). The extension's Amazon `fetchReviews` was deleted; embedded
+product-page reviews (~8-13) travel in the client HTML capture instead.
+**Consequences:** Adding review support for a retailer = a parser class (or nothing, if the site uses
+schema.org JSON-LD) + a class attr. Review volume per analysis drops (~13 embedded vs ~50 paginated) —
+acceptable; the paginated source no longer exists. SHEIN/IKEA/Temu/Aritzia/Garage inherit the generic
+parser unverified (recon blocked); Instacart untouched per Veer.
+
+## Composition splitter note (2026-08-01)
+
+`normalize_composition` (src/domain/composition.py) splits "Part: Fiber N%, …" strings into
+per-fibre entries "Fiber N% (Part)". Trigger requires BOTH a part label and a percentage, so plain
+cosmetics INCI lists pass through untouched. Known/accepted: labelled active-ingredient lists with
+percentages ("Active Ingredients: Zinc Oxide 10%") also split — judged desirable.
