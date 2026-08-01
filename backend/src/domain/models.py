@@ -46,6 +46,14 @@ class ToxinConcern(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
 
 
+class ResearchSourceRef(BaseModel):
+    """A citation the research agent consulted, surfaced to the client."""
+
+    type: str = ""
+    url: str = ""
+    finding: str = ""
+
+
 class ProductAnalysis(BaseModel):
     """Complete analysis of a product's safety."""
 
@@ -61,6 +69,7 @@ class ProductAnalysis(BaseModel):
     allergens_detected: list[AllergenDetection] = []
     pfas_detected: list[PFASDetection] = []
     other_concerns: list[ToxinConcern] = []
+    research_sources: list[ResearchSourceRef] = []
 
     # Metadata
     confidence: float = Field(ge=0.0, le=1.0)

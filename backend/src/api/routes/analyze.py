@@ -249,6 +249,7 @@ async def analyze_product(
                 allergens_detected=cached_analysis.get('allergens_detected', []),
                 pfas_detected=cached_analysis.get('pfas_detected', []),
                 other_concerns=cached_analysis.get('other_concerns', []),
+                research_sources=cached_analysis.get('research_sources') or [],
                 confidence=cached_analysis.get('confidence', 80) / 100.0,  # Convert integer 0-100 to float 0.0-1.0
                 analyzed_at=analyzed_at,
             )
@@ -551,6 +552,7 @@ async def analyze_product(
             allergens_detected=analysis_data.get("allergens_detected", []),
             pfas_detected=analysis_data.get("pfas_detected", []),
             other_concerns=analysis_data.get("other_concerns", []),
+            research_sources=analysis_data.get("research_sources", []),
             confidence=analysis_data.get("confidence", 0.8),
             analyzed_at=datetime.now(timezone.utc),
         )
@@ -574,6 +576,7 @@ async def analyze_product(
                         "allergens": analysis.allergens_detected,  # database.py maps this to allergens_detected
                         "pfas_compounds": analysis.pfas_detected,  # database.py maps this to pfas_detected
                         "other_concerns": analysis.other_concerns,
+                        "research_sources": analysis.research_sources,
                         "confidence": analysis.confidence,
                     }
                 }

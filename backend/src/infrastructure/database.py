@@ -182,6 +182,11 @@ class DatabaseService:
             # Convert Pydantic models to dictionaries
             other_concerns = [item.model_dump() if hasattr(item, 'model_dump') else item for item in other_concerns]
 
+            research_sources = analysis.get('research_sources', [])
+            if not isinstance(research_sources, list):
+                research_sources = []
+            research_sources = [item.model_dump() if hasattr(item, 'model_dump') else item for item in research_sources]
+
             db_data = {
                 'product_url_hash': url_hash,
                 'product_url': product_url,
@@ -195,6 +200,7 @@ class DatabaseService:
                 'allergens_detected': allergens,  # JSONB - maps to allergens_detected column
                 'pfas_detected': pfas,  # JSONB - maps to pfas_detected column
                 'other_concerns': other_concerns,  # JSONB
+                'research_sources': research_sources,  # JSONB — agent citations {type,url,finding}
                 'confidence': int(analysis.get('confidence', 0.8) * 100),  # INTEGER 0-100
                 'analyzed_at': datetime.now(timezone.utc).isoformat()
             }
