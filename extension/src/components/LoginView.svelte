@@ -73,7 +73,7 @@
 
   async function handleVerifyCode() {
     if (code.trim().length < 6) {
-      errorMsg = 'Enter the 6-digit code from your email';
+      errorMsg = 'Enter the code from your email';
       return;
     }
     submitting = true;
@@ -130,13 +130,13 @@
     <p class="beta-note">Free during the public beta — no password needed</p>
   {:else}
     <form onsubmit={(e) => { e.preventDefault(); handleVerifyCode(); }}>
-      <p class="code-hint">We sent a 6-digit code to <strong>{email}</strong></p>
+      <p class="code-hint">We sent a sign-in code to <strong>{email}</strong></p>
       <input
         type="text"
         inputmode="numeric"
-        maxlength="6"
+        maxlength="8"
         bind:value={code}
-        placeholder="123456"
+        placeholder="12345678"
         class="input code-input"
         autocomplete="one-time-code"
         disabled={submitting}
@@ -282,7 +282,7 @@
   .code-input {
     text-align: center;
     font-size: 20px;
-    letter-spacing: 8px;
+    letter-spacing: 4px;
     font-variant-numeric: tabular-nums;
   }
 
