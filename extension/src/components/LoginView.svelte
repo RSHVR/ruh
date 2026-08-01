@@ -72,8 +72,8 @@
   }
 
   async function handleVerifyCode() {
-    if (code.trim().length < 6) {
-      errorMsg = 'Enter the code from your email';
+    if (code.trim().length !== 6) {
+      errorMsg = 'Enter the 6-digit code from your email';
       return;
     }
     submitting = true;
@@ -130,11 +130,11 @@
     <p class="beta-note">Free during the public beta — no password needed</p>
   {:else}
     <form onsubmit={(e) => { e.preventDefault(); handleVerifyCode(); }}>
-      <p class="code-hint">We sent a sign-in code to <strong>{email}</strong></p>
+      <p class="code-hint">We sent a 6-digit code to <strong>{email}</strong></p>
       <input
         type="text"
         inputmode="numeric"
-        maxlength="8"
+        maxlength="6"
         bind:value={code}
         placeholder="123456"
         class="input code-input"
