@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fade, fly } from 'svelte/transition';
+  import ReferralPanel from './ReferralPanel.svelte';
 
   interface Props {
     onClose: () => void;
@@ -9,7 +10,26 @@
 
   const SUPPORT_EMAIL = 'ruh-support@rshvr.com';
 
-  const offers = [
+  // Which face of the dialog is showing: the static offer list, or the
+  // interactive referral flow (reached by tapping the "Refer a friend" row).
+  let view = $state<'offers' | 'referrals'>('offers');
+
+  interface Offer {
+    credits: number;
+    title: string;
+    detail: string;
+    /** Present on mailto offers; absent on interactive/external offers. */
+    mailtoSubject?: string;
+    /** When true, the row opens the in-dialog flow instead of an email. */
+    interactive?: boolean;
+    /** When set, the row is an external link opened in a new tab. */
+    external?: string;
+  }
+
+  const FOUNDER_BOOKING_URL =
+    'https://calendar.notion.so/meet/arshveergahir/ruh-founder-chat';
+
+  const offers: Offer[] = [
     {
       credits: 5,
       title: 'Tell us what you think',
@@ -28,20 +48,24 @@
       credits: 10,
       title: 'Refer a friend',
       detail:
-        '+10 for each friend who signs up and analyzes a product — up to 5 friends. Email us who you invited.',
-      mailtoSubject: 'Earning credits: I referred a friend (+10)',
+        '+10 for each friend who signs up and analyzes a product — up to 5 friends. Invite them right here.',
+      interactive: true,
     },
     {
       credits: 30,
       title: 'Meet the founder',
       detail:
-        '15 minutes with the founder on what ruh should become. Credits granted after the meeting.',
-      mailtoSubject: 'Earning credits: founder meeting (+30)',
+        'Book 15 minutes on what ruh should become. Credits granted after the meeting.',
+      external: FOUNDER_BOOKING_URL,
     },
   ];
 
   function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') onClose();
+    if (event.key === 'Escape') {
+      // Escape backs out of the referral flow first, then closes the dialog.
+      if (view === 'referrals') view = 'offers';
+      else onClose();
+    }
   }
 </script>
 
@@ -59,37 +83,67 @@
     class="earn-dialog"
     role="dialog"
     aria-modal="true"
-    aria-label="Earn free credits"
+    aria-label={view === 'referrals' ? 'Refer a friend' : 'Earn free credits'}
     tabindex="-1"
     transition:fly={{ y: 30, duration: 220 }}
   >
     <div class="earn-header">
-      <h4>Earn free credits</h4>
+      <h4>{view === 'referrals' ? 'Refer a friend' : 'Earn free credits'}</h4>
       <button type="button" class="close-btn" onclick={onClose} aria-label="Close">
         ✕
       </button>
     </div>
-    <p class="earn-sub">Help make ruh better — get detail unlocks in return.</p>
 
-    <div class="offer-list">
-      {#each offers as offer (offer.title)}
-        <a
-          class="offer-row"
-          href="mailto:{SUPPORT_EMAIL}?subject={encodeURIComponent(offer.mailtoSubject)}"
-        >
-          <span class="offer-credits">+{offer.credits}</span>
-          <span class="offer-text">
-            <span class="offer-title">{offer.title}</span>
-            <span class="offer-detail">{offer.detail}</span>
-          </span>
-        </a>
-      {/each}
-    </div>
+    {#if view === 'referrals'}
+      <ReferralPanel onBack={() => (view = 'offers')} />
+    {:else}
+      <p class="earn-sub">Help make ruh better — get detail unlocks in return.</p>
 
-    <p class="earn-footnote">
-      Tap an option to email us at {SUPPORT_EMAIL}. Credits are added by a
-      human — usually within a day.
-    </p>
+      {#snippet offerBody(offer: Offer)}
+        <span class="offer-credits">+{offer.credits}</span>
+        <span class="offer-text">
+          <span class="offer-title">{offer.title}</span>
+          <span class="offer-detail">{offer.detail}</span>
+        </span>
+      {/snippet}
+
+      <div class="offer-list">
+        {#each offers as offer (offer.title)}
+          {#if offer.interactive}
+            <button
+              type="button"
+              class="offer-row"
+              onclick={() => (view = 'referrals')}
+            >
+              {@render offerBody(offer)}
+            </button>
+          {:else if offer.external}
+            <a
+              class="offer-row"
+              href={offer.external}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {@render offerBody(offer)}
+            </a>
+          {:else}
+            <a
+              class="offer-row"
+              href="mailto:{SUPPORT_EMAIL}?subject={encodeURIComponent(
+                offer.mailtoSubject ?? '',
+              )}"
+            >
+              {@render offerBody(offer)}
+            </a>
+          {/if}
+        {/each}
+      </div>
+
+      <p class="earn-footnote">
+        Most options email us at {SUPPORT_EMAIL} — credits are added by a human,
+        usually within a day.
+      </p>
+    {/if}
   </div>
 </div>
 
@@ -161,9 +215,19 @@
     background: var(--color-bg-secondary, #f5f0e8);
     border: 1px solid rgba(168, 184, 159, 0.25);
     text-decoration: none;
+    cursor: pointer;
     transition:
       border-color 150ms ease,
       transform 150ms ease;
+  }
+
+  /* The interactive referral row is a <button>; strip native chrome so it
+     matches the <a> rows and stretches full width in the flex column. */
+  button.offer-row {
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    color: inherit;
   }
 
   .offer-row:hover {

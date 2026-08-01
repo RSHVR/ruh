@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from datetime import datetime, timezone
+import asyncio
 import logging
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -18,6 +19,7 @@ from ...infrastructure.database import db
 from ...infrastructure.review_vector_service import review_vector_service
 from ...infrastructure.validation_logger import validation_logger
 from ...infrastructure.token_tracker import TokenTracker
+from ...infrastructure import referral_service
 from ..auth import verify_api_key, get_auth_context, AuthContext
 from ...infrastructure.config import settings
 from anthropic import RateLimitError
@@ -86,6 +88,23 @@ def _auth_fields(auth: AuthContext, url_hash: str = "") -> dict:
         "credits_remaining": auth.credits_remaining,
         "analysis_unlocked": unlocked or auth.tier == "unlimited",
     }
+
+
+async def _fire_referral_conversion(auth: AuthContext) -> None:
+    """Best-effort referral conversion for a JWT user who completed an analysis.
+
+    If this user was invited and this is their first qualifying analysis, the
+    referrer is credited by the process_referral_conversion RPC (idempotent, so
+    firing on every analysis is safe). Runs off the event loop and swallows all
+    errors — referral crediting must never delay or fail the analysis response.
+    No-op for legacy API-key callers.
+    """
+    if auth.is_api_key or not auth.user_id:
+        return
+    try:
+        await asyncio.to_thread(referral_service.process_conversion, auth.user_id)
+    except Exception as e:  # defensive — process_conversion already guards internally
+        logger.warning("Referral conversion hook failed (non-fatal): %s", e)
 
 
 def validate_and_filter_substances(
@@ -268,6 +287,9 @@ async def analyze_product(
             if db.is_available:
                 user_id = await db.get_or_create_anonymous_user()
                 await db.log_search(user_id, analysis_request.product_url)
+
+            # A cache hit still counts as the invited user completing an analysis.
+            await _fire_referral_conversion(auth)
 
             return AnalysisResponse(
                 analysis=analysis,
@@ -702,6 +724,9 @@ async def analyze_product(
             logger.info("   ⏭️  SKIP STEP 8: No reviews stored (reviews_stored=0 or None)")
 
         logger.info("=" * 60)
+
+        # Invited user just completed a fresh analysis — credit the referrer if any.
+        await _fire_referral_conversion(auth)
 
         return AnalysisResponse(
             analysis=analysis,
