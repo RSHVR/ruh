@@ -16,6 +16,7 @@
     formatTimeAgo,
   } from "@/lib/utils";
   import { extractSources, type SourceRef } from "../lib/sources";
+  import { namesMatch } from "../lib/matching";
   import SourceStack from "./SourceStack.svelte";
   import SourcesSheet from "./SourcesSheet.svelte";
   import FeatureBoard from "./FeatureBoard.svelte";
@@ -38,31 +39,6 @@
 
   const productAnalysis = $derived(analysis?.analysis);
 
-  /**
-   * Loose name matching between a label ingredient and a finding name.
-   * Research-derived findings carry qualifiers ("(CPK/Irgacure 184)",
-   * "(potential trace contaminant)") and labels carry locants ("1-Hydroxy…"),
-   * so raw substring matching misses them. Normalize both sides (drop
-   * parentheticals, number/locant prefixes, punctuation) and match on
-   * substring either way, or all-significant-tokens containment.
-   */
-  function namesMatch(ingredient: string, findingName: string): boolean {
-    const normalize = (s: string) =>
-      s
-        .toLowerCase()
-        .replace(/\([^)]*\)/g, ' ')
-        .replace(/\b\d+[,'′-]*/g, ' ')
-        .replace(/[^a-z\s]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    const a = normalize(ingredient);
-    const b = normalize(findingName);
-    if (!a || !b) return false;
-    if (a.includes(b) || b.includes(a)) return true;
-    const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
-    const tokens = shorter.split(' ').filter((t) => t.length > 2);
-    return tokens.length > 0 && tokens.every((t) => longer.includes(t));
-  }
 
   // "Other concerns" grouped by severity, worst first, for the
   // Flagged Substances section (group headers replace per-card badges).
