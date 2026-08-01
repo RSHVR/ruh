@@ -270,7 +270,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })
       .then(async (response) => {
         if (!response.ok) {
-          throw new Error(`API error: ${response.status}`);
+          // Surface the server's human-readable detail when it has one —
+          // e.g. the identity guard's 422 "We couldn't verify this page's
+          // product — please retry the analysis." Raw status codes are a
+          // last resort, not a user experience.
+          let detail: string | null = null;
+          try {
+            const body = await response.json();
+            if (typeof body?.detail === "string") detail = body.detail;
+          } catch {
+            // non-JSON error body — fall through to the generic message
+          }
+          throw new Error(
+            detail ??
+              (response.status >= 500
+                ? "The analysis service hit a snag — please retry."
+                : `API error: ${response.status}`),
+          );
         }
         const data = await response.json();
         console.log("[Ruh] API response received for tab:", tabId);
