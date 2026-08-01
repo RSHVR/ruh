@@ -97,3 +97,20 @@ route's real call into the matcher.
 **Lesson:** after any cross-branch cherry-pick of route/orchestration code, run a true
 E2E smoke (`backend/verify-live.sh` against localhost) before calling it done. Green
 unit tests do not prove the request path works.
+
+## 2026-08-01 — Cross-context auth sync broke sign-in (self-echo race)
+
+Adding a chrome.storage.onChanged listener to propagate sign-out across side
+panels reacted to the SIGNING context's own mid-flow writes: supabase-js
+performs several storage writes during verifyOtp, and an early echo (no token
+in the snapshot yet, fresh session already in memory) matched the
+"signed-out-elsewhere" condition and signed out the session being created.
+A second racy listener in the auth store let a stale getSession() resolve
+after SIGNED_IN and clobber the UI state back to logged-out.
+
+**Fix:** tag persisted writes with a per-context `__writer` id and ignore own
+echoes; debounce foreign changes 250ms and decide from settled storage, never
+event snapshots; drive UI exclusively from supabase auth events.
+**Lesson:** any storage-change listener in a multi-context extension MUST
+filter self-originated writes and debounce — auth flows are multi-write and
+mid-flow snapshots lie.
