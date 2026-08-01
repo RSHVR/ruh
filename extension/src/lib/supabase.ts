@@ -10,6 +10,12 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
+// Unique per JS context (each side panel, the background worker). Used to
+// distinguish our own persisted-auth writes from other contexts' writes.
+const CONTEXT_ID: string =
+  globalThis.crypto?.randomUUID?.() ??
+  `ctx-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+
 /**
  * Custom storage adapter that uses chrome.storage.local.
  * Supabase Auth expects a synchronous localStorage-like API,
@@ -56,6 +62,9 @@ class ChromeStorageAdapter {
     for (const [key, value] of this.cache) {
       obj[key] = value;
     }
+    // Tag the write with this context's id so other contexts can tell foreign
+    // changes from their own echoes (see installCrossContextAuthSync).
+    obj["__writer"] = CONTEXT_ID;
     chrome.storage.local.set({ supabase_auth: obj }).catch(() => {});
   }
 
@@ -64,7 +73,7 @@ class ChromeStorageAdapter {
   replaceAll(obj: Record<string, unknown>): void {
     this.cache.clear();
     for (const [key, value] of Object.entries(obj)) {
-      if (typeof value === "string") {
+      if (key !== "__writer" && typeof value === "string") {
         this.cache.set(key, value);
       }
     }
@@ -106,6 +115,8 @@ export function getSupabaseClient(): SupabaseClient | null {
  * relies on for cross-tab sync, so we bridge it ourselves.
  */
 let _syncInstalled = false;
+let _syncDebounce: ReturnType<typeof setTimeout> | null = null;
+
 function installCrossContextAuthSync(): void {
   if (
     _syncInstalled ||
@@ -119,44 +130,62 @@ function installCrossContextAuthSync(): void {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local" || !changes.supabase_auth) return;
 
-    void (async () => {
-      const newVal = (changes.supabase_auth.newValue ?? {}) as Record<
-        string,
-        string
-      >;
-      storageAdapter.replaceAll(newVal);
+    // CRITICAL: ignore this context's own write-echoes. Auth flows perform
+    // several storage writes mid-flight; reacting to our own intermediate
+    // snapshots can observe "no token yet" while a fresh session already
+    // exists in memory and wrongly sign it out (this broke sign-in once).
+    const writer = (
+      changes.supabase_auth.newValue as { __writer?: string } | undefined
+    )?.__writer;
+    if (writer === CONTEXT_ID) return;
 
-      const client = _client;
-      if (!client) return;
-
-      const tokenKey = Object.keys(newVal).find((k) =>
-        k.includes("auth-token"),
-      );
-      const { data } = await client.auth.getSession();
-      const hasLocalSession = !!data.session;
-
-      if (!tokenKey && hasLocalSession) {
-        // Signed out in another context — mirror locally (no extra server call).
-        await client.auth.signOut({ scope: "local" }).catch(() => {});
-      } else if (tokenKey && !hasLocalSession) {
-        // Signed in in another context — adopt that session here.
-        try {
-          const parsed = JSON.parse(newVal[tokenKey]) as {
-            access_token?: string;
-            refresh_token?: string;
-          };
-          if (parsed.access_token && parsed.refresh_token) {
-            await client.auth.setSession({
-              access_token: parsed.access_token,
-              refresh_token: parsed.refresh_token,
-            });
-          }
-        } catch {
-          // Unparseable session blob — leave this context signed out.
-        }
-      }
-    })();
+    // Foreign change: debounce, then decide from settled storage — never
+    // from a mid-flow event snapshot.
+    if (_syncDebounce) clearTimeout(_syncDebounce);
+    _syncDebounce = setTimeout(() => {
+      void syncFromPersistedAuth();
+    }, 250);
   });
+}
+
+async function syncFromPersistedAuth(): Promise<void> {
+  try {
+    const result = await chrome.storage.local.get("supabase_auth");
+    const persisted = (result.supabase_auth ?? {}) as Record<string, string>;
+    storageAdapter.replaceAll(persisted);
+
+    const client = _client;
+    if (!client) return;
+
+    const tokenKey = Object.keys(persisted).find((k) =>
+      k.includes("auth-token"),
+    );
+    const { data } = await client.auth.getSession();
+
+    if (!tokenKey && data.session) {
+      // Signed out in another context — mirror locally. Fires SIGNED_OUT so
+      // the auth store's onAuthStateChange updates the UI.
+      await client.auth.signOut({ scope: "local" }).catch(() => {});
+    } else if (tokenKey && !data.session) {
+      // Signed in in another context — adopt that session here.
+      try {
+        const parsed = JSON.parse(persisted[tokenKey]) as {
+          access_token?: string;
+          refresh_token?: string;
+        };
+        if (parsed.access_token && parsed.refresh_token) {
+          await client.auth.setSession({
+            access_token: parsed.access_token,
+            refresh_token: parsed.refresh_token,
+          });
+        }
+      } catch {
+        // Unparseable session blob — leave this context signed out.
+      }
+    }
+  } catch {
+    // Storage read failed — keep current state; next change retries.
+  }
 }
 
 /**

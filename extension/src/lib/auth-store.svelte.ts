@@ -65,24 +65,13 @@ async function initialize(): Promise<void> {
       }
     });
 
-    // Cross-context safety net: when another panel changes the persisted
-    // auth state, re-read the session so THIS panel's UI follows — the
-    // client-level sync (supabase.ts) fires auth events for sign-out and
-    // adopted sign-ins, but a passive re-read here covers any path that
-    // doesn't emit one.
-    if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
-      chrome.storage.onChanged.addListener((changes, area) => {
-        if (area !== "local" || !changes.supabase_auth) return;
-        void client.auth.getSession().then(({ data }) => {
-          session = data.session;
-          user = data.session?.user ?? null;
-          if (!data.session) {
-            creditBalance = null;
-            userTier = "free";
-          }
-        });
-      });
-    }
+    // Cross-context sign-out/sign-in propagation lives at the client layer
+    // (supabase.ts installCrossContextAuthSync): it mirrors foreign auth
+    // changes via signOut(local)/setSession, which emit auth events that the
+    // onAuthStateChange handler above already turns into UI state. A passive
+    // storage listener here previously raced the sign-in flow (stale
+    // getSession resolving after SIGNED_IN clobbered the fresh session) —
+    // do not re-add one.
 
     if (session) {
       await refreshCredits();
