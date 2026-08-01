@@ -74,7 +74,11 @@ async function initialize(): Promise<void> {
     // do not re-add one.
 
     if (session) {
-      await refreshCredits();
+      // Fire-and-forget: the panel must not block on a network round-trip —
+      // getSession above is local, so gating `loading` on the credits fetch
+      // made "Confirming you're signed in" hang for the API's response time.
+      // CreditBadge renders a placeholder until the balance arrives.
+      void refreshCredits();
     }
   } catch (err) {
     console.error("[Ruh] Auth init failed:", err);

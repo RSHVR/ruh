@@ -12,7 +12,8 @@
   let tierLabel = $derived(tierLabels[authStore.userTier] || 'Free');
   let isUnlimited = $derived(authStore.userTier === 'unlimited');
   let balance = $derived(authStore.creditBalance);
-  let isLow = $derived(!isUnlimited && (balance ?? 0) <= 1);
+  // null = still fetching — don't flash "0 credits" in low-balance red.
+  let isLow = $derived(!isUnlimited && balance !== null && balance <= 1);
 
   // The earn-credits "+" appears once credits run low and bounces (5 slow
   // bounces, once per threshold) when the balance lands on 10, 5, or 1.
@@ -48,8 +49,10 @@
   <span class="separator">|</span>
   {#if isUnlimited}
     <span class="credits">Unlimited</span>
+  {:else if balance === null}
+    <span class="credits">··· credits</span>
   {:else}
-    <span class="credits">{balance ?? 0} credits</span>
+    <span class="credits">{balance} credits</span>
   {/if}
   {#if showPlus}
     <button
