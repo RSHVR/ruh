@@ -263,7 +263,8 @@ class ReviewVectorService:
         Returns:
             Tuple of (reviews_stored, reviews_failed)
         """
-        if not db.is_available:
+        client = db.client
+        if client is None:
             logger.warning("Database not available - skipping review storage")
             return 0, 0
 
@@ -315,7 +316,7 @@ class ReviewVectorService:
                     chunk_data['embedding'] = embedding
 
                 # Insert into Supabase
-                result = db.supabase.table('review_chunks').insert(chunk_data).execute()
+                result = client.table('review_chunks').insert(chunk_data).execute()
 
                 if result.data:
                     stored += 1
@@ -349,7 +350,7 @@ class ReviewVectorService:
                 'updated_at': datetime.now(timezone.utc).isoformat(),
             }
 
-            db.supabase.table('review_summaries').upsert(
+            client.table('review_summaries').upsert(
                 summary_data,
                 on_conflict='url_hash'
             ).execute()
@@ -402,7 +403,8 @@ class ReviewVectorService:
         Returns [] on any failure (missing embedding, RPC error) so the caller can
         degrade to lexical-only (INV-3).
         """
-        if not db.is_available:
+        client = db.client
+        if client is None:
             return []
 
         query_embedding = self.embed_text(query, input_type="search_query")
@@ -411,7 +413,7 @@ class ReviewVectorService:
             return []
 
         try:
-            result = db.supabase.rpc(
+            result = client.rpc(
                 'search_reviews',
                 {
                     'query_embedding': query_embedding,
@@ -440,11 +442,12 @@ class ReviewVectorService:
         what guarantees exact term matches ("PFOA", "rash") are never missed.
         Returns [] on failure so the caller degrades to semantic-only (INV-3).
         """
-        if not db.is_available:
+        client = db.client
+        if client is None:
             return []
 
         try:
-            result = db.supabase.rpc(
+            result = client.rpc(
                 'search_reviews_lexical',
                 {
                     'p_query': query,
@@ -505,11 +508,12 @@ class ReviewVectorService:
         Returns:
             Review summary dict or None
         """
-        if not db.is_available:
+        client = db.client
+        if client is None:
             return None
 
         try:
-            result = db.supabase.table('review_summaries').select('*').eq(
+            result = client.table('review_summaries').select('*').eq(
                 'url_hash', url_hash
             ).execute()
 

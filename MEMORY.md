@@ -26,9 +26,13 @@ returns nothing — in prod, silently, since ADR-009 shipped.
 **Why tests didn't catch it:** `test_review_hybrid.py` monkeypatches `rvs.db` with a `SimpleNamespace`
 and stubs `_semantic_candidates`/`_lexical_candidates`, so the real `db.supabase` attribute access is
 never exercised — the mock replaced the exact seam that was broken. Same class as the wrapper outage.
-**Fix (proposed, NOT yet landed — awaiting Veer):** `db.supabase` → `db.client` (×5) + a real
-integration test driving `store_reviews`/`get_health_relevant_reviews` against a fake `db.client` (NOT a
-stubbed private method). Final proof: `SELECT count(*) FROM review_chunks` in prod (expect ≈0).
+**Fix (landed 2026-10-11):** each method binds `client = db.client` and returns early on `None`, then
+calls `client.table/rpc` (×5). `tests/unit/test_review_vector_db_seam.py` drives a real `DatabaseService`
+with only its `client` faked; all 5 tests failed before the fix. Final proof: `SELECT count(*) FROM
+review_chunks` in prod (expect ≈0 before the deploy, growing after).
+**mypy saw it all along:** `"DatabaseService" has no attribute "supabase" [attr-defined]` on all 5 lines,
+buried in ~450 baseline errors. A new `attr-defined` error is a real bug; diff mypy against the base
+commit before committing instead of reading the total.
 **Prevention:** for any service reaching into ANOTHER object's attribute (`db.X`, `wrapper.Y`), the test
 must exercise that real attribute path — never stub the method that *contains* the cross-object access.
 One real (unmocked-at-the-seam) test per cross-object handle. Detail: `docs/FLEET-AUDIT-2026-08-01.md` B1.
