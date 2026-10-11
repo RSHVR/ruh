@@ -11,7 +11,7 @@
  * i.e. the pathname contains `-p-` and ends with `.html`.
  */
 
-import type { SiteAdapter } from './types';
+import type { SiteAdapter } from "./types";
 
 const SHEIN_HOST = /(^|\.)shein\.com$/i;
 
@@ -25,7 +25,7 @@ function sheinHostname(url: string): string | null {
 }
 
 export const sheinAdapter: SiteAdapter = {
-  name: 'shein',
+  name: "shein",
 
   matches(url: string): boolean {
     return sheinHostname(url) !== null;
@@ -35,7 +35,7 @@ export const sheinAdapter: SiteAdapter = {
     if (!sheinHostname(url)) return false;
     try {
       const path = new URL(url).pathname;
-      return path.includes('-p-') && path.endsWith('.html');
+      return path.includes("-p-") && path.endsWith(".html");
     } catch {
       return false;
     }

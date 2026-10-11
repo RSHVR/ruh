@@ -6,7 +6,7 @@
  * JSON-LD aggregateRating in the scraped product HTML.
  */
 
-import type { SiteAdapter } from './types';
+import type { SiteAdapter } from "./types";
 
 const UNIQLO_HOST = /(^|\.)uniqlo\.com$/i;
 
@@ -20,7 +20,7 @@ function uniqloHostname(url: string): string | null {
 }
 
 export const uniqloAdapter: SiteAdapter = {
-  name: 'uniqlo',
+  name: "uniqlo",
 
   matches(url: string): boolean {
     return uniqloHostname(url) !== null;
@@ -30,7 +30,7 @@ export const uniqloAdapter: SiteAdapter = {
     if (!uniqloHostname(url)) return false;
     try {
       const path = new URL(url).pathname;
-      return path.includes('/products/');
+      return path.includes("/products/");
     } catch {
       return false;
     }

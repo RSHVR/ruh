@@ -6,7 +6,7 @@
  * JSON-LD aggregateRating in the scraped product HTML.
  */
 
-import type { SiteAdapter } from './types';
+import type { SiteAdapter } from "./types";
 
 const IKEA_HOST = /(^|\.)ikea\.com$/i;
 
@@ -20,7 +20,7 @@ function ikeaHostname(url: string): string | null {
 }
 
 export const ikeaAdapter: SiteAdapter = {
-  name: 'ikea',
+  name: "ikea",
 
   matches(url: string): boolean {
     return ikeaHostname(url) !== null;
@@ -30,7 +30,7 @@ export const ikeaAdapter: SiteAdapter = {
     if (!ikeaHostname(url)) return false;
     try {
       const path = new URL(url).pathname;
-      return path.includes('/p/');
+      return path.includes("/p/");
     } catch {
       return false;
     }

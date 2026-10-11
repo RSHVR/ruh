@@ -6,7 +6,7 @@
  * reviews endpoint, so `fetchReviews` is omitted (interface segregation — CLAUDE.md SOLID/I).
  */
 
-import type { SiteAdapter } from './types';
+import type { SiteAdapter } from "./types";
 
 const GARAGE_HOST = /(^|\.)garageclothing\.com$/i;
 
@@ -20,7 +20,7 @@ function garageHostname(url: string): string | null {
 }
 
 export const garageAdapter: SiteAdapter = {
-  name: 'garage',
+  name: "garage",
 
   matches(url: string): boolean {
     return garageHostname(url) !== null;
@@ -30,7 +30,7 @@ export const garageAdapter: SiteAdapter = {
     if (!garageHostname(url)) return false;
     try {
       const path = new URL(url).pathname;
-      return path.includes('/p/') && path.endsWith('.html');
+      return path.includes("/p/") && path.endsWith(".html");
     } catch {
       return false;
     }

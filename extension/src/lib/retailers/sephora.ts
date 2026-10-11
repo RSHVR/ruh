@@ -7,7 +7,7 @@
  * `/product/` (ids look like `-P123456`).
  */
 
-import type { SiteAdapter } from './types';
+import type { SiteAdapter } from "./types";
 
 const SEPHORA_HOST = /(^|\.)sephora\.com$/i;
 
@@ -21,7 +21,7 @@ function sephoraHostname(url: string): string | null {
 }
 
 export const sephoraAdapter: SiteAdapter = {
-  name: 'sephora',
+  name: "sephora",
 
   matches(url: string): boolean {
     return sephoraHostname(url) !== null;
@@ -31,7 +31,7 @@ export const sephoraAdapter: SiteAdapter = {
     if (!sephoraHostname(url)) return false;
     try {
       const path = new URL(url).pathname;
-      return path.includes('/product/');
+      return path.includes("/product/");
     } catch {
       return false;
     }

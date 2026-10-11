@@ -7,7 +7,7 @@
  * pathname containing `productpage.` (e.g. /en_us/productpage.1234567001.html).
  */
 
-import type { SiteAdapter } from './types';
+import type { SiteAdapter } from "./types";
 
 const HM_HOST = /(^|\.)hm\.com$/i;
 
@@ -21,7 +21,7 @@ function hmHostname(url: string): string | null {
 }
 
 export const hmAdapter: SiteAdapter = {
-  name: 'hm',
+  name: "hm",
 
   matches(url: string): boolean {
     return hmHostname(url) !== null;
@@ -31,7 +31,7 @@ export const hmAdapter: SiteAdapter = {
     if (!hmHostname(url)) return false;
     try {
       const path = new URL(url).pathname;
-      return path.includes('productpage.');
+      return path.includes("productpage.");
     } catch {
       return false;
     }

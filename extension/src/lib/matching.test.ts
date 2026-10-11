@@ -12,13 +12,19 @@ describe("namesMatch", () => {
 
   it("matches the actual Ethylhexylglycerin ingredient", () => {
     expect(
-      namesMatch("Ethylhexylglycerin", "Ethylhexylglycerin - Contact Sensitizer"),
+      namesMatch(
+        "Ethylhexylglycerin",
+        "Ethylhexylglycerin - Contact Sensitizer",
+      ),
     ).toBe(true);
   });
 
   it("matches contamination-risk findings via their parenthetical carrier", () => {
     expect(
-      namesMatch("Ceteareth-20", "1,4-Dioxane Contamination Risk (Ceteareth-20)"),
+      namesMatch(
+        "Ceteareth-20",
+        "1,4-Dioxane Contamination Risk (Ceteareth-20)",
+      ),
     ).toBe(true);
     expect(
       namesMatch("Petrolatum", "PAH Contamination Risk (Petrolatum)"),
@@ -27,7 +33,10 @@ describe("namesMatch", () => {
 
   it("does not flag unrelated ingredients for contamination findings", () => {
     expect(
-      namesMatch("Cetyl Alcohol", "1,4-Dioxane Contamination Risk (Ceteareth-20)"),
+      namesMatch(
+        "Cetyl Alcohol",
+        "1,4-Dioxane Contamination Risk (Ceteareth-20)",
+      ),
     ).toBe(false);
   });
 

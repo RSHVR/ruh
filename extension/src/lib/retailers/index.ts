@@ -10,19 +10,19 @@
  * therefore requires BOTH a registry entry here AND a manifest entry.
  */
 
-import type { SiteAdapter } from './types';
-import { amazonAdapter } from './amazon';
-import { walmartAdapter } from './walmart';
-import { costcoAdapter } from './costco';
-import { instacartAdapter } from './instacart';
-import { sephoraAdapter } from './sephora';
-import { hmAdapter } from './hm';
-import { uniqloAdapter } from './uniqlo';
-import { sheinAdapter } from './shein';
-import { aritziaAdapter } from './aritzia';
-import { garageAdapter } from './garage';
-import { ikeaAdapter } from './ikea';
-import { temuAdapter } from './temu';
+import type { SiteAdapter } from "./types";
+import { amazonAdapter } from "./amazon";
+import { walmartAdapter } from "./walmart";
+import { costcoAdapter } from "./costco";
+import { instacartAdapter } from "./instacart";
+import { sephoraAdapter } from "./sephora";
+import { hmAdapter } from "./hm";
+import { uniqloAdapter } from "./uniqlo";
+import { sheinAdapter } from "./shein";
+import { aritziaAdapter } from "./aritzia";
+import { garageAdapter } from "./garage";
+import { ikeaAdapter } from "./ikea";
+import { temuAdapter } from "./temu";
 
 const adapters: SiteAdapter[] = [
   amazonAdapter,
@@ -50,4 +50,4 @@ export function allAdapters(): readonly SiteAdapter[] {
   return adapters;
 }
 
-export type { SiteAdapter, ReviewsResult } from './types';
+export type { SiteAdapter, ReviewsResult } from "./types";

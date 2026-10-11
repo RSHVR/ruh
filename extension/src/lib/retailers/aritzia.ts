@@ -6,7 +6,7 @@
  * arrive via JSON-LD aggregateRating in the scraped product HTML.
  */
 
-import type { SiteAdapter } from './types';
+import type { SiteAdapter } from "./types";
 
 const ARITZIA_HOST = /(^|\.)aritzia\.com$/i;
 
@@ -20,7 +20,7 @@ function aritziaHostname(url: string): string | null {
 }
 
 export const aritziaAdapter: SiteAdapter = {
-  name: 'aritzia',
+  name: "aritzia",
 
   matches(url: string): boolean {
     return aritziaHostname(url) !== null;
@@ -30,7 +30,7 @@ export const aritziaAdapter: SiteAdapter = {
     if (!aritziaHostname(url)) return false;
     try {
       const path = new URL(url).pathname;
-      return path.includes('/product/');
+      return path.includes("/product/");
     } catch {
       return false;
     }

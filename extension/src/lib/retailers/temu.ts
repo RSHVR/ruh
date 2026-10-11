@@ -8,7 +8,7 @@
  * (e.g. /some-product-name-g-601099512345678.html).
  */
 
-import type { SiteAdapter } from './types';
+import type { SiteAdapter } from "./types";
 
 const TEMU_HOST = /(^|\.)temu\.com$/i;
 
@@ -22,7 +22,7 @@ function temuHostname(url: string): string | null {
 }
 
 export const temuAdapter: SiteAdapter = {
-  name: 'temu',
+  name: "temu",
 
   matches(url: string): boolean {
     return temuHostname(url) !== null;
@@ -32,7 +32,7 @@ export const temuAdapter: SiteAdapter = {
     if (!temuHostname(url)) return false;
     try {
       const path = new URL(url).pathname;
-      return path.includes('-g-') && path.endsWith('.html');
+      return path.includes("-g-") && path.endsWith(".html");
     } catch {
       return false;
     }

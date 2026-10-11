@@ -10,7 +10,7 @@
  * backend `InstacartScraper` then extracts it by content pattern (ADR-005).
  */
 
-import type { SiteAdapter } from './types';
+import type { SiteAdapter } from "./types";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -26,7 +26,7 @@ function instacartHostname(url: string): string | null {
 }
 
 export const instacartAdapter: SiteAdapter = {
-  name: 'instacart',
+  name: "instacart",
 
   matches(url: string): boolean {
     return instacartHostname(url) !== null;
@@ -36,7 +36,7 @@ export const instacartAdapter: SiteAdapter = {
     if (!instacartHostname(url)) return false;
     try {
       const path = new URL(url).pathname;
-      return path.includes('/products/');
+      return path.includes("/products/");
     } catch {
       return false;
     }
