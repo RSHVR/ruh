@@ -52,6 +52,7 @@ class ProductExtraction(BaseModel):
     """
     product_name: str = Field(default="", description="Full product name/title")
     brand: str = Field(default="", description="Brand or manufacturer name")
+    sku: str = Field(default="", description="Product SKU, model number, GTIN, or MPN if present (from JSON-LD 'sku'/'gtin13'/'mpn' or a 'Model'/'Item #' line); empty string if none")
     price: str = Field(default="", description="Price with currency (e.g., '$29.99')")
     availability: str = Field(default="", description="Stock status (e.g., 'In Stock', 'Out of Stock')")
 

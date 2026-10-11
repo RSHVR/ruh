@@ -105,6 +105,7 @@ class ProductAnalysis(BaseModel):
     product_name: Optional[str] = None
     brand: Optional[str] = None
     retailer: Optional[str] = None
+    sku: Optional[str] = None  # product SKU / model # / GTIN / MPN (best-effort; JSON-LD or extraction)
     ingredients: list[str] = []  # flat list = declared + found (back-compat)
     ingredients_by_provenance: Optional[IngredientProvenance] = None
 

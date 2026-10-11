@@ -233,6 +233,8 @@ class ClaudeQueryService:
 
 1. **Product Name & Brand**: Extract the full product title and brand/manufacturer name.
 
+1b. **SKU / product code**: Extract the product's SKU, model number, GTIN, or MPN if present (often in JSON-LD as "sku"/"gtin13"/"mpn", or a visible "Model"/"Item #"/"SKU" line). Return an empty string if none is shown.
+
 2. **Ingredients**: Look for:
    - "Ingredients:" or "Contains:" sections
    - Ingredient lists (comma-separated or bulleted)

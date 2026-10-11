@@ -204,6 +204,7 @@ class DatabaseService:
                 'brand': analysis.get('brand', ''),
                 'category': analysis.get('category', ''),
                 'retailer': analysis.get('retailer', ''),
+                'sku': analysis.get('sku'),  # TEXT (nullable) — best-effort product SKU/GTIN
                 'ingredients': ingredients,  # PostgreSQL TEXT[] array
                 'harm_score': harm_score,
                 'overall_score': analysis.get('overall_score', 0),

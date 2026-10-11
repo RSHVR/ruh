@@ -109,6 +109,7 @@ async def _serve_cached_analysis(
         product_name=cached_analysis['product_name'],
         brand=cached_analysis['brand'],
         retailer=cached_analysis.get('retailer', cached_analysis.get('category', 'Unknown')),
+        sku=cached_analysis.get('sku'),
         ingredients=cached_analysis.get('ingredients', []),
         overall_score=cached_analysis.get('overall_score', 100 - cached_analysis.get('harm_score', 0)),
         allergens_detected=cached_analysis.get('allergens_detected', []),
@@ -146,6 +147,22 @@ async def _serve_cached_analysis(
         review_insights=cached_review_insights,
         **_auth_fields(auth, url_hash),
     )
+
+
+def _extract_sku_from_html(content: str) -> str | None:
+    """Best-effort SKU / GTIN / MPN pull from JSON-LD (or pre-extracted content).
+
+    A cheap regex over the content string — works for BOTH raw HTML and the
+    pre-extracted "=== section ===" format, since both carry the JSON-LD text,
+    and covers the Trafilatura path (which does not surface a SKU). Returns the
+    first match trimmed, or None.
+    """
+    import re
+
+    if not content:
+        return None
+    m = re.search(r'"(?:sku|gtin13|gtin14|gtin|mpn)"\s*:\s*"([^"]{1,64})"', content, re.IGNORECASE)
+    return m.group(1).strip() if m and m.group(1).strip() else None
 
 
 async def _fire_referral_conversion(auth: AuthContext) -> None:
@@ -413,6 +430,7 @@ async def analyze_product(
 
         # Step 4d: Branch based on scraping success
         basic_analysis = None  # Store database-only fallback
+        product_sku: str | None = None  # best-effort SKU (JSON-LD/extraction), threaded to storage
 
         if scraped_html is not None and scraped_html.confidence > 0.3:
             # SUCCESS PATH: HTML available → Extract → Agent
@@ -450,6 +468,8 @@ async def analyze_product(
                 # Trafilatura low confidence - fall back to Claude Query
                 logger.info(f"⚠️  Trafilatura low confidence ({trafilatura_result.confidence:.0%}), falling back to Claude Query")
                 product_data = await query_service.extract_product_data(scraped_html)
+
+            product_sku = product_data.get("sku") or _extract_sku_from_html(content)
 
             if product_data.get("confidence", 0) < 0.3:
                 logger.warning("⚠️  Claude extraction failed, falling back to web_fetch")
@@ -644,6 +664,7 @@ async def analyze_product(
             product_name=analysis_data.get("product_name"),
             brand=analysis_data.get("brand"),
             retailer=analysis_data.get("retailer"),
+            sku=product_sku,
             ingredients=analysis_data.get("ingredients", []),
             overall_score=100 - harm_score,  # Convert harm to safety score
             allergens_detected=analysis_data.get("allergens_detected", []),
@@ -670,6 +691,7 @@ async def analyze_product(
                         "brand": analysis.brand,
                         "category": analysis.retailer,
                         "retailer": analysis.retailer,
+                        "sku": analysis.sku,
                         "rescan_count": rescan_attempt,
                         "overall_score": analysis.overall_score,
                         "ingredients": analysis.ingredients,
