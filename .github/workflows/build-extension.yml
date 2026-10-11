@@ -1,10 +1,22 @@
 name: Build Extension
 
+# Builds on every extension change. Publishes to the Chrome Web Store only on an
+# `ext-v<version>` tag, whose version must match extension/public/manifest.json.
+# Publishing uses CWS API v2 with the `cws-publisher` service account, reached
+# keylessly through Workload Identity Federation (GCP project ruh-backend). The
+# provider only accepts OIDC tokens from this repo on refs/tags/ext-v*.
 on:
   push:
-    branches: [main]
+    branches: [development]
+    tags: ["ext-v*"] # path filters are not evaluated for tag pushes
+    paths: ["extension/**", ".github/workflows/build-extension.yml"]
   pull_request:
-    branches: [main]
+    branches: [development, main]
+    paths: ["extension/**", ".github/workflows/build-extension.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -26,12 +38,29 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'pnpm'
+          node-version: "22"
+          cache: "pnpm"
           cache-dependency-path: extension/pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Check release inputs
+        if: startsWith(github.ref, 'refs/tags/ext-v')
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          manifest=$(jq -r .version public/manifest.json)
+          if [ "${GITHUB_REF_NAME#ext-v}" != "$manifest" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match manifest version $manifest"
+            exit 1
+          fi
+          # Empty values would bake a sign-in-less build into the store.
+          if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
+            echo "::error::VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY secret is empty"
+            exit 1
+          fi
 
       - name: Build extension
         run: pnpm run build
@@ -56,19 +85,66 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: startsWith(github.ref, 'refs/tags/ext-v')
+    concurrency: cws-publish
+
+    permissions:
+      contents: read
+      id-token: write # OIDC token for Workload Identity Federation
+
+    env:
+      ITEM_URL: https://chromewebstore.googleapis.com/v2/publishers/${{ vars.CWS_PUBLISHER_ID }}/items/${{ vars.CWS_EXTENSION_ID }}
+      UPLOAD_URL: https://chromewebstore.googleapis.com/upload/v2/publishers/${{ vars.CWS_PUBLISHER_ID }}/items/${{ vars.CWS_EXTENSION_ID }}
 
     steps:
+      - name: Check publish config
+        env:
+          PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+        run: |
+          if [ -z "$PUBLISHER_ID" ] || [ -z "$EXTENSION_ID" ]; then
+            echo "::error::Set the CWS_PUBLISHER_ID and CWS_EXTENSION_ID repo variables"
+            exit 1
+          fi
+
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
           name: ruh-extension
 
-      - name: Publish to Chrome Web Store
-        uses: mnao305/chrome-extension-upload@v5.0.0
+      - name: Authenticate to Google
+        id: auth
+        uses: google-github-actions/auth@v3
         with:
-          file-path: ruh-extension.zip
-          extension-id: ${{ secrets.CHROME_EXTENSION_ID }}
-          client-id: ${{ secrets.CHROME_CLIENT_ID }}
-          client-secret: ${{ secrets.CHROME_CLIENT_SECRET }}
-          refresh-token: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.CWS_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+
+      - name: Upload package
+        env:
+          TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: |
+          state=$(curl -sS --fail-with-body -X POST -H "Authorization: Bearer $TOKEN" \
+            -T ruh-extension.zip "$UPLOAD_URL:upload" | tee /dev/stderr | jq -r .uploadState)
+          # Large packages upload asynchronously; poll until the store finishes processing.
+          for _ in $(seq 1 30); do
+            case "$state" in
+              SUCCEEDED) exit 0 ;;
+              FAILED | NOT_FOUND) echo "::error::Upload state: $state"; exit 1 ;;
+            esac
+            sleep 10
+            state=$(curl -sS --fail-with-body -H "Authorization: Bearer $TOKEN" \
+              "$ITEM_URL:fetchStatus" | tee /dev/stderr | jq -r .lastAsyncUploadState)
+          done
+          echo "::error::Upload still $state after 5 minutes"
+          exit 1
+
+      - name: Submit for review
+        env:
+          TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: |
+          state=$(curl -sS --fail-with-body -X POST -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" -d '{"publishType": "DEFAULT_PUBLISH"}' \
+            "$ITEM_URL:publish" | tee /dev/stderr | jq -r .state)
+          echo "Submitted $GITHUB_REF_NAME to the Chrome Web Store: $state" >> "$GITHUB_STEP_SUMMARY"
