@@ -15,6 +15,47 @@
 
 ---
 
+## 2026-08-01 — Hybrid review RAG silently dead in prod: `db.supabase` vs `db.client` (mock-boundary)
+
+**Symptom:** `review_vector_service.py` stores review chunks + runs the ADR-009 hybrid RAG via
+`db.supabase.table(...)` / `db.supabase.rpc(...)` (5 sites: 318, 352, 414, 447, 512). But `db` is the
+`DatabaseService` singleton, which exposes `self.client` (+ an `is_available` property) and has **no
+`supabase` attribute** — so every call raises `AttributeError`, is swallowed by the surrounding
+try/except (INV-3 degradation), and returns empty. `review_chunks` never populates and hybrid RAG
+returns nothing — in prod, silently, since ADR-009 shipped.
+**Why tests didn't catch it:** `test_review_hybrid.py` monkeypatches `rvs.db` with a `SimpleNamespace`
+and stubs `_semantic_candidates`/`_lexical_candidates`, so the real `db.supabase` attribute access is
+never exercised — the mock replaced the exact seam that was broken. Same class as the wrapper outage.
+**Fix (proposed, NOT yet landed — awaiting Veer):** `db.supabase` → `db.client` (×5) + a real
+integration test driving `store_reviews`/`get_health_relevant_reviews` against a fake `db.client` (NOT a
+stubbed private method). Final proof: `SELECT count(*) FROM review_chunks` in prod (expect ≈0).
+**Prevention:** for any service reaching into ANOTHER object's attribute (`db.X`, `wrapper.Y`), the test
+must exercise that real attribute path — never stub the method that *contains* the cross-object access.
+One real (unmocked-at-the-seam) test per cross-object handle. Detail: `docs/FLEET-AUDIT-2026-08-01.md` B1.
+
+---
+
+## 2026-08-01 — Worktree audit agents defaulted to origin/main (v0.3.0), not development
+
+**Symptom:** Five `isolation:"worktree"` explore agents audited commit `fcb7561` (Ruh v0.3.0)
+instead of `development`@`17c047c`. They reported `rank_fusion.py`, migrations 015–020, the
+`/api/analyze/cached` route, and `docs/KB-OPTIMIZATION-PLAN.md` as "missing," and one flagged
+`research_sources` as "dropped at the route" when it was already fixed on `development`.
+**Root cause:** Agent worktree isolation bases off the repo's DEFAULT branch (`origin/main`) when
+`worktree.baseRef` is unset (= `fresh`). Ruh's active work lives on `development`; `main` is the
+stale v0.3.0 base. The worktrees were also cut from a SEPARATE `personal-saas/ruh/` clone, not
+`ruh-development/`. I ran `git config --get worktree.baseRef`, saw it empty, and read "fresh" as
+harmless without connecting that fresh = origin/DEFAULT ≠ development.
+**Fix:** Resumed each agent via SendMessage with an explicit `git checkout 17c047c` + a verify-gate
+(must find KB-OPTIMIZATION-PLAN.md, rank_fusion.py, migration 020, the cached route) before
+auditing. The target commit was already in the clone's object store, so no fetch was needed.
+**Prevention:** When dispatching worktree agents on a repo whose active branch ≠ default branch,
+put an explicit `git checkout <target-ref>` + existence-check gate as the FIRST step of every brief.
+Verify the worktree's real HEAD before trusting any "file missing" finding — a stale base makes
+present code look absent.
+
+---
+
 ## 2026-06-03 — Client-HTML branch parsed every site with Amazon selectors
 
 **Symptom:** Non-Amazon product HTML would be processed by `AmazonScraper.process_client_html`,
