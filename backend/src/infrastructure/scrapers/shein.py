@@ -31,6 +31,18 @@ class SheinScraper(BaseScraper):
         {"name": "title", "selector": "h1"},
         {"name": "materials", "selector": "[class*='material' i], [class*='composition' i]"},
         {
+            "name": "ingredients",
+            # SHEIN beauty ingredients live in product-meta's first block (Veer, 2026-08-03).
+            # Robust anchor first (id + semantic section), then the exact verified path.
+            # NB: "goods-detail-mian" is SHEIN's own element id (their typo) — keep verbatim.
+            "selector": (
+                "#goods-detail-mian section.product-meta > div:nth-child(1), "
+                "#goods-detail-mian > div.goods-detail.product-intro.shipping-theme-wrapper "
+                "> div.atf-container > div.atf-right > section.product-meta "
+                "> div:nth-child(1) > div"
+            ),
+        },
+        {
             "name": "product_details",
             "selector": ".product-intro__description, [class*='product-intro' i], [class*='detail' i]",
         },

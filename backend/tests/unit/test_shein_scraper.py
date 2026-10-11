@@ -31,6 +31,17 @@ SHEIN_HTML = """
   <div class="product-intro__material">Composition: 95% Polyester, 5% Spandex</div>
   <div class="product-intro__description">Lightweight woven dress with ruffle trim.</div>
   <div class="product-description">Machine wash cold. Imported.</div>
+  <div id="goods-detail-mian">
+    <div class="goods-detail product-intro shipping-theme-wrapper">
+      <div class="atf-container">
+        <div class="atf-right">
+          <section class="product-meta">
+            <div><div>Ingredients: Aqua, Glycerin, Niacinamide, Phenoxyethanol, Parfum</div></div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
   <div class="you-may-also-like">RECOMMENDED JUNK SHOULD BE REMOVED</div>
   <div class="recommend-list">MORE RECOMMENDED JUNK</div>
   <footer>SITE FOOTER JUNK</footer>
@@ -91,3 +102,16 @@ def test_process_client_html_removes_excluded(scraper):
     assert "RECOMMENDED JUNK" not in text
     assert "HEADER JUNK" not in text
     assert "FOOTER JUNK" not in text
+
+
+def test_process_client_html_extracts_ingredients_from_product_meta(scraper):
+    """SHEIN beauty ingredients live in #goods-detail-mian … section.product-meta
+    (Veer, 2026-08-03). The added 'ingredients' selector must capture them."""
+    text = scraper.process_client_html(
+        url="https://us.shein.com/some-name-p-12345678.html",
+        product_html=SHEIN_HTML,
+    ).raw_html_product
+
+    assert "=== ingredients ===" in text
+    assert "Niacinamide" in text
+    assert "Phenoxyethanol" in text
